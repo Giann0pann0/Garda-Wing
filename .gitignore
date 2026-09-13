@@ -1,0 +1,22 @@
+# Il database: contiene 740.000 misure e cambia a ogni raccolta. In un repo
+# git sarebbe un binario da decine di MB riscritto quattro volte al giorno.
+# Vive in ~/Library/Application Support/Garda Wind, oppure nella cache di
+# GitHub Actions quando gira in cloud.
+dati/
+*.sqlite
+*.sqlite-journal
+
+# Il sito generato: e' un prodotto, si rigenera con --export
+site/
+*.html.bak
+
+# Rapporti di validazione generati sulla Scrivania
+Garda Wind - *.txt
+Garda Wind - *.json
+
+# Cartella costruita da costruisci-app-mac.command: e' un artefatto
+Garda Wind/
+
+__pycache__/
+*.py[cod]
+.DS_Store

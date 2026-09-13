@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Garda Wind</string>
+  <key>CFBundleDisplayName</key><string>Garda Wind</string>
+  <key>CFBundleIdentifier</key><string>it.gardawind.app</string>
+  <key>CFBundleVersion</key><string>3.6</string>
+  <key>CFBundleShortVersionString</key><string>3.6</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>GardaWind</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <!-- Applicazione di servizio: nessuna finestra propria, l'interfaccia e'
+       il browser. Senza questo il Dock fa rimbalzare l'icona all'infinito
+       aspettando una GUI che non esiste. -->
+  <key>LSUIElement</key><true/>
+</dict></plist>

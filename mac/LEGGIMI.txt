@@ -1,0 +1,317 @@
+GARDA WIND 3.6
+Previsione del vento per Torbole e Malcesine — Ora e Pelèr
+================================================================
+
+COSA FARE, IN ORDINE
+
+  1. Apri "1 - Scarica lo storico (una volta sola).command"
+     Scarica 14 anni di misure della centralina di Torbole e 2 anni
+     di archivio di Malcesine, poi addestra i modelli.
+     Richiede tempo: mettilo in moto e vai a fare altro.
+     Va fatto una volta sola.
+
+  2. Apri "Garda Wind.app"
+     Il cruscotto si apre da solo nel browser, appena il server e' pronto.
+     Se per qualche motivo non si aprisse, l'indirizzo e' sempre:
+
+         http://127.0.0.1:8781
+
+     Da qui in avanti si aggiorna da solo ogni volta che lo apri.
+
+  3. (consigliato) Apri "2 - Raccolta automatica in background.command"
+     Installa un piccolo agente che legge le centraline ogni 15 minuti
+     anche ad app chiusa. Serve soprattutto a Malcesine, che pubblica
+     solo l'istante corrente: ogni lettura mancata è un dato perso per
+     sempre. Il comando 3 lo rimuove.
+
+  4. Apri "4 - Misura quanto è affidabile (poi mandami il rapporto).command"
+     È la risposta alla domanda "quanto posso fidarmi?", misurata invece
+     che promessa. Scarica cosa i modelli dicevano 1, 2, 3... 7 giorni
+     prima e confronta con quello che è poi successo davvero, scadenza
+     per scadenza e spot per spot.
+     La prima fase è lunga (20-40 minuti), la seconda qualche minuto.
+     Alla fine trovi sulla Scrivania due file:
+         Garda Wind - rapporto.txt
+         Garda Wind - rapporto.json
+     Sono quelli che danno all'app le etichette di affidabilità: senza
+     questo passaggio ogni giorno oltre oggi resta marcato "outlook",
+     perché non c'è ancora niente di misurato a cui appoggiarsi.
+
+  5. Apri "5 - Da dove viene il vento (poi mandami il rapporto).command"
+     Non scarica niente, legge solo l'archivio: pochi minuti.
+     Risponde a due domande che vengono prima di ogni ottimizzazione:
+     dove cade davvero la distribuzione delle direzioni osservate (cioè
+     se l'asse dichiarato del regime è nel posto giusto), e come vanno
+     le scadenze confrontate sugli stessi giorni.
+
+  6. Apri "6 - Riaddestra con l'asse corretto.command"
+     Da fare una volta, dopo l'aggiornamento alla 3.6: l'asse del regime
+     è cambiato (vedi sotto) e questo ridefinisce il bersaglio, quindi
+     modelli e metriche vanno rifatti. Nessuno scaricamento.
+
+  Al primo avvio macOS blocca l'app perché non è firmata. Sui macOS
+  recenti il clic destro -> Apri non basta più. Due modi:
+
+    a) dopo il blocco, Impostazioni di Sistema -> Privacy e sicurezza,
+       scorri in fondo e premi "Apri comunque";
+
+    b) da Terminale, una volta sola, con lo spazio finale:
+         xattr -dr com.apple.quarantine 
+       e poi trascina qui dentro questa cartella e premi Invio.
+
+  L'app non ha finestre proprie né icona nel Dock: l'interfaccia è la
+  pagina del browser. Per chiuderla c'è il link "chiudi Garda Wind"
+  in fondo alla pagina.
+
+
+COME FUNZIONA, IN BREVE
+
+  Previsione = modelli meteo + storico reale della centralina.
+
+  Undici modelli globali e ad area limitata (ECMWF, ICON-D2, ICON-2I,
+  AROME, ARPEGE, GFS, UKMO, GEM...) vengono mediati con pesi che NON
+  sono decisi a priori: vengono misurati confrontando ciascun modello
+  con quello che la centralina ha davvero registrato.
+
+  Sopra ci sta un modello a due stadi, addestrato sullo storico:
+    A) quanto è probabile che il regime si instauri oggi;
+    B) quanto forte, se si instaura.
+  Sono due domande diverse. L'Ora o entra (15-25 nodi) o non entra
+  (3-6 nodi): una previsione unica stimerebbe la media dei due casi,
+  cioè un valore che non capita quasi mai.
+
+  Il modello viene adottato SOLO se, su giorni che non ha mai visto,
+  batte sia la climatologia sia il vento grezzo dei modelli. Se non li
+  batte, l'app lo dice e usa una stima fisica dichiarata come tale.
+
+
+LA PAGINA DIAGNOSTICA
+
+  In alto a destra, "diagnostica". Lì c'è la cosa che conta davvero:
+  di quanto sbaglia l'app, misurato fuori campione.
+
+    - MAE fuori campione: l'errore medio in nodi
+    - Brier vs climatologia: quanto le probabilità sono meglio del
+      "di solito succede così"
+    - Affidabilità: quando l'app dice 70%, il vento è entrato il 70%
+      delle volte? La tabella lo mostra bucket per bucket
+    - Copertura banda: quante volte il valore reale è caduto
+      nell'intervallo dichiarato
+
+  Se questi numeri peggiorano, il modello va rimesso in discussione.
+
+
+DOVE STANNO I DATI
+
+  ~/Library/Application Support/Garda Wind/gardawind_v3.sqlite
+
+  Le misure grezze a 10 minuti non vengono mai buttate: l'aggregato
+  orario è una tabella derivata, ricostruibile in qualsiasi momento.
+
+
+DA TERMINALE
+
+  cd "Garda Wind.app/Contents/Resources"
+  python3 -m gardawind --report      stato di dati e modelli
+  python3 -m gardawind --train       riaddestra
+  python3 -m gardawind --verify      rimisura la skill dei modelli
+  python3 -m gardawind --backfill    riscarica gli archivi
+  python3 -m gardawind --validate    la tabella per spot x regime x scadenza
+  python3 -m gardawind --bands       confronta i tagli di fascia di scadenza
+
+
+FONTI
+
+  Torbole    Meteotrentino, stazione T0193 (Belvedere), 90 m
+             realtime 10 min + archivio Hydstra dal 04/07/2012
+  Malcesine  Fraglia Vela, Davis Vantage Pro2 a 65 m sul lago
+             archivio intraday 15-30 min da marzo 2026 (vento E raffica
+             in nodi, con direzione) + report NOAA giornalieri da
+             agosto 2024 + letture live
+  Modelli    Open-Meteo (forecast, historical-forecast, previous-runs)
+             12 modelli: ECMWF IFS e AIFS, ICON-D2, ICON-EU, ICON-2I,
+             AROME Austria, ICON-CH2, ARPEGE, HARMONIE, GFS, UKMO, GEM
+
+  Nessuna chiave API, nessuna dipendenza da installare: usa il Python
+  di sistema di macOS.
+
+
+VERIFICHE
+
+  test/esegui-i-test.command  esegue 266 controlli automatici:
+  conversioni di fuso, parser delle centraline contro i payload reali,
+  algebra dei modelli, cross-validation, avvio a freddo con database
+  vuoto. Se tocchi il codice, lancialo prima e dopo.
+
+
+NOVITA' DELLA 3.3
+
+  - impaginazione per GIORNO, non per luogo: si sceglie prima quando
+    andare, poi dove. Dentro ogni giorno, prima il Pelèr (mattina) e
+    poi l'Ora (pomeriggio), in ordine di orologio
+  - 7 giorni di previsione invece di 4. Oltre il terzo restano solo i
+    modelli globali e la scheda lo dichiara
+  - riquadro "adesso": l'ultima lettura reale delle due centraline
+  - archivio intraday di Malcesine (15-30 min da marzo 2026): è ciò che
+    permette di addestrare Pelèr e Ora di Malcesine separatamente
+  - in fondo alla pagina, da dove arriva la previsione: ogni modello
+    con il suo peso e il suo errore misurato, e i link alle fonti
+  - grafico della giornata con le due località a confronto, fasce delle
+    sessioni, banda di incertezza e valori al passaggio del dito
+  - tema chiaro e scuro, sfondo marino, tipografia più decisa
+
+
+NOVITA' DELLA 3.4
+
+  Due cose che spostano i numeri, e una che toglie di mezzo il Mac.
+
+  1. ADDESTRAMENTO SU QUATTORDICI ANNI
+     Prima i modelli imparavano da ~1800 giorni, non per mancanza di
+     osservazioni (ce ne sono dal 2012) ma perché l'archivio dei
+     PREDITTORI di Open-Meteo copre circa 5 anni.
+     Ora ogni spot mette in gara due addestramenti:
+       - archivio previsioni: ha i livelli isobarici, ~5 anni
+       - rianalisi ERA5: solo superficie, ma dal 2012
+     Vincono sullo stesso metro. Il punto delicato: il candidato ERA5
+     viene valutato dandogli gli ingressi PREVISTI, non la rianalisi.
+     Altrimenti sembrerebbe bravissimo per il motivo sbagliato — in
+     addestramento vede lo stato atmosferico vero, in esercizio ne
+     vedrà uno previsto, più sporco. Nella diagnostica c'è la tabella
+     "I candidati in gara" con chi ha vinto e di quanto.
+
+  2. A CHE ORA ENTRA
+     Terzo stadio: se entra, quanto forte, E DA CHE ORA.
+     L'errore è misurato in minuti, contro due riferimenti: l'ora media
+     stagionale e l'ora in cui il vento grezzo d'ensemble mette il
+     proprio massimo. Viene adottato solo se li batte entrambi.
+     La curva oraria si sposta di conseguenza, e la scheda mostra
+     "picco ~15:30 ±40 min".
+
+  3. IN RETE, SENZA IL MAC
+     python3 -m gardawind --export CARTELLA
+     scrive il cruscotto come sito statico (index.html,
+     diagnostica.html, previsione.json).
+
+     Nella cartella cloud/ c'è tutto il necessario per farlo girare su
+     GitHub Actions quattro volte al giorno e pubblicarlo come sito:
+     stesso identico codice Python, nessuna riscrittura, nessuna API da
+     inventare. Istruzioni in cloud/COME-METTERLO-IN-RETE.md
+
+
+NOVITA' DELLA 3.5
+
+  - Un regime E' UNA DIREZIONE. Se al mattino soffiano 15 nodi da sud,
+    quello non e' il Pelèr: e' un meridionale sinottico. Prima veniva
+    contato come "Pelèr entrato", insegnando al modello associazioni
+    false. Ora il bersaglio richiede che la direzione osservata stia nel
+    settore del regime (±70° dall'asse), e in previsione la probabilita'
+    viene frenata se i modelli danno il vento da fuori settore.
+    Quando succede, la scheda lo dice esplicitamente e mostra il vento
+    che c'e' davvero, dichiarando che e' il valore grezzo dei modelli.
+  - Barre con la loro scala in nodi, testi piu' grandi, righe
+    smorzate quando il regime e' improbabile.
+  - Grafico piu' grande: aree sfumate, picco marcato con il valore,
+    frecce di direzione sotto l'asse, valori al passaggio del dito.
+
+
+NOVITA' DELLA 3.6
+
+  Nessuna funzione nuova nella previsione. Tutto il lavoro e' andato a
+  rendere VERIFICABILE quello che c'era, e due cose che sembravano
+  misurate non lo erano.
+
+  1. QUANTO CI SI PUO' FIDARE, IN DUE PAROLE
+     Ogni giorno ora porta due informazioni separate:
+       - QUANDO: "Domani", "Tra 3 giorni". Niente sigle D1/D2/D3.
+       - QUANTO FIDARSI: "alta affidabilita'", "buona affidabilita'",
+         "tendenza", "outlook".
+     La seconda NON dipende dalla distanza. Dipende da come quella
+     scadenza, su quello spot, ha figurato nelle verifiche: giornate di
+     prova disponibili, quanto batte i riferimenti banali, se la
+     probabilita' e' calibrata, errore in nodi, errore in minuti,
+     quanto sono d'accordo i modelli oggi, se il regime e' ambiguo.
+     Quindi il Pelèr di Torbole a due giorni puo' meritare "buona
+     affidabilita'" mentre l'Ora di Malcesine alla stessa scadenza resta
+     "tendenza". Prometterle uguali solo perche' l'orizzonte e' lo
+     stesso sarebbe comodo e falso.
+     L'etichetta porta sempre scritto PERCHE' non e' piu' alta.
+
+  2. LA MEMORIA DEL GIORNO PRIMA ERA SBAGLIATA
+     Il modello usava come indizio il picco osservato il giorno prima
+     del giorno previsto. Per l'oggi e' un dato che esiste. Per
+     dopodomani no: quel giorno non e' ancora accaduto. In addestramento
+     il valore c'era sempre, in esercizio diventava zero — cioe' il
+     modello applicava a un ingresso nullo un coefficiente imparato su
+     valori veri. Ora l'indizio e' l'ultimo picco REALMENTE noto al
+     momento dell'emissione, e la sua eta' in giorni e' un dato di
+     ingresso: cosi' il modello impara da se' quanto scontare un ricordo
+     di sei giorni prima.
+
+  3. LE BANDE DI INCERTEZZA NON SONO PIU' INVENTATE
+     C'erano due tabelle di moltiplicatori ("a quattro giorni allarga
+     del 55%") che non erano stimate da niente. Sono state eliminate.
+     Ora la banda sono i quantili degli errori misurati A QUELLA
+     SCADENZA; dove la scadenza non e' stata ancora misurata, la banda
+     viene dalla dispersione fra i modelli e la scheda dichiara che a
+     quella scadenza non e' stato misurato nulla.
+
+  4. UN MODELLO PER FASCIA DI SCADENZA
+     Fra oggi e fra sei giorni non cambiano i dati in ingresso, cambia
+     il legame fra quei dati e quello che succede. Ora ci sono modelli
+     separati per fascia, ognuno addestrato sui predittori come erano a
+     quella scadenza e validato per conto proprio.
+
+  5. LA CALIBRAZIONE DELLE PROBABILITA' ERA ROTTA
+     La curva che traduce "il modello dice 0,7" in "succede il 70% delle
+     volte" veniva costruita e giudicata sugli stessi dati. Cosi'
+     appariva perfetta: restituiva l'esito vero di ogni giornata. Su
+     giornate nuove restituiva 0 o 1 quasi a caso — peggio della
+     climatologia. Corretta, e ora costruita solo su dati precedenti a
+     quelli su cui viene giudicata.
+     Conseguenza da sapere: i Brier e le tabelle di affidabilita' delle
+     versioni precedenti NON valgono e vanno ricalcolati. E' per questo
+     che serve il comando 4.
+
+  6. TASSONOMIA DEI VENTI OSSERVATI (per ora solo nelle verifiche)
+     Il lago non ha due venti. Venti nodi da nord-ovest per una
+     perturbazione non sono "niente vento": sono una sessione, diversa e
+     piu' rafficata. Le giornate osservate vengono ora classificate in
+     Pelèr, Ora, vento da NO, settentrionale e meridionale sinottico,
+     vento da ovest e da est, variabile, calma.
+     Sui nomi locali la cautela e' deliberata: un vento da NO viene
+     annotato come "compatibile con il Balinot", mai chiamato Balinot.
+     Per quel nome servono direzione, orario, intensita' e
+     configurazione coerenti, e chiamare Balinot tutto cio' che non
+     passa il filtro del Pelèr sarebbe un abuso.
+
+
+L'ASSE DEL REGIME, MISURATO INVECE CHE DEDOTTO
+
+  L'asse del Pelèr era 24 gradi perché è la geometria del lago: la
+  congiungente Torbole-Malcesine punta a 204, quindi il ritorno è 24.
+  Ragionamento corretto, riferimento sbagliato.
+
+  Su 3511 giornate ventose dal 2012, la direzione che la centralina di
+  Torbole misura davvero ha mediana circolare 54 gradi, con una
+  concentrazione altissima (R=0.90) e lo stesso valore in tutte e
+  quattro le stagioni. Trenta gradi di scarto, costanti da quattordici
+  anni: non è rumore.
+
+  Cambia qualcosa di importante, non un'etichetta: l'asse decide quando
+  una giornata conta come "Pelèr entrato", cioè decide il bersaglio su
+  cui il modello impara. Con l'asse a 24 il settore arrivava a 344, e
+  un discendente da nord-ovest a 345 gradi veniva contato come Pelèr.
+  Con l'asse a 54 non più.
+
+  Ora i riferimenti sono due, perché i lavori erano due:
+
+    asse dei modelli (24 / 204)      proietta il vento previsto lungo
+                                     la valle: è un vento di griglia
+                                     grossolana e il solco è quello
+    asse della centralina (54 / 191) giudica la direzione OSSERVATA:
+                                     è la centralina che dobbiamo
+                                     prevedere, quindi è il suo
+                                     sistema di riferimento che conta
+
+  Per Malcesine i valori (230 e 68) vengono da 101 e 50 giornate di
+  solo 2026, quindi sono provvisori e viziati dalla stagione.

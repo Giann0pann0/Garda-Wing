@@ -1,0 +1,72 @@
+name: Garda Wind
+
+# Gira nel cloud, non sul Mac. Quattro volte al giorno: i modelli globali
+# escono ogni 6 ore, piu' spesso sarebbe traffico sprecato.
+# ATTENZIONE: gli orari cron di GitHub sono in UTC.
+on:
+  schedule:
+    - cron: "20 3,9,15,21 * * *"
+  workflow_dispatch:          # per lanciarlo a mano dalla pagina Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: garda-wind
+  cancel-in-progress: false
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Il database e' l'unica cosa che deve sopravvivere fra un'esecuzione e
+      # l'altra: contiene i quattordici anni di Torbole e tutto lo storico gia'
+      # scaricato. La chiave cambia ogni giorno e si ripesca la piu' recente,
+      # cosi' ogni esecuzione riparte da dove si era arrivati.
+      - name: Ripristina il database
+        uses: actions/cache@v4
+        with:
+          path: dati
+          key: gardawind-db-${{ github.run_id }}
+          restore-keys: |
+            gardawind-db-
+
+      - name: Raccogli, addestra, esporta
+        env:
+          GARDAWIND_HOME: dati
+        run: |
+          mkdir -p dati
+          python3 -m gardawind --ci --export site
+
+      # Rete di sicurezza: se la cache viene sfrattata, il database resta
+      # scaricabile dalla pagina dell'esecuzione per 90 giorni.
+      - name: Conserva una copia del database
+        uses: actions/upload-artifact@v4
+        with:
+          name: gardawind-db
+          path: dati/*.sqlite
+          retention-days: 90
+          if-no-files-found: warn
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  pubblica:
+    needs: aggiorna
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
