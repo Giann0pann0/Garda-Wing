@@ -94,7 +94,7 @@ inattività) la prima esecuzione successiva riscarica tutto: è lenta, non è ro
 for t in test/t_*.py; do python3 "$t"; done
 ```
 
-268 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
+272 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
 centraline contro i payload reali, algebra dei modelli, proprietà del forward
 chaining, memoria all'età giusta a ogni scadenza, tassonomia dei regimi,
 avvio a freddo con database vuoto. Se tocchi il codice, lancialo prima e dopo.
@@ -119,4 +119,7 @@ pagina dell'app con il loro peso e il loro errore misurato.
 
 ## Licenza
 
-MIT — vedi [LICENSE](LICENSE).
+Nessuna licenza dichiarata: tutti i diritti riservati. Senza un file LICENSE,
+il codice su GitHub resta di chi lo scrive e nessuno può riusarlo legalmente —
+che va benissimo se il repository è privato e serve solo a te. Se un giorno lo
+apri, aggiungere una licenza è il primo passo.

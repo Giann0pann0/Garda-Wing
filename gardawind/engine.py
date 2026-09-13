@@ -100,6 +100,50 @@ def update_stations():
     return done
 
 
+def refresh_malcesine_intraday(months=2):
+    """Riscarica gli ultimi mesi dell'archivio intraday di Malcesine.
+
+    Serve solo in cloud, e li' serve parecchio. Il backfill completo gira una
+    volta e poi si marca come fatto; da quel momento gli unici campioni nuovi
+    arrivano da fetch_live(), che pesca UN istante per esecuzione. Sul Mac non
+    e' un problema, perche' l'agente in background legge ogni quindici minuti.
+    Su GitHub Actions, che gira quattro volte al giorno, vorrebbe dire quattro
+    campioni al giorno invece di una novantina: il modello di Malcesine, che
+    gia' soffre per mancanza di storico, resterebbe affamato per sempre.
+
+    L'archivio CSV della stazione pubblica pero' tutte le letture a 15-30
+    minuti, anche all'indietro. Due richieste per ciclo (il mese corrente e il
+    precedente, per non perdere il cambio mese) recuperano tutto quello che la
+    lettura istantanea non ha visto. INSERT OR REPLACE rende l'operazione
+    idempotente: riscaricare lo stesso mese non duplica niente.
+    """
+    import datetime as _d
+    oggi = _d.date.today()
+    got = 0
+    coppie = []
+    for k in range(months):
+        m = oggi.month - k
+        y = oggi.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        coppie.append((m, y))
+    for month, year in coppie:
+        try:
+            rows = malcesine.fetch_intraday(month, year)
+        except FetchError as e:
+            _note("warn", "intraday/Malcesine",
+                  "aggiornamento %02d/%d: %s" % (month, year, str(e)[:90]))
+            continue
+        if rows:
+            store.save_samples("malcesine", rows, "meteoproject-intraday")
+            got += len(rows)
+    if got:
+        aggregate.aggregate_station("malcesine",
+                                    since_iso=day_shift(oggi.isoformat(), -70))
+    return got
+
+
 def backfill_station_history(force=False, on_progress=None):
     """Scarica una volta sola gli archivi storici pubblici delle due centraline."""
     out = []
@@ -1098,6 +1142,14 @@ def update_cycle(force=False, deep=True):
         if deep:
             STATE["phase"] = "archivio centraline"
             backfill_station_history(force=False)
+            # Gli ultimi due mesi di Malcesine a ogni ciclo: recupera cio' che
+            # la lettura istantanea non ha visto. Due richieste, idempotenti.
+            try:
+                n_intra = refresh_malcesine_intraday()
+                if n_intra:
+                    store.meta_set("last_malcesine_refresh", iso_utc(utc_now()))
+            except Exception as e:                      # pragma: no cover
+                _note("warn", "intraday/Malcesine", str(e)[:140])
             STATE["phase"] = "predittori storici"
             if force or _age_minutes("last_archive_backfill") > 24 * 60:
                 backfill_archive_features()

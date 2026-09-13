@@ -42,3 +42,47 @@ ok(abs(h13["dir_deg"]-236.25)<1.0, "direzione media vettoriale SW+WSW = %.1f"%h1
 import datetime as dt
 ms = MC.intraday_months(dt.date(2026,9,13))
 ok(ms[0]==(9,2026) and ms[-1]==(3,2026) and len(ms)==7, "mesi intraday: da %s a %s (%d)"%(ms[-1],ms[0],len(ms)))
+
+# ==========================================================================
+# In cloud l'archivio intraday va riscaricato a ogni ciclo
+# ==========================================================================
+# Senza questo, dopo il primo backfill Malcesine riceverebbe quattro campioni
+# al giorno (uno per esecuzione) invece di una novantina.
+import datetime as _d
+from gardawind import engine as _E
+
+chiamate = []
+def _finto_fetch(month, year):
+    chiamate.append((month, year))
+    return []
+_vero = MC.fetch_intraday
+MC.fetch_intraday = _finto_fetch
+try:
+    _E.refresh_malcesine_intraday(months=2)
+finally:
+    MC.fetch_intraday = _vero
+
+oggi = _d.date.today()
+prec_m = oggi.month - 1 or 12
+prec_y = oggi.year if oggi.month > 1 else oggi.year - 1
+ok(chiamate == [(oggi.month, oggi.year), (prec_m, prec_y)],
+   "riscarica mese corrente e precedente: %s" % chiamate)
+ok(len(chiamate) == 2, "due sole richieste per ciclo, non un archivio intero")
+
+# Il cambio d'anno non deve produrre mese 0 o 13.
+for mese, anno in ((1, 2027), (12, 2026)):
+    class _FintaData(_d.date):
+        @classmethod
+        def today(cls):
+            return _d.date(anno, mese, 15)
+    orig = _d.date
+    chiamate.clear()
+    MC.fetch_intraday = _finto_fetch
+    _d.date = _FintaData
+    try:
+        _E.refresh_malcesine_intraday(months=3)
+    finally:
+        _d.date = orig
+        MC.fetch_intraday = _vero
+    ok(all(1 <= m <= 12 for m, _y in chiamate),
+       "a %02d/%d i mesi restano validi: %s" % (mese, anno, chiamate))
