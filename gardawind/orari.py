@@ -439,12 +439,27 @@ def previsore_climatologico(min_gg=MIN_GG_MESE, mensile=True):
     entrata l'Ora. Il banco non gli passa il secondo, e il test di leakage
     serve a scoprire chi se lo va a prendere da fuori.
     """
+    # I previsori vengono chiamati una volta per ogni giornata di validazione,
+    # sempre con lo STESSO training dentro un fold. Rifare il raggruppamento
+    # per mese a ogni chiamata rende il tutto quadratico: su quattordici anni
+    # erano minuti di attesa per ricalcolare sei volte la stessa mediana.
+    # La chiave e' quanto e' lungo il training e dove finisce: due prefissi
+    # diversi non possono avere la stessa lunghezza E la stessa ultima data,
+    # quindi la memoria non puo' rispondere per un altro insieme.
+    cache = {}
+
     def previsore(training, ctx):
-        if not mensile:
-            xs = [m for _g, _mm, m in training]
-            return (median(xs), "annuale") if xs else (None, "insufficiente")
-        return previsione_climatologica(_per_mese(training), ctx["mese"],
-                                       min_gg=min_gg)
+        chiave = (len(training), training[-1][0] if training else None,
+                  ctx["mese"] if mensile else 0)
+        if chiave not in cache:
+            if not mensile:
+                xs = [m for _g, _mm, m in training]
+                cache[chiave] = ((median(xs), "annuale") if xs
+                                 else (None, "insufficiente"))
+            else:
+                cache[chiave] = previsione_climatologica(
+                    _per_mese(training), ctx["mese"], min_gg=min_gg)
+        return cache[chiave]
     previsore.nome = "climatologia mensile" if mensile else "mediana annuale"
     return previsore
 
@@ -458,21 +473,32 @@ def previsore_corretto(base, min_gg=MIN_GG_BIAS, nome=None):
     Costa tempo di calcolo e lo vale: una correzione stimata sul validation
     migliorerebbe qualunque cosa, comprese le cose false.
     """
+    # Come sopra: la correzione dipende solo dal training e dal mese, non dalla
+    # singola giornata da prevedere, e dentro un fold il training non cambia.
+    # Senza questa memoria la stima si rifaceva per ogni giornata di
+    # validazione, e su quattordici anni erano settanta secondi per bersaglio
+    # invece di uno.
+    cache = {}
+
     def previsore(training, ctx):
         grezzo, prov = base(training, ctx)
         if grezzo is None:
             return None, prov
         mese = ctx["mese"]
-        errori = []
-        for i, (data, mm, obs) in enumerate(training):
-            if mm != mese:
-                continue
-            p, _pv = base(training[:i], {"date": data, "mese": mm})
-            if p is not None:
-                errori.append(p - obs)
-        if len(errori) < min_gg:
+        chiave = (len(training), training[-1][0] if training else None, mese)
+        if chiave not in cache:
+            errori = []
+            for i, (data, mm, obs) in enumerate(training):
+                if mm != mese:
+                    continue
+                p, _pv = base(training[:i], {"date": data, "mese": mm})
+                if p is not None:
+                    errori.append(p - obs)
+            cache[chiave] = median(errori) if len(errori) >= min_gg else None
+        correzione = cache[chiave]
+        if correzione is None:
             return grezzo, prov + "+bias:insufficiente"
-        return grezzo - median(errori), prov + "+bias"
+        return grezzo - correzione, prov + "+bias"
     previsore.nome = nome or ("%s, bias del mese corretto sul training"
                              % getattr(base, "nome", "base"))
     return previsore
@@ -629,31 +655,41 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
         r["guadagno"] = bootstrap_gain(mio, suo)
         r["n_appaiati"] = len(mio)
 
-    # Le tre porte, applicate al previsore migliore che non sia il riferimento
-    # (se c'e' solo il riferimento, si misurano su di lui: e' la climatologia
-    # a dover dire se almeno LEI sta dentro i 45 minuti).
+    # Le porte si misurano sul previsore che si USEREBBE. Non e' un dettaglio:
+    # se nessun modello batte la climatologia, quello che si userebbe e' la
+    # climatologia, e allora le porte vanno misurate su di lei - non su un
+    # candidato che abbiamo scartato.
+    #
+    # Da qui i tre esiti, invece di due. "Incerto" e "climatologico" sono due
+    # cose diverse, e confonderle sarebbe sbagliato in un modo preciso: dire
+    # "orario incerto" mentre la finestra climatologica sta dentro venti
+    # minuti significa buttare via un'informazione buona solo perche' nessun
+    # modello sofisticato l'ha ancora migliorata.
     candidati = [nm for nm in risultati if nm != base_nome]
     scelto = None
     if candidati:
         con_mae = [(risultati[nm]["mae"], nm) for nm in candidati
                    if risultati[nm]["mae"] is not None]
         scelto = min(con_mae)[1] if con_mae else None
-    valutato = scelto or base_nome
-    r = risultati[valutato]
 
     porte = {}
+    if scelto is None:
+        porte["guadagno"] = {"valore": None, "ic": (None, None), "passa": None,
+                             "nota": "nessun modello da confrontare"}
+        vince = False
+    else:
+        g, lo, hi = risultati[scelto]["guadagno"]
+        vince = (lo is not None and lo > 0.0)
+        porte["guadagno"] = {"valore": g, "ic": (lo, hi), "passa": vince,
+                             "nota": None if vince else
+                             "nessun modello batte il riferimento fuori campione"}
+    valutato = scelto if vince else base_nome
+    r = risultati[valutato]
+
     porte["semiampiezza"] = {
         "valore": r["semiampiezza"], "limite": semiampiezza_max,
         "passa": (r["semiampiezza"] is not None
                   and r["semiampiezza"] <= semiampiezza_max)}
-    if valutato == base_nome:
-        porte["guadagno"] = {"valore": None, "passa": None,
-                             "nota": "nessun modello da confrontare: "
-                                     "questo E' il riferimento"}
-    else:
-        g, lo, hi = r["guadagno"]
-        porte["guadagno"] = {"valore": g, "ic": (lo, hi),
-                             "passa": (lo is not None and lo > 0.0)}
     # Due numeri diversi, e vanno detti entrambi: il gruppo piu' storto in
     # assoluto (utile a leggere) e il gruppo piu' storto fra quelli
     # SISTEMATICI, che e' l'unico che chiude la porta.
@@ -674,12 +710,27 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
         "sistematico": sistematico, "sistematico_dove": sistematico_dove,
         "limite": bias_max, "passa": (sistematico is None)}
 
-    passate = [p["passa"] for p in porte.values() if p["passa"] is not None]
-    esito = "affidabile" if passate and all(passate) else "incerto"
+    # Tre esiti:
+    #   affidabile     un modello batte la climatologia fuori campione, la
+    #                  finestra sta nei limiti e non c'e' bias sistematico;
+    #   climatologico  nessun modello batte la climatologia, ma la finestra
+    #                  della climatologia stessa sta nei limiti: si dichiara
+    #                  la finestra, dicendo da dove viene;
+    #   incerto        la finestra e' troppo larga o c'e' un bias
+    #                  sistematico: in home va una fascia larga.
+    stretta = porte["semiampiezza"]["passa"]
+    senza_bias = porte["bias_stagionale"]["passa"]
+    if stretta and senza_bias:
+        esito = "affidabile" if vince else "climatologico"
+    else:
+        esito = "incerto"
     motivo = None
     if esito == "incerto":
-        mancate = [k2 for k2, p in porte.items() if p["passa"] is False]
+        mancate = [k2 for k2, p in porte.items() if p["passa"] is False
+                   and k2 != "guadagno"]
         motivo = "porte non superate: " + ", ".join(sorted(mancate))
+    elif esito == "climatologico":
+        motivo = porte["guadagno"].get("nota")
 
     return {"bersaglio": bersaglio, "lettura": lettura,
             "n_records": len(records), "n_stimabili": stimabili,

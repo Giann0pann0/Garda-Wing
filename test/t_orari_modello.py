@@ -219,7 +219,10 @@ ok(not (lo is not None and lo > 0.0),
    % (round(g or 0, 1), round(lo or 0, 1), round(hi or 0, 1)))
 ok(r4["porte"]["guadagno"]["passa"] is not True,
    "leakage: la porta del guadagno non si apre")
-ok(r4["esito"] == "incerto", "leakage: l'esito resta 'incerto'")
+ok(r4["esito"] != "affidabile",
+   "leakage: e l'esito non diventa 'affidabile' (%s)" % r4["esito"])
+ok(r4["valutato"] == r4["riferimento"],
+   "leakage: si torna a usare la climatologia, non il modello sofisticato")
 
 # --------------------------------------------------------------------------
 # 5. Il banco sa anche dire si': un previsore informativo passa
@@ -306,6 +309,8 @@ ok(r7["porte"]["semiampiezza"]["passa"] is True,
    % round(r7["porte"]["semiampiezza"]["valore"] or -1))
 ok(r7["porte"]["guadagno"]["passa"] is None,
    "porta B: senza modello da confrontare la porta del guadagno non si finge aperta")
+ok(r7["esito"] == "climatologico",
+   "porta A: con la finestra stretta e nessun modello, l'esito e' climatologico")
 
 # --------------------------------------------------------------------------
 # 7. Il riferimento e' MENSILE, e si vede
@@ -334,14 +339,51 @@ ok(r9["n_stimabili"] == len(meta_mute),
    "quota: 'stimabile' e 'ha un ingresso' restano due cose diverse")
 
 # --------------------------------------------------------------------------
-# 9. La porta C distingue un bias da "il piu' storto di sedici gruppi"
+# 9. La porta C ferma un modello che vince ma sbaglia sempre a settembre
 # --------------------------------------------------------------------------
-# Il bias di settembre e' vero e grande: la porta deve chiudersi e dire dove.
-r10 = valida_ingressi(dati, previsori={"storto": storto})
+# Le porte si misurano sul previsore che si USEREBBE: un candidato che non
+# batte il riferimento viene scartato prima, e allora contano le porte del
+# riferimento. Il caso in cui la porta C deve mordere e' quindi questo: un
+# modello INFORMATIVO - che batte davvero la climatologia - ma con mezz'ora
+# di ritardo sistematico a settembre. Non va promosso per aver fatto media
+# con gli altri mesi.
+def informato_storto(training, ctx):
+    p, prov = informato(training, ctx)
+    if p is None:
+        return None, prov
+    return (p + 35.0 if ctx["mese"] == 9 else p), prov
+
+
+informato_storto.nome = "gradiente, ma a settembre mezz'ora tardi"
+r10 = valida_ingressi(con_segnale, previsori={"informato": informato_storto})
 p10 = r10["porte"]["bias_stagionale"]
-ok(p10["passa"] is False, "porta C: un bias vero di mezz'ora la chiude")
+ok(r10["porte"]["guadagno"]["passa"] is True,
+   "porta C: il modello batte comunque la climatologia (porta B aperta)")
+ok(p10["passa"] is False, "porta C: ma il bias di settembre la chiude")
 ok(p10["sistematico_dove"] in ("mese 9", "stagione autunno"),
    "porta C: e dice dove (%s)" % p10["sistematico_dove"])
+ok(r10["esito"] == "incerto",
+   "porta C: quindi niente promozione, esito 'incerto' (%s)" % r10["esito"])
+
+# E il caso simmetrico: lo stesso modello senza quel bias passa.
+ok(valida_ingressi(con_segnale,
+                   previsori={"informato": informato})["esito"] == "affidabile",
+   "porta C: senza il bias lo stesso modello viene promosso")
+
+# --------------------------------------------------------------------------
+# 9b. Tre esiti, non due: "climatologico" non e' "incerto"
+# --------------------------------------------------------------------------
+# Dati stretti e nessun modello: la finestra della climatologia sta dentro i
+# 45 minuti. Dire "orario incerto" qui butterebbe via un'informazione buona
+# solo perche' nessun modello l'ha ancora migliorata.
+r11 = valida_ingressi(giornate(rumore=25.0, seed=41))
+ok(r11["esito"] == "climatologico",
+   "esiti: finestra stretta e nessun modello -> 'climatologico' (%s)" % r11["esito"])
+ok(r11["porte"]["guadagno"]["passa"] is None
+   and r11["porte"]["semiampiezza"]["passa"] is True,
+   "esiti: la porta del guadagno non si finge aperta, ma non fa esito")
+ok(valida_ingressi(giornate(rumore=140.0, seed=42))["esito"] == "incerto",
+   "esiti: finestra larga -> 'incerto', che e' un'altra cosa")
 
 # Nessun bias, ma molto rumore e sedici gruppi da guardare: il gruppo piu'
 # storto sara' storto di venti minuti per caso. La porta NON deve chiudersi.
@@ -358,3 +400,27 @@ ok(falsi_allarmi == 0,
 # l'esito resta incerto anche con bias zero.
 ok(valida_ingressi(giornate(rumore=110.0, seed=77))["esito"] == "incerto",
    "porte: bias zero non basta, la finestra deve anche essere stretta")
+
+# --------------------------------------------------------------------------
+# 10. La memoria dei previsori non risponde per un altro insieme
+# --------------------------------------------------------------------------
+# I previsori ricordano il risultato per non rifare lo stesso calcolo a ogni
+# giornata dello stesso fold (senza questa memoria, su quattordici anni erano
+# settanta secondi per bersaglio invece di uno). La chiave e' lunghezza +
+# ultima data del training: se fosse solo la lunghezza, due insiemi diversi
+# ma altrettanto lunghi si scambierebbero la risposta.
+c = previsore_climatologico()
+A = [("2018-06-%02d" % (i + 1), 6, 700.0) for i in range(20)]
+B = [("2019-06-%02d" % (i + 1), 6, 900.0) for i in range(20)]
+pa = c(A, {"date": "2020-06-01", "mese": 6})[0]
+pb = c(B, {"date": "2020-06-01", "mese": 6})[0]
+ok(pa == 700.0 and pb == 900.0,
+   "memoria: due training della stessa lunghezza danno risposte diverse (%s, %s)"
+   % (pa, pb))
+ok(c(A, {"date": "2020-06-02", "mese": 6})[0] == 700.0,
+   "memoria: e rileggere lo stesso training da' lo stesso numero")
+
+cc = previsore_corretto(previsore_climatologico())
+qa = cc(A, {"date": "2020-06-01", "mese": 6})[0]
+qb = cc(B, {"date": "2020-06-01", "mese": 6})[0]
+ok(qa != qb, "memoria: vale anche per la correzione del bias (%s, %s)" % (qa, qb))

@@ -689,7 +689,9 @@ def _stampa_validazione(O, C):
 
         P = V["porte"]
         print("")
-        print("  Le tre porte, sul candidato migliore (%s):" % r["nome"])
+        # Il previsore su cui si misurano le porte e' quello che si USEREBBE:
+        # il candidato se batte il riferimento, il riferimento altrimenti.
+        print("  Le tre porte, sul previsore che si userebbe (%s):" % r["nome"])
         def esito(p):
             return "APERTA" if p["passa"] else ("CHIUSA" if p["passa"] is False
                                                 else "non applicabile")
@@ -698,12 +700,15 @@ def _stampa_validazione(O, C):
                  "n.d." if P["semiampiezza"]["valore"] is None
                  else "%.0f min" % P["semiampiezza"]["valore"]))
         g = P["guadagno"]
+        dettaglio_g = g.get("nota") or ""
+        if g["valore"] is not None:
+            ic = g.get("ic") or (None, None)
+            numeri = ("guadagno %+.0f%%, IC %+.0f..%+.0f"
+                      % (g["valore"], ic[0] or 0.0, ic[1] or 0.0))
+            dettaglio_g = (numeri if not dettaglio_g
+                           else "%s (%s)" % (dettaglio_g, numeri))
         print("    B  batte la climatologia       %-16s %s"
-              % (esito(g),
-                 g.get("nota") or ("guadagno %+.0f%%, IC %+.0f..%+.0f"
-                                   % (g["valore"] or 0.0,
-                                      (g.get("ic") or (0, 0))[0] or 0.0,
-                                      (g.get("ic") or (0, 0))[1] or 0.0))))
+              % (esito(g), dettaglio_g))
         b2 = P["bias_stagionale"]
         if b2.get("sistematico") is not None:
             dettaglio = ("sistematico: %s, %+.0f min (limite %.0f)"
@@ -717,7 +722,15 @@ def _stampa_validazione(O, C):
         print("    C  nessun bias sistematico     %-16s %s" % (esito(b2), dettaglio))
         print("")
         if V["esito"] == "affidabile":
-            print("  ESITO: timing affidabile. La finestra si puo' dichiarare in home.")
+            print("  ESITO: timing affidabile. Un modello batte la climatologia")
+            print("  fuori campione: la finestra si puo' dichiarare in home.")
+        elif V["esito"] == "climatologico":
+            print("  ESITO: orario climatologico. Nessun modello batte la")
+            print("  climatologia mensile, ma la finestra della climatologia sta")
+            print("  entro %.0f minuti: si puo' dichiarare, dicendo da dove viene."
+                  % V["porte"]["semiampiezza"]["limite"])
+            print("  Sarebbe sbagliato chiamarlo \"incerto\": l'informazione c'e',")
+            print("  e viene dalla stagione, non da un modello.")
         else:
             print("  ESITO: orario incerto. In home va una fascia larga, e va detto")
             print("  che il timing e' incerto. %s" % (V["motivo"] or ""))
@@ -771,7 +784,7 @@ def cmd_orari(spot_name=None):
 
         tot = C["n_giorni"] + C["n_non_stimabili"]
         print("")
-        print("  %d giornate nell'archivio, %d stimabili, %d no"
+        print("  %d giornate nell'archivio: %d stimabili, %d scartate"
               % (tot, C["n_giorni"], C["n_non_stimabili"]))
         if C["n_dir_ignota"]:
             print("  %d stimabili hanno direzione ignota su oltre un quinto dei"
@@ -819,9 +832,13 @@ def cmd_orari(spot_name=None):
             v = C["annuale"][(bers, "vento")]["n"]
             r = C["annuale"][(bers, "regime")]["n"]
             if v:
-                print("  La direzione taglia %d ingressi su %d (%.0f%%): giornate in"
-                      % (v - r, v, 100.0 * (v - r) / v))
-                print("  cui il vento bastava ma non era %s."
+                tagliati = v - r
+                print("  La direzione taglia %d %s su %d (%.0f%%): %s il vento"
+                      % (tagliati, "ingresso" if tagliati == 1 else "ingressi",
+                         v, 100.0 * tagliati / v,
+                         "giornata in cui" if tagliati == 1
+                         else "giornate in cui"))
+                print("  bastava ma non era %s."
                       % ("l'Ora" if spot["regime"] == "ORA" else "il Peler"))
 
         bimodali = [(b, m) for b in O.BERSAGLI for m in range(1, 13)
