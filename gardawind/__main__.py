@@ -245,7 +245,15 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
 
     spots = [spot_name] if spot_name else [
         n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
-    MIN_GIORNI_Q = 30           # sotto, nessun quantile: vedi riga_q
+    # Ogni statistica ha il suo minimo, perche' non sono ugualmente fragili:
+    # una mediana su dodici numeri e' informativa, un q99 su dodici numeri e'
+    # il massimo di dodici valori con un'etichetta che promette una coda al
+    # centesimo. Un'unica soglia a trenta - come nella prima versione - e'
+    # onesta sui quantili e inutilmente muta sulle mediane, e infatti sul
+    # rapporto vero cancellava righe che avevano qualcosa da dire.
+    MIN_MEDIANA = 10
+    MIN_Q75 = 20
+    MIN_QUANTILI = 30
     MIN_COPERTURA_MIN = 120.0   # due ore dentro la finestra del regime
 
     def q(xs, p):
@@ -253,12 +261,16 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         return y[min(len(y) - 1, max(0, int(p * (len(y) - 1))))] if y else float("nan")
 
     def riga_q(etichetta, dati):
-        if len(dati) < MIN_GIORNI_Q:
-            return ("  %-22s   %d giornate: troppe poche per dei quantili"
-                    % (etichetta, len(dati)))
-        return ("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
-                % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
-                   q(dati, .90), q(dati, .99)))
+        n = len(dati)
+        if n >= MIN_QUANTILI:
+            return ("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
+                    % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
+                       q(dati, .90), q(dati, .99)))
+        if n >= MIN_MEDIANA:
+            return ("  %-22s %7s %7.1f %7s %7s %7s   (%d giornate: solo mediana)"
+                    % (etichetta, "-", q(dati, .50), "-", "-", "-", n))
+        return ("  %-22s   %d giornate: troppe poche anche per una mediana"
+                % (etichetta, n))
 
     for name in spots:
         spot = config.SPOTS[name]
@@ -453,9 +465,12 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
                   % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
             print(riga_q(nome, B["ric"]))
             print(riga_q("raffica massima", B["max"]))
-            if len(B["rap"]) >= MIN_GIORNI_Q:
+            if len(B["rap"]) >= MIN_QUANTILI:
                 print("  rapporto raffica/media      mediana %.2f   q10 %.2f   q90 %.2f"
                       % (q(B["rap"], .5), q(B["rap"], .1), q(B["rap"], .9)))
+            elif len(B["rap"]) >= MIN_MEDIANA:
+                print("  rapporto raffica/media      mediana %.2f  (%d giornate,"
+                      " solo mediana)" % (q(B["rap"], .5), len(B["rap"])))
             elif B["rap"]:
                 print("  rapporto raffica/media: %d giornate, troppe poche"
                       % len(B["rap"]))
@@ -473,15 +488,17 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
                     ora = "%02d:%02d" % (int(mm // 60) % 24, int(mm % 60))
                 else:
                     ora = "-"
-                # Una mediana di durata su due giornate e' il massimo di due
-                # numeri con un'etichetta che promette una distribuzione.
-                if len(d) < MIN_GIORNI_Q:
-                    print("  %6d %9d %10.0f%%   %d giornate: durate non riassunte"
+                # La mediana compare da dieci giornate, il q75 da venti:
+                # sotto, la cella resta vuota invece di contenere un numero
+                # che finge una distribuzione.
+                if len(d) < MIN_MEDIANA:
+                    print("  %6d %9d %10.0f%%   %d giornate: troppe poche"
                           % (t, len(d), perc, len(d)))
                 else:
-                    print("  %6d %9d %10.0f%% %8.0f min %8.0f min %14s"
-                          % (t, len(d), perc, median(d) or 0,
-                             q(d, .75) if d else 0, ora))
+                    cella_q75 = (("%8.0f min" % q(d, .75)) if len(d) >= MIN_Q75
+                                 else "%12s" % "-")
+                    print("  %6d %9d %10.0f%% %8.0f min %s %14s"
+                          % (t, len(d), perc, median(d) or 0, cella_q75, ora))
         if gg_senza_raffica:
             print("")
             print("  %d giornate con raffica ma troppo rada per qualunque"
