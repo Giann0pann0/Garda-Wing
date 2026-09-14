@@ -7,7 +7,7 @@ avviene solo in presentazione e nel calcolo del "giorno locale".
 import math
 
 APP_NAME = "Garda Wind"
-APP_VERSION = "3.6"
+APP_VERSION = "3.7"
 DB_FILENAME = "gardawind_v3.sqlite"
 
 TZ_LOCAL = "Europe/Rome"

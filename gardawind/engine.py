@@ -1321,6 +1321,12 @@ def day_profile(place, day, sessions):
             "hour": h, "key": k, "wind": wind, "gust": wind * ratio,
             "lo": max(0.0, wind - sp), "hi": wind + sp,
             "dir": hours[k].get("d10"),
+            # Aria e cielo viaggiano con il profilo invece di essere ripescati
+            # da una seconda passata sull'ensemble: sono gia' qui, e una
+            # chiamata in meno per luogo e per giorno si sente all'avvio.
+            "t2m": hours[k].get("t2m"),
+            "cloud": hours[k].get("cloud"),
+            "precip": hours[k].get("precip"),
         })
     return out
 

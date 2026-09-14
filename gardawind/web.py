@@ -36,204 +36,243 @@ E = html.escape
 # grafici: le schede restano neutre, e la validazione resta valida.
 
 CSS = """
+/* Un tema solo, scuro. Non e' una preferenza estetica: la pagina si guarda in
+   spiaggia all'alba e al tramonto, e un fondo chiaro a quell'ora e' una torcia
+   in faccia. Committiamo al buio e lo dipingiamo bene, invece di mantenere due
+   temi e curarne male entrambi. */
 :root{
-  color-scheme:light;
-  --sea-1:#dbe9f4; --sea-2:#eaf3f9; --sea-3:#c9e0f0;
-  --card:#ffffff; --card-2:#f4f8fc;
-  --ink:#0c1722; --ink-2:#4a5a6b; --ink-3:#7d8d9c;
-  --line:#e0e8ef; --grid:#e8eef4; --axis:#c2cedb;
-  --s1:#2a78d6; --s2:#eb6834;
-  --s1-soft:#cde2fb; --s2-soft:#fbdcce;
-  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b; --warn-ink:#8a5f00;
-  --shadow:0 1px 2px rgba(12,23,34,.06),0 10px 28px rgba(12,23,34,.08);
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --sea-1:#071420; --sea-2:#0b1f2d; --sea-3:#040f18;
-    --card:#161b22; --card-2:#1c2430;
-    --ink:#eef4f9; --ink-2:#a9bacb; --ink-3:#7f91a3;
-    --line:#252f3c; --grid:#222c38; --axis:#3a4859;
-    --s1:#3987e5; --s2:#d95926;
-    --s1-soft:#16324f; --s2-soft:#412210;
-    --warn-ink:#fab219;
-    --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.4);
-  }
+  color-scheme:dark;
+  --bg-1:#0a121c; --bg-2:#0d1826; --bg-3:#070e16;
+  --card:#101a26; --card-2:#16222f; --card-3:#1b2937;
+  --ink:#e9f1f8; --ink-2:#9db0c4; --ink-3:#6d8098;
+  --line:#1e2c3b; --grid:#1a2734; --axis:#33455a;
+
+  /* Identita' dei due luoghi: colore categorico, assegnato una volta e mai
+     riciclato. Validati con lo script sui sei controlli, su questa superficie
+     (#101a26), modalita' scura: tutti PASS, banda di luminosita' compresa.
+       Torbole  #2e86e0   Malcesine #de7326 */
+  --s1:#2e86e0; --s2:#de7326;
+  --s1-soft:#1b3f63; --s2-soft:#4a2a12;
+  --s1-glow:rgba(46,134,224,.22); --s2-glow:rgba(222,115,38,.20);
+
+  /* La raffica non e' un terzo luogo: e' una seconda misura dello stesso posto.
+     Ha un colore suo perche' compare in entrambi i grafici e deve dire sempre
+     la stessa cosa, ma la distinzione dalla media NON dipende dal colore:
+     tratteggio piu' etichetta diretta. Contro l'arancione di Malcesine la
+     separazione in tritanopia e' debole (dE 3.7), ed e' esattamente il caso
+     che il tratteggio copre. */
+  --gust:#e0559b;
+
+  /* Stati: riservati, mai riusati per una serie, sempre con la parola scritta. */
+  --good:#35c97a; --warn:#f0b429; --crit:#f2564d;
+
+  --shadow:0 1px 2px rgba(0,0,0,.55),0 14px 38px rgba(0,0,0,.45);
+  --ring:inset 0 0 0 1px var(--line);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
+img{max-width:100%}
+[hidden]{display:none!important}
 body{
-  font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   color:var(--ink);
   background:
-    radial-gradient(1100px 480px at 15% -10%, var(--sea-2), transparent 60%),
-    radial-gradient(900px 420px at 90% 2%, var(--sea-3), transparent 55%),
-    linear-gradient(180deg, var(--sea-1) 0%, var(--sea-2) 45%, var(--sea-1) 100%);
+    radial-gradient(900px 420px at 12% -8%, #13273c 0%, transparent 62%),
+    radial-gradient(760px 380px at 88% 0%, #102132 0%, transparent 58%),
+    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 40%, var(--bg-3) 100%);
   background-attachment:fixed;
   min-height:100vh;
+  -webkit-font-smoothing:antialiased;
 }
 .display{
   font-family:"Avenir Next","Avenir",Futura,"Gill Sans","Trebuchet MS",system-ui,sans-serif;
-  font-weight:700;letter-spacing:-.018em;
+  font-weight:700;letter-spacing:-.02em;
 }
 a{color:var(--s1)}
-.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+.wrap{max-width:1180px;margin:0 auto;padding-left:16px;padding-right:16px}
 
-header{padding:26px 0 0}
-.hbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
-h1{margin:0;font-size:31px;line-height:1.04}
-h1 .sub{display:block;font-family:system-ui,sans-serif;font-weight:500;font-size:12px;
-  letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin-top:7px}
-.status{font-size:13px;color:var(--ink-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* ---------------- testa ---------------- */
+header{padding-block:20px 6px}
+.hbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand h1{margin:0;font-size:27px;line-height:1}
+.brand h1 em{font-style:normal;color:var(--s1)}
+.brand .sub{display:block;font-family:system-ui,sans-serif;font-weight:500;font-size:10.5px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:6px}
+.status{font-size:12.5px;color:var(--ink-2);text-align:right;line-height:1.5}
+.status .when{display:block;color:var(--ink);font-weight:600}
+.status .live{display:inline-flex;align-items:center;gap:7px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
 .dot.warn{background:var(--warn)}.dot.bad{background:var(--crit)}
-.wave{display:block;width:100%;height:40px;margin-top:20px}
 
-.now{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;
-  margin:2px 0 24px}
-.nowcard{background:var(--card);border-radius:16px;padding:13px 16px;box-shadow:var(--shadow);
-  display:flex;align-items:center;gap:13px}
-.nowcard .place{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
-.nowcard .val{font-size:26px;line-height:1.1;font-family:"Avenir Next",system-ui,sans-serif;
-  font-weight:700}
-.nowcard .val small{font-size:13px;color:var(--ink-2);font-weight:600}
-.nowcard .meta{font-size:12px;color:var(--ink-3)}
-.nowcard.stale .val{color:var(--ink-3)}
+/* ---------------- sezione di un luogo ---------------- */
+/* Torbole e Malcesine non si distinguono per posizione ma per cornice: bordo e
+   alone del proprio colore, nome grande in alto a sinistra. Cosi' nessun
+   grafico puo' essere attribuito al posto sbagliato, che era il rischio piu'
+   concreto del mostrarli insieme. */
+.place{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
+  box-shadow:var(--shadow);border:1px solid var(--line);position:relative;overflow:hidden}
+.place::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--pc)}
+.place.p1{--pc:var(--s1);--pc-soft:var(--s1-soft);--pc-glow:var(--s1-glow)}
+.place.p2{--pc:var(--s2);--pc-soft:var(--s2-soft);--pc-glow:var(--s2-glow)}
+.place{box-shadow:var(--shadow),0 0 0 1px var(--pc-glow)}
+.pgrid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:1000px){
+  .pgrid{grid-template-columns:250px minmax(0,1fr) 300px;gap:20px;align-items:start}
+}
 
-.day{background:var(--card);border-radius:20px;padding:20px;margin-bottom:18px;
-  box-shadow:var(--shadow)}
-.dayhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-.dayhead h2{margin:0;font-size:23px}
-.dayhead .date{font-size:13px;color:var(--ink-2)}
-.dayhead .lead{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+/* --- colonna 1: adesso --- */
+.pname{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.pname h2{margin:0;font-size:26px;line-height:1}
+.pname .mark{width:30px;height:30px;border-radius:9px;flex:none;
+  background:var(--pc-soft);display:grid;place-items:center}
+.pregimi{font-size:12px;color:var(--ink-3);margin:0 0 14px}
+.lbl{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
+  margin:0 0 6px}
+.nowbig{display:flex;align-items:center;gap:14px}
+.nowbig .v{font-size:44px;line-height:.95;font-weight:700;
+  font-family:"Avenir Next",system-ui,sans-serif;letter-spacing:-.03em}
+.nowbig .v small{font-size:17px;font-weight:600;color:var(--ink-2);letter-spacing:0}
+.nowbig .compass{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.nowbig .compass b{color:var(--ink);font-size:16px;display:block;line-height:1.15}
+.nowbig .compass small{font-size:12px;color:var(--ink-3)}
+.nowgust{font-size:14px;color:var(--ink-2);margin-top:4px}
+.nowgust b{color:var(--ink)}
+.nowmeta{font-size:12px;color:var(--ink-3);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap}
+.nowmeta.stale{color:var(--warn)}
+.nowcond{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;
+  border-top:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.nowcond b{color:var(--ink);font-weight:600}
+.novalue{font-size:20px;color:var(--ink-3)}
 
-/* Affidabilita': quattro livelli, quattro colori, sempre con la parola scritta
-   accanto. Il colore da' la lettura in mezzo secondo, la parola la da' a chi
-   non distingue quei colori e a chi legge stampato. */
-.cf{display:inline-flex;align-items:center;gap:6px;border-radius:999px;
-  padding:3px 10px;font-size:12.5px;font-weight:800;letter-spacing:.01em}
-.cf::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
-.cf-alta{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
-.cf-buona{background:color-mix(in srgb,var(--s1) 15%,transparent);color:var(--s1)}
-.cf-tend{background:color-mix(in srgb,var(--warn) 26%,transparent);color:var(--warn-ink)}
-.cf-out{background:color-mix(in srgb,var(--ink-3) 16%,transparent);color:var(--ink-2)}
-.cfline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
-.cf-why{font-size:12.5px;color:var(--ink-3)}
-/* Seconda voce: l'orario. Stessa grammatica, peso visivo minore, perche' e'
-   una domanda diversa e subordinata - ma sempre presente, mai sottintesa. */
-.tm{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;
-  border-radius:8px;padding:2px 9px;background:var(--card-2);color:var(--ink-2)}
-.tm b{font-weight:700;color:var(--ink)}
-.tm::before{content:"";width:6px;height:6px;border-radius:50%;flex:none;
-  background:currentColor;opacity:.75}
-.tm-3{color:var(--good)}.tm-2{color:var(--s1)}
-.tm-1{color:var(--warn-ink)}.tm-0{color:var(--ink-3)}
-.dayhead .cfline{margin-left:auto;margin-top:0}
-
-.session{margin-top:16px}
-.shead{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
-.shead{margin-bottom:2px}
-.shead .name{font-size:13px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--ink);font-weight:800}
-.shead .when{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-
-.row{display:grid;grid-template-columns:132px 1fr auto;gap:14px;align-items:center;
-  padding:12px 0 6px;border-top:1px solid var(--line)}
-.row .spot{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px}
-.swatch{width:11px;height:11px;border-radius:3px;flex:none}
-.row .num{text-align:right;white-space:nowrap}
-.row .kn{font-size:27px;font-weight:700;line-height:1.05;
-  font-family:"Avenir Next",system-ui,sans-serif}
-.row .kn small{font-size:14px;font-weight:600;color:var(--ink-2)}
-.row .pct{font-size:13px;color:var(--ink-2);font-variant-numeric:tabular-nums}
-.detail{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-  font-size:13px;color:var(--ink-2);padding:2px 0 6px}
-.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 11px;
-  font-size:13px;font-weight:700}
-.chip.go{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
-.chip.ok{background:color-mix(in srgb,var(--s1) 15%,transparent);color:var(--s1)}
-.chip.meh{background:color-mix(in srgb,var(--warn) 24%,transparent);color:var(--warn-ink)}
-.chip.no{background:color-mix(in srgb,var(--ink-3) 15%,transparent);color:var(--ink-2)}
-.chip.big{background:color-mix(in srgb,var(--crit) 15%,transparent);color:var(--crit)}
-.tag{background:var(--card-2);border-radius:8px;padding:3px 10px;font-size:13px;
-  color:var(--ink-2)}
-.tag b{color:var(--ink);font-weight:700}
-.other{grid-column:1/-1;margin:2px 0 8px;padding:10px 12px;border-radius:11px;
-  background:var(--card-2);border-left:3px solid var(--s2);font-size:13.5px;
-  color:var(--ink-2);line-height:1.45}
-.other b{color:var(--ink)}
-
-.strip{position:relative;height:30px}
-.strip .track{position:absolute;left:0;right:0;top:10px;height:10px;border-radius:5px;
-  background:var(--card-2)}
-.strip .band{position:absolute;top:10px;height:10px;border-radius:5px;opacity:.30}
-.strip .bar{position:absolute;top:10px;height:10px;border-radius:5px;left:0}
-.strip .thr{position:absolute;top:4px;height:22px;width:2px;border-radius:1px;
-  background:var(--axis)}
-.strip .thr::after{content:attr(data-l);position:absolute;top:-13px;left:50%;
-  transform:translateX(-50%);font-size:10px;color:var(--ink-3);white-space:nowrap}
-.strip .dot{position:absolute;top:7px;width:16px;height:16px;border-radius:50%;
-  margin-left:-8px;box-shadow:0 0 0 3px var(--card)}
-.row.faint .kn,.row.faint .spot{opacity:.42}
-.row.faint .strip{opacity:.4}
-.scalerow{display:grid;grid-template-columns:132px 1fr auto;gap:14px;align-items:end}
-.scalerow .sp{font-size:11px;color:var(--ink-3);letter-spacing:.06em}
-.scalerow .rt{font-size:11px;color:transparent}
-.scale{position:relative;height:15px}
-.scale span{position:absolute;bottom:0;transform:translateX(-50%);font-size:11px;
-  color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.scale i{position:absolute;bottom:0;width:1px;height:5px;background:var(--line)}
+/* --- colonna 2: il grafico, che viene prima di ogni card --- */
+.pchart .lbl{margin-bottom:2px}
+.pchart h3{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--ink-2)}
 svg.chart{display:block;width:100%;height:auto}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2);margin-top:9px}
-.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;
-  vertical-align:middle}
-.chartwrap{position:relative;margin-top:16px}
+.chartwrap{position:relative}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
-  background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;
+  background:var(--card-3);border:1px solid var(--line);border-radius:10px;padding:7px 10px;
   font-size:12px;box-shadow:var(--shadow);white-space:nowrap;z-index:3;color:var(--ink)}
+.legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-top:8px}
+.legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;
+  margin-right:6px;vertical-align:middle}
+.legend i.dash{border-top-style:dashed}
+.legend i.box{height:9px;border:0;border-radius:2px;vertical-align:-1px}
 details.tbl{margin-top:10px;font-size:13px}
-details.tbl summary{cursor:pointer;color:var(--ink-3)}
-.trust{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
-  font-size:12.5px;color:var(--ink-3);line-height:1.6}
-.trust b{color:var(--ink-2)}
+details.tbl summary{cursor:pointer;color:var(--ink-3);font-size:12px}
+details.tbl .scroller{overflow-x:auto}
 
+/* --- colonna 3: quanto fidarsi e quando andare --- */
+.ringrow{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.ringrow .lbl{margin:0 0 2px}
+.ringrow .rword{font-size:16px;font-weight:800;line-height:1.1;margin:1px 0 2px}
+.ringrow .rtxt{font-size:12.5px;color:var(--ink-3);line-height:1.4}
+.ring{flex:none}
+.snote{font-size:12px;color:var(--warn);margin:-4px 0 12px;line-height:1.4}
+.callout{border-radius:14px;padding:13px 15px;background:var(--card-2);
+  border:1px solid var(--line);border-left:3px solid var(--ink-3);margin-bottom:12px}
+.callout.go{border-left-color:var(--good);background:color-mix(in srgb,var(--good) 9%,var(--card-2))}
+.callout.meh{border-left-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--card-2))}
+.callout.no{border-left-color:var(--ink-3)}
+.callout .big{font-size:17px;font-weight:700;line-height:1.2;margin-bottom:3px}
+.callout .big.go{color:var(--good)}.callout .big.meh{color:var(--warn)}
+.callout .big.no{color:var(--ink-2)}
+.callout p{margin:0;font-size:13px;color:var(--ink-2);line-height:1.45}
+.halves{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.half{border-radius:12px;padding:11px 12px;background:var(--card-2);border:1px solid var(--line)}
+.half .h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.half .when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-top:1px}
+.half .q{display:flex;align-items:center;gap:7px;margin-top:8px;font-weight:700;font-size:14px}
+.half .q i{width:9px;height:9px;border-radius:50%;flex:none}
+.half .kn{font-size:17px;font-weight:700;margin-top:5px;
+  font-family:"Avenir Next",system-ui,sans-serif}
+.half .kn small{font-size:12px;color:var(--ink-2);font-weight:600}
+.half .win{font-size:12px;color:var(--ink-3);margin-top:3px}
+.q-go i{background:var(--good)}.q-go{color:var(--good)}
+.q-meh i{background:var(--warn)}.q-meh{color:var(--warn)}
+.q-no i{background:var(--crit)}.q-no{color:var(--crit)}
+.q-off i{background:var(--ink-3)}.q-off{color:var(--ink-3)}
+.tmline{margin-top:12px;font-size:12.5px;color:var(--ink-2);display:flex;
+  align-items:flex-start;gap:8px}
+.tmline i{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor;
+  margin-top:6px}
+.tmline span{flex:1;min-width:0}
+.tm-3{color:var(--good)}.tm-2{color:var(--s1)}.tm-1{color:var(--warn)}.tm-0{color:var(--ink-3)}
+.tmline b{color:var(--ink)}
+
+/* ---------------- striscia dei cinque giorni ---------------- */
+.week{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
+  box-shadow:var(--shadow);border:1px solid var(--line)}
+.whead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  flex-wrap:wrap;margin-bottom:14px}
+.whead h2{margin:0;font-size:21px}
+.wlegend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);flex-wrap:wrap}
+.wlegend span{display:inline-flex;align-items:center;gap:6px}
+.wlegend i{width:9px;height:9px;border-radius:50%}
+.days{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.dcard{appearance:none;text-align:left;font:inherit;color:inherit;cursor:pointer;
+  background:var(--card-2);border:1px solid var(--line);border-radius:14px;padding:12px;
+  display:block;transition:border-color .15s,background .15s}
+.dcard:hover{border-color:var(--axis)}
+.dcard[aria-current="true"]{border-color:var(--s1);background:color-mix(in srgb,var(--s1) 12%,var(--card-2))}
+.dcard .dd{font-size:13px;font-weight:700}
+.dcard .dl{font-size:11px;color:var(--ink-3);margin-top:1px}
+.dcard .dk{font-size:21px;font-weight:700;margin-top:9px;
+  font-family:"Avenir Next",system-ui,sans-serif}
+.dcard .dk small{font-size:12px;color:var(--ink-2);font-weight:600}
+.dcard .dbest{font-size:12px;color:var(--ink-2);margin-top:2px}
+.dcard .dconf{margin-top:9px;display:grid;gap:4px}
+.dcard .dconf div{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3)}
+.dcard .dconf i{width:7px;height:7px;border-radius:50%;flex:none}
+.cfd-3{background:var(--good)}.cfd-2{background:var(--s1)}
+.cfd-1{background:var(--warn)}.cfd-0{background:var(--ink-3)}
+
+/* ---------------- pannelli condivisi con la diagnostica ---------------- */
+.panel{background:var(--card);border-radius:20px;padding:18px;margin-bottom:18px;
+  box-shadow:var(--shadow);border:1px solid var(--line)}
+.panel h2{margin:0 0 8px;font-size:20px}
+.panel h3{margin:18px 0 2px;font-size:13.5px}
+.panel p{color:var(--ink-2);font-size:13px;margin:6px 0 10px}
+.empty{padding:40px 10px;text-align:center;color:var(--ink-3)}
 table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0 16px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .good{color:var(--good);font-weight:600}.bad{color:var(--crit);font-weight:600}
+.cf{display:inline-flex;align-items:center;gap:6px;border-radius:999px;
+  padding:3px 10px;font-size:12.5px;font-weight:800}
+.cf::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.cf-alta{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+.cf-buona{background:color-mix(in srgb,var(--s1) 18%,transparent);color:var(--s1)}
+.cf-tend{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.cf-out{background:color-mix(in srgb,var(--ink-3) 16%,transparent);color:var(--ink-2)}
+.cfline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.cf-why{font-size:12.5px;color:var(--ink-3)}
+footer{padding-block:6px 40px;font-size:12px;color:var(--ink-3);text-align:center}
+footer a{color:var(--ink-2)}
 
-.panel{background:var(--card);border-radius:20px;padding:20px;margin-bottom:18px;
-  box-shadow:var(--shadow)}
-.panel h2{margin:0 0 8px;font-size:20px}
-.panel h3{margin:18px 0 2px;font-size:13.5px}
-.panel p{color:var(--ink-2);font-size:13px;margin:6px 0 10px}
-.empty{padding:36px 10px;text-align:center;color:var(--ink-3)}
-footer{padding:4px 0 46px;font-size:12px;color:var(--ink-3);text-align:center}
-@media (max-width:640px){
-  .wrap{padding:0 12px}
-  h1{font-size:24px}
-  .day,.panel{padding:14px;border-radius:16px}
-  .row{grid-template-columns:1fr auto;gap:6px 10px}
-  .row .spot{grid-column:1;font-size:15px}
-  .row>div:nth-child(2){grid-column:1/-1;order:3;margin-top:2px}
-  .row .detail{order:4}
-  .row .other{order:5}
-  .row .kn{font-size:26px}
-  .row .pct{font-size:12px;white-space:normal;text-align:right}
-  .scalerow{grid-template-columns:1fr;gap:0}
-  .scalerow .sp,.scalerow .rt{display:none}
-  .tag,.chip{font-size:12.5px}
-  .dayhead h2{font-size:20px}
-  .dayhead .lead{width:100%;margin-left:0}
+@media (max-width:700px){
+  .brand h1{font-size:23px}
+  .status{text-align:left}
+  .place,.week,.panel{padding:14px;border-radius:18px}
+  .pname h2{font-size:23px}
+  /* Su telefono la parte "adesso" si stringe: e' un dato solo, non merita
+     mezzo schermo prima di arrivare al grafico. */
+  .nowbig .v{font-size:34px}
+  .nowgust{display:inline-block;margin-right:12px}
+  .nowmeta{margin-top:4px}
+  .nowcond{margin-top:10px;padding-top:10px}
+  .pgrid{gap:14px}
+  .halves{grid-template-columns:1fr 1fr;gap:10px}
+  .half .kn{font-size:16px}
+  .days{grid-template-columns:1fr 1fr}
+  .whead h2{font-size:18px}
+}
+@media (max-width:380px){
+  .halves{grid-template-columns:1fr}
+  .days{grid-template-columns:1fr}
 }
 """
-
-WAVE = ('<svg class="wave" viewBox="0 0 1200 40" preserveAspectRatio="none" aria-hidden="true">'
-        '<path d="M0,24 C150,8 260,36 420,26 C580,16 660,34 820,28 C960,23 1060,10 1200,20 '
-        'L1200,40 L0,40 Z" fill="var(--card)" opacity=".5"/>'
-        '<path d="M0,31 C170,17 280,39 440,31 C620,22 700,38 860,33 C1000,29 1080,20 1200,27 '
-        'L1200,40 L0,40 Z" fill="var(--card)" opacity=".92"/></svg>')
 
 GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
 MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
@@ -245,13 +284,12 @@ SOURCE_LABEL = {
     "prior": "stima fisica di partenza, non ancora calibrata sui dati",
 }
 
-# Le sessioni in ordine di orologio: il Pelèr e' un vento di mattina, l'Ora
-# di pomeriggio. Mostrarle nell'ordine opposto costringe a rileggere.
-SESSION_ORDER = [
-    ("Mattina · Pelèr", "PELER"),
-    ("Pomeriggio · Ora", "ORA"),
-    ("Tutto il giorno", "GIORNO"),
-]
+# Quali fonti meritano un avviso in home. "appreso" no: e' il caso normale, e
+# scriverlo sarebbe rumore. Le altre due si', perche' il numero grande sullo
+# schermo in quel caso NON e' calibrato sui dati di quella centralina, e chi
+# guarda ha il diritto di saperlo prima di decidere se caricare la macchina.
+# Non e' un dettaglio tecnico da mandare in diagnostica: e' un'avvertenza.
+FONTI_DA_DICHIARARE = ("prior", "misto")
 
 
 # --------------------------------------------------------------------------
@@ -346,64 +384,194 @@ def verdict_chip(grade, speed, prob):
     return '<span class="chip %s">%s %s</span>' % (cls, mark, E(grade))
 
 
-def range_strip(lo, hi, value, threshold, scale_max, color, muted=False):
-    """Barra orizzontale: quanto tira, con dentro l'incertezza e la soglia.
+# --------------------------------------------------------------------------
+# Home: una sezione per luogo, il grafico prima di ogni card
+# --------------------------------------------------------------------------
 
-    La lunghezza porta l'intensita', il punto il valore atteso, la parte
-    chiara l'intervallo. La tacca e' la soglia di planata, etichettata, cosi'
-    la barra si legge senza dover indovinare cosa significhi la sua lunghezza:
-    sopra al gruppo c'e' comunque la scala in nodi.
+# Quali regimi ha un luogo. Solo i modelli orari: quello della raffica di
+# giornata (Malcesine-Giorno) e' un'altra grandezza - un picco, non una media -
+# e teneva in fondo alla pagina un riquadro che diceva la stessa cosa con
+# numeri non confrontabili. Vive in diagnostica, dove il confronto e' il punto.
+def place_spots(place):
+    out = {}
+    for name in config.SPOT_ORDER:
+        spot = config.SPOTS[name]
+        if spot["place"] == place and spot["target"] == "hourly":
+            out[spot["regime"]] = name
+    return out
+
+
+META_REGIME = [("PELER", "Pel\u00e8r", "mattina"), ("ORA", "Ora", "pomeriggio")]
+
+
+def quality(data, spot):
+    """Tre livelli, una parola ciascuno, piu' il colore.
+
+    La soglia non e' estetica: "Scarso" vuol dire che il vento non arriva a
+    quello che noi stessi chiamiamo "regime entrato", oppure che la probabilita'
+    e' cosi' bassa che l'intensita' e' condizionata a un evento che non capita.
+    "Buono" richiede DUE cose insieme: sopra la soglia di planata e una
+    probabilita' che regga. Fra i due c'e' tutto il resto, che e' "Discreto".
     """
-    def pct(v):
-        return max(0.0, min(100.0, 100.0 * v / scale_max))
+    if not data:
+        return "off", "\u2014"
+    prob, speed = data.get("prob") or 0.0, data.get("speed") or 0.0
+    if prob < 0.35 or speed < spot["min_kn"]:
+        return "no", "Scarso"
+    if speed >= spot["planing_kn"] and prob >= 0.55:
+        return "go", "Buono"
+    return "meh", "Discreto"
 
-    a, b, v = pct(lo), pct(hi), pct(value)
+
+RING_WORD = {3: "Alta", 2: "Buona", 1: "Tendenza", 0: "Outlook"}
+RING_COLOR = {3: "var(--good)", 2: "var(--s1)", 1: "var(--warn)", 0: "var(--ink-3)"}
+
+
+def reliability_ring(conf, size=54):
+    """Quattro tacche, non una percentuale.
+
+    Il riferimento grafico mostrava "80%". Non lo scriviamo, perche' non
+    esiste: quello che misuriamo e' se il modello batte i riferimenti banali a
+    quella scadenza, non la probabilita' che la previsione sia giusta. Un
+    numero col segno di percentuale verrebbe letto come la seconda cosa.
+    Quattro tacche piene su quattro dicono quanto sappiamo, e la parola sta
+    accanto - dentro non ci sta, e "Tendenza" tagliato a meta' e' peggio che
+    non averla.
+    """
+    liv = int((conf or {}).get("livello") or 0)
+    color = RING_COLOR[liv]
+    r = size / 2.0 - 5
+    cx = cy = size / 2.0
+    circ = 2 * math.pi * r
+    seg = circ / 4.0
+    dash = seg * 0.74                       # un quarto di giro, meno lo stacco
+    parts = []
+    for i in range(4):
+        on = i <= liv
+        parts.append(
+            '<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="%s" '
+            'stroke-width="5.5" stroke-linecap="round" stroke-dasharray="%.2f %.2f" '
+            'stroke-dashoffset="%.2f"/>'
+            % (cx, cy, r, color if on else "var(--line)",
+               dash, circ - dash, -(i * seg + (seg - dash) / 2.0)))
+    return ('<svg class="ring" width="%d" height="%d" viewBox="0 0 %d %d" '
+            'role="img" aria-label="Affidabilit\u00e0 %s" '
+            'style="transform:rotate(-90deg)">%s</svg>'
+            % (size, size, size, size, E(RING_WORD[liv]), "".join(parts)))
+
+
+PAROLE_DIR = ["nord", "nord-est", "est", "sud-est",
+              "sud", "sud-ovest", "ovest", "nord-ovest"]
+
+
+def direzione_parole(deg):
+    """La provenienza a parole, per chi non legge le sigle a colpo d'occhio."""
+    if deg is None:
+        return ""
+    return PAROLE_DIR[int((deg % 360) / 45.0 + 0.5) % 8]
+
+
+def sky_words(profile):
+    """Cielo e temperatura dai modelli, in due parole e un numero."""
+    clouds = [r["cloud"] for r in profile if r.get("cloud") is not None]
+    temps = [r["t2m"] for r in profile if r.get("t2m") is not None]
+    rain = [r["precip"] for r in profile if r.get("precip") is not None]
+    out = {}
+    if temps:
+        out["tmax"] = max(temps)
+    if rain and sum(rain) > 1.0:
+        out["sky"] = "pioggia"
+    elif clouds:
+        c = sum(clouds) / len(clouds)
+        out["sky"] = ("sereno" if c < 25 else "poco nuvoloso" if c < 55
+                      else "nuvoloso" if c < 85 else "coperto")
+    return out
+
+
+def now_column(place, index, live, profile):
+    """Colonna di sinistra: quanto tira ADESSO, con l'ora del dato.
+
+    L'orario dell'ultima lettura non e' un dettaglio tecnico: senza di esso
+    "14 kn" e' un numero senza tempo, e a Torbole fra le 11 e le 12 il vento
+    cambia del doppio. Quando il dato invecchia, lo diciamo in giallo.
+    """
+    spots = place_spots(place)
+    regimi = " \u00b7 ".join(
+        "%s (%s)" % (lab, when) for key, lab, when in META_REGIME if key in spots)
+    head = ('<div class="pname"><span class="mark">%s</span>'
+            '<h2 class="display">%s</h2></div>'
+            '<p class="pregimi">%s</p>'
+            % (arrow(0, 17, "var(--pc)") if False else
+               '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
+               '<path d="M2 11 L8 3 L14 11 Z" fill="var(--pc)"/></svg>',
+               E(place), E(regimi)))
+
+    if not live or live.get("wind") is None:
+        return (head + '<p class="lbl">Condizioni attuali</p>'
+                '<div class="novalue">nessuna lettura</div>')
+
+    age = live.get("age_min")
+    hhmm_txt = ""
+    dt = parse_dt_any(live.get("ts") or "")
+    if dt:
+        hhmm_txt = to_local(dt).strftime("%H:%M")
+    if age is None:
+        when = "orario sconosciuto"
+    elif age < 12:
+        when = "adesso"
+    elif age < 180:
+        when = "%d min fa" % round(age)
+    else:
+        when = "dato non recente"
+    gust = ('<div class="nowgust">raffica <b>%.0f kn</b></div>' % live["gust"]
+            if live.get("gust") else
+            '<div class="nowgust" style="color:var(--ink-3)">raffica non disponibile</div>')
+    cond = sky_words(profile)
+    bits = []
+    if cond.get("tmax") is not None:
+        bits.append("<b>%.0f \u00b0C</b> aria" % cond["tmax"])
+    if cond.get("sky"):
+        bits.append(E(cond["sky"]))
     return (
-        '<div class="strip" role="img" aria-label="%.0f nodi attesi, da %.0f a %.0f, '
-        'planata sopra %.0f">'
-        '<div class="track"></div>'
-        '<div class="band" style="left:%.1f%%;width:%.1f%%;background:%s"></div>'
-        '<div class="bar" style="width:%.1f%%;background:%s;opacity:%s"></div>'
-        '<div class="thr" data-l="planata" style="left:%.1f%%"></div>'
-        '<div class="dot" style="left:%.1f%%;background:%s"></div>'
-        '</div>'
-        % (value, lo, hi, threshold,
-           a, max(1.5, b - a), color,
-           v, color, ".55" if muted else ".85",
-           pct(threshold), v, "var(--ink-3)" if muted else color))
+        head +
+        '<p class="lbl">Condizioni attuali</p>'
+        '<div class="nowbig"><div class="v">%.0f <small>kn</small></div>'
+        '<div class="compass">%s<span><b>%s</b>%s</span></div></div>'
+        '%s<div class="nowmeta%s"><span>%s</span>%s</div>'
+        '%s'
+        % (live["wind"], arrow(live.get("dir"), 26, "var(--pc)"),
+           E(compass(live.get("dir")) or "\u2014"),
+           ('<small>da %s</small>' % E(direzione_parole(live.get("dir"))))
+           if live.get("dir") is not None else "",
+           gust, " stale" if live.get("stale") else "", E(when),
+           ('<span>ultimo dato %s</span>' % hhmm_txt) if hhmm_txt else "",
+           ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits)) if bits else ""))
 
 
-def scale_bar(scale_max, steps=3):
-    """Righello in nodi, allineato esattamente alla colonna delle barre."""
-    marks = ['<span style="left:0">0</span>']
-    for i in range(1, steps + 1):
-        pos = 100.0 * i / steps
-        marks.append('<span style="left:%.1f%%">%d</span>' % (pos, round(scale_max * i / steps)))
-    return ('<div class="scalerow"><div class="sp">NODI</div>'
-            '<div class="scale">%s</div><div class="rt">00</div></div>'
-            % "".join(marks))
+def place_chart(place, profile, bands, chart_id):
+    """La giornata di un luogo: vento medio e raffica.
 
-
-def hourly_chart(profiles, bands, chart_id, best_hours=None):
-    """Andamento della giornata, una linea per luogo.
-
-    Due serie soltanto, con etichetta diretta a fine linea oltre al colore:
-    l'identita' non dipende mai dal colore da solo. Sotto l'asse, una riga di
-    frecce con la direzione prevista: per chi va in acqua "da dove viene" conta
-    quanto "quanto tira", e nessun numero lo dice altrettanto in fretta.
+    Due curve, distinte da tratto e da etichetta diretta oltre che dal colore -
+    la raffica e' tratteggiata, e resta leggibile anche per chi non separa il
+    rosa dall'arancione. Lo sfondo porta le finestre dei due regimi, con il
+    nome scritto: "meglio fra le 14 e le 18" si capisce prima guardando dove
+    sta la campana che leggendo una riga di testo.
     """
-    series = [(place, sorted(rows, key=lambda r: r["hour"]))
-              for place, rows in profiles if rows]
-    if not series:
+    rows = sorted([r for r in profile if r.get("wind") is not None],
+                  key=lambda r: r["hour"])
+    if len(rows) < 3:
         return ""
-    hours = sorted({r["hour"] for _p, rows in series for r in rows})
-    if len(hours) < 3:
-        return ""
-
-    W, H = 760.0, 270.0
-    pl, pr, pt, pb = 34.0, 84.0, 16.0, 52.0
-    peak = max([r["hi"] for _p, rows in series for r in rows] + [12.0])
+    hours = [r["hour"] for r in rows]
+    # Il disegno e' vettoriale e si adatta alla colonna, ma il TESTO dentro si
+    # adatta con lui: con un viewBox largo 760 dentro una colonna da 370 px di
+    # telefono, un font 11 arriva a schermo a 5 px. La tela e' dimensionata
+    # vicino alla larghezza reale sul telefono, cosi' su desktop il grafico si
+    # ingrandisce - e le scritte con lui - invece di rimpicciolirsi.
+    W, H = 440.0, 280.0
+    pl, pr, pt, pb = 28.0, 50.0, 26.0, 50.0
+    peak = max([r["gust"] for r in rows] + [12.0])
     top = max(15.0, 5 * math.ceil(peak / 5.0))
+    step = 5 if top <= 30 else 10
 
     def x(h):
         return pl + (W - pl - pr) * ((h - hours[0]) / max(1, hours[-1] - hours[0]))
@@ -411,297 +579,327 @@ def hourly_chart(profiles, bands, chart_id, best_hours=None):
     def y(v):
         return H - pb - (H - pb - pt) * (max(0.0, min(top, v)) / top)
 
-    colors = ["var(--s1)", "var(--s2)"]
-    softs = ["var(--s1-soft)", "var(--s2-soft)"]
-    p = ['<defs>']
-    for i in range(len(series)):
-        p.append('<linearGradient id="%s-g%d" x1="0" y1="0" x2="0" y2="1">'
-                 '<stop offset="0%%" stop-color="%s" stop-opacity=".34"/>'
-                 '<stop offset="100%%" stop-color="%s" stop-opacity="0"/></linearGradient>'
-                 % (chart_id, i, colors[i], colors[i]))
-    p.append('</defs>')
+    p = ['<defs><linearGradient id="%s-g" x1="0" y1="0" x2="0" y2="1">'
+         '<stop offset="0%%" stop-color="var(--pc)" stop-opacity=".33"/>'
+         '<stop offset="100%%" stop-color="var(--pc)" stop-opacity="0"/>'
+         '</linearGradient></defs>' % chart_id]
 
     for band in bands:
         a, b = max(band["from"], hours[0]), min(band["to"], hours[-1])
         if b <= a:
             continue
-        p.append('<rect x="%.1f" y="%g" width="%.1f" height="%.1f" fill="var(--card-2)" '
-                 'rx="6"/>' % (x(a), pt, x(b) - x(a), H - pb - pt))
-        p.append('<text x="%.1f" y="%g" font-size="11" font-weight="700" '
-                 'letter-spacing=".1em" fill="var(--ink-3)">%s</text>'
-                 % (x(a) + 7, pt + 15, E(band["label"].upper())))
+        p.append('<rect x="%.1f" y="%g" width="%.1f" height="%.1f" fill="%s" rx="6"/>'
+                 % (x(a), pt, x(b) - x(a), H - pb - pt, band["fill"]))
+        # Un bordo verticale al confine: due riquadri quasi dello stesso grigio
+        # si distinguono male, e sapere DOVE finisce il Peler e comincia l'Ora
+        # e' mezza informazione della giornata.
+        p.append('<line x1="%.1f" y1="%g" x2="%.1f" y2="%g" stroke="var(--axis)" '
+                 'stroke-width="1" stroke-dasharray="3 4" opacity=".7"/>'
+                 % (x(a), pt, x(a), H - pb))
+        p.append('<text x="%.1f" y="%g" font-size="10.5" font-weight="800" '
+                 'letter-spacing=".1em" fill="var(--ink-2)">%s</text>'
+                 % (x(a) + 7, pt - 9, E(band["label"].upper())))
+        p.append('<text x="%.1f" y="%g" font-size="10" fill="var(--ink-3)">'
+                 '%02d\u2013%02d</text>'
+                 % (x(a) + 7, pt + 14, band["from"], band["to"]))
 
-    for v in range(0, int(top) + 1, 5):
+    for v in range(0, int(top) + 1, step):
         yy = y(v)
         p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" stroke="var(--grid)" '
                  'stroke-width="1"/>' % (pl, yy, W - pr, yy))
-        p.append('<text x="%g" y="%.1f" text-anchor="end" font-size="11.5" '
+        p.append('<text x="%g" y="%.1f" text-anchor="end" font-size="11" '
                  'fill="var(--ink-3)">%d</text>' % (pl - 7, yy + 4, v))
 
-    for i, (_place, rows) in enumerate(series):
-        area = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["wind"])) for r in rows)
-        p.append('<polygon points="%.1f,%.1f %s %.1f,%.1f" fill="url(#%s-g%d)"/>'
-                 % (x(rows[0]["hour"]), H - pb, area, x(rows[-1]["hour"]), H - pb,
-                    chart_id, i))
-        hi = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["hi"])) for r in rows)
-        lo = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["lo"])) for r in reversed(rows))
-        p.append('<polygon points="%s %s" fill="%s" opacity=".5"/>' % (hi, lo, softs[i]))
+    area = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["wind"])) for r in rows)
+    p.append('<polygon points="%.1f,%.1f %s %.1f,%.1f" fill="url(#%s-g)"/>'
+             % (x(hours[0]), H - pb, area, x(hours[-1]), H - pb, chart_id))
 
-    for i, (place, rows) in enumerate(series):
-        pts = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["wind"])) for r in rows)
-        p.append('<polyline points="%s" fill="none" stroke="%s" stroke-width="3" '
-                 'stroke-linejoin="round" stroke-linecap="round"/>' % (pts, colors[i]))
-        top_row = max(rows, key=lambda r: r["wind"])
-        p.append('<circle cx="%.1f" cy="%.1f" r="5" fill="%s" stroke="var(--card)" '
-                 'stroke-width="2.5"/>' % (x(top_row["hour"]), y(top_row["wind"]), colors[i]))
-        p.append('<text x="%.1f" y="%.1f" font-size="12" font-weight="800" fill="%s">'
-                 '%.0f kn</text>'
-                 % (x(top_row["hour"]) + 9, y(top_row["wind"]) - 7, colors[i],
-                    top_row["wind"]))
-        last = rows[-1]
-        p.append('<text x="%.1f" y="%.1f" font-size="12.5" font-weight="700" fill="%s">'
-                 '%s</text>' % (x(last["hour"]) + 9, y(last["wind"]) + 4, colors[i],
-                                E(place)))
+    gust = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["gust"])) for r in rows)
+    p.append('<polyline points="%s" fill="none" stroke="var(--gust)" stroke-width="2" '
+             'stroke-dasharray="7 5" stroke-linecap="round"/>' % gust)
+    p.append('<polyline points="%s" fill="none" stroke="var(--pc)" stroke-width="2.8" '
+             'stroke-linejoin="round" stroke-linecap="round"/>' % area)
 
-    # Frecce di direzione della serie principale, una ogni due ore.
-    main = series[0][1]
-    ay = H - pb + 20
-    for r in main:
+    hi = max(rows, key=lambda r: r["wind"])
+    p.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="var(--pc)" '
+             'stroke="var(--card)" stroke-width="2.5"/>'
+             % (x(hi["hour"]), y(hi["wind"])))
+    p.append('<text x="%.1f" y="%.1f" font-size="12.5" font-weight="800" '
+             'fill="var(--pc)">%.0f kn</text>'
+             % (x(hi["hour"]) + 8, y(hi["wind"]) - 8, hi["wind"]))
+    last = rows[-1]
+    p.append('<text x="%.1f" y="%.1f" font-size="11.5" font-weight="700" '
+             'fill="var(--pc)">medio</text>' % (x(last["hour"]) + 7, y(last["wind"]) + 4))
+    p.append('<text x="%.1f" y="%.1f" font-size="11.5" font-weight="700" '
+             'fill="var(--gust)">raffica</text>'
+             % (x(last["hour"]) + 7, y(last["gust"]) + 4))
+
+    ay = H - pb + 22
+    for r in rows:
         if r["hour"] % 2 or r.get("dir") is None:
             continue
-        p.append('<g transform="translate(%.1f %g) rotate(%.0f) scale(.62)" '
-                 'opacity=".75">'
+        p.append('<g transform="translate(%.1f %g) rotate(%.0f) scale(.6)" opacity=".7">'
                  '<path d="M0 -9 L0 9 M0 9 L-4.4 3.4 M0 9 L4.4 3.4" fill="none" '
-                 'stroke="%s" stroke-width="2.6" stroke-linecap="round" '
+                 'stroke="var(--ink-2)" stroke-width="2.8" stroke-linecap="round" '
                  'stroke-linejoin="round"/></g>'
-                 % (x(r["hour"]), ay, (r["dir"] or 0) % 360, colors[0]))
+                 % (x(r["hour"]), ay, (r["dir"] or 0) % 360))
 
     for h in hours:
         if h % 2 == 0:
-            p.append('<text x="%.1f" y="%g" text-anchor="middle" font-size="11.5" '
-                     'fill="var(--ink-3)">%02d</text>' % (x(h), H - pb + 2, h))
+            p.append('<text x="%.1f" y="%g" text-anchor="middle" font-size="11" '
+                     'fill="var(--ink-3)">%02d</text>' % (x(h), H - pb + 4, h))
 
     p.append('<line id="%s-cross" x1="0" y1="%g" x2="0" y2="%g" stroke="var(--axis)" '
              'stroke-width="1.5" opacity="0"/>' % (chart_id, pt, H - pb))
 
-    payload = []
-    for h in hours:
-        e = {"h": h}
-        for place, rows in series:
-            m = [r for r in rows if r["hour"] == h]
-            if m:
-                e[place] = [round(m[0]["wind"], 1), round(m[0]["gust"], 1),
-                            compass(m[0].get("dir"))]
-        payload.append(e)
-
-    head = "".join('<th class="num">%s</th>' % E(pl_) for pl_, _r in series)
-    body = []
-    for e in payload:
-        cells = "".join(
-            '<td class="num">%s</td>'
-            % (("%.0f <span style='opacity:.6'>(%.0f) %s</span>"
-                % (e[pl_][0], e[pl_][1], E(e[pl_][2]))) if pl_ in e else "—")
-            for pl_, _r in series)
-        body.append("<tr><td>%02d:00</td>%s</tr>" % (e["h"], cells))
-
-    legend = "".join('<span><i style="background:%s"></i>%s</span>' % (colors[i], E(pl_))
-                     for i, (pl_, _r) in enumerate(series))
+    payload = [{"h": r["hour"],
+                place: [round(r["wind"], 1), round(r["gust"], 1),
+                        compass(r.get("dir"))]} for r in rows]
+    body = "".join(
+        "<tr><td>%02d:00</td><td class='num'>%.0f</td><td class='num'>%.0f</td>"
+        "<td class='num'>%s</td></tr>"
+        % (r["hour"], r["wind"], r["gust"], E(compass(r.get("dir")) or "\u2014"))
+        for r in rows)
 
     return (
         '<div class="chartwrap">'
         '<svg class="chart" id="%s" viewBox="0 0 %g %g" role="img" '
-        'aria-label="Vento previsto ora per ora">%s</svg>'
+        'aria-label="Vento previsto a %s, ora per ora">%s</svg>'
         '<div class="tip" id="%s-tip"></div></div>'
-        '<div class="legend">%s'
-        '<span><i style="background:var(--card-2);height:10px"></i>finestra del regime</span>'
-        '<span><i style="background:var(--s1-soft);height:10px"></i>incertezza</span>'
+        '<div class="legend">'
+        '<span style="color:var(--pc)"><i></i>vento medio</span>'
+        '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
+        '<span style="color:var(--ink-3)"><i class="box" '
+        'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
         '<span>frecce: da dove viene</span></div>'
-        '<details class="tbl"><summary>i numeri, ora per ora (medio, raffica, direzione)'
-        '</summary><table><tr><th>Ora</th>%s</tr>%s</table></details>'
-        '<script>gwChart(%s,%s,%g,%g,%g,%g,%g);</script>'
-        % (chart_id, W, H, "".join(p), chart_id, legend, head, "".join(body),
+        '<details class="tbl"><summary>i numeri, ora per ora</summary>'
+        '<div class="scroller"><table><tr><th>Ora</th><th class="num">Medio</th>'
+        '<th class="num">Raffica</th><th class="num">Da</th></tr>%s</table></div>'
+        '</details>'
+        # In coda, non chiamata diretta: questo <script> sta nel corpo e
+        # gwChart e' definita in fondo alla pagina, quindi una chiamata qui
+        # arriva prima della definizione. Era rotto da sempre - "gwChart is
+        # not defined" dieci volte per pagina, e il tooltip dei grafici non
+        # ha mai funzionato. La coda viene svuotata quando la funzione esiste.
+        '<script>(window.gwq=window.gwq||[]).push([%s,%s,%g,%g,%g,%g,%g]);</script>'
+        % (chart_id, W, H, E(place), "".join(p), chart_id, body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
 
 
-# --------------------------------------------------------------------------
-# Home
-# --------------------------------------------------------------------------
-
-def now_card(place, live):
-    if not live or live.get("wind") is None:
-        return ('<div class="nowcard stale"><div><div class="place">%s</div>'
-                '<div class="val">—</div><div class="meta">nessuna lettura</div></div></div>'
-                % E(place))
-    age = live["age_min"]
-    when = ("adesso" if age is not None and age < 12 else
-            "%d min fa" % age if age is not None and age < 180 else "dato non recente")
-    gust = " · raffica %.0f kn" % live["gust"] if live.get("gust") else ""
-    return (
-        '<div class="nowcard%s">%s<div><div class="place">%s · adesso</div>'
-        '<div class="val">%.0f <small>kn %s</small></div>'
-        '<div class="meta">%s%s</div></div></div>'
-        % (" stale" if live["stale"] else "", arrow(live["dir"], 26, "var(--s1)"), E(place),
-           live["wind"], E(compass(live["dir"])), when, gust))
-
-
-def other_wind_note(spot_name, data):
-    """Che succede se il regime non entra ma il vento c'e' lo stesso."""
-    other = data.get("other_wind")
-    if not other or other.get("dir") is None:
-        return ""
-    # Con vento debole non c'e' niente da segnalare: la riga dice gia' che
-    # non si naviga, e ripeterlo con un riquadro e' solo rumore.
-    if not other["usable"] and other["speed"] < 8.0:
-        return ""
-    spot = config.SPOTS[spot_name]
-    regime = "Pelèr" if spot["regime"] == "PELER" else "Ora"
-    card = compass(other["dir"])
-    if other["usable"]:
-        testa = ("Il %s non entra, ma i modelli danno <b>%.0f kn da %s</b>"
-                 % (regime, other["speed"], card))
-        coda = (" — lungo il lago, quindi navigabile."
-                if other.get("along_lake") else
-                " — vento trasversale: sul lago è di solito irregolare e rafficato.")
-    else:
-        testa = ("Il %s non entra. Il vento previsto viene da <b>%s</b>, "
-                 "%.0f kn: poco per uscire" % (regime, card, other["speed"]))
-        coda = "."
-    return ('<div class="other">%s%s<br>'
-            '<span style="opacity:.85">Questo numero è il vento grezzo dei modelli, '
-            'non corretto: la correzione appresa vale per il %s, e oggi il %s non è '
-            'quello che soffia.</span></div>'
-            % (testa, coda, regime, regime))
-
-
-def session_row(spot_name, data, scale_max, color):
-    spot = config.SPOTS[spot_name]
-    win = data["window"]
-    # Il modello "raffica di giornata" non prevede un vento medio ma il picco
-    # di raffica: presentarlo con le stesse parole dell'Ora farebbe leggere
-    # 38 nodi di media dove ci sono 38 nodi di punta.
-    daily = spot["target"] == "daily_gust"
-    strip = range_strip(data["lo"], data["hi"], data["speed"],
-                        spot["planing_kn"], scale_max, color, muted=daily)
-
-    # Quando il regime e' improbabile, l'intensita' mostrata e' condizionata a
-    # un evento che quasi certamente non succede: resta scritta per onesta',
-    # ma non deve catturare l'occhio, e i dettagli operativi spariscono.
-    faint = (not daily) and data["prob"] < 0.30
-
-    conf = data.get("affidabilita") or {}
-    # I minuti dipendono SOLO da quanto vale l'orario a questa scadenza, non
-    # dall'etichetta complessiva: sono due cose diverse e tenerle legate faceva
-    # comparire "08:10" su schede dove l'ora e' incerta di un'ora e mezza.
-    mis = (conf.get("componenti") or {}).get("timing_min")
-    tvoice = confidence.timing_voice({"timing": {"mae_min": mis}} if mis else None)
-    tmbadge = timing_badge(tvoice)
-    orario_fine = tvoice["fine"]
-
-    if daily:
-        bits = ['<span class="tag">picco di raffica, non media</span>']
-        caption = "sopra %d kn" % round(spot["min_kn"])
-    else:
-        bits = [verdict_chip(data["grade"], data["speed"], data["prob"])]
-        ph = data.get("peak_hour")
-        mae = data.get("peak_hour_mae_min")
-        if ph is not None and data["prob"] >= 0.35 and orario_fine:
-            precision = (" ±%d min" % round(mis)) if mis and mis >= 10 else ""
-            bits.append('<span class="tag">picco ~%02d:%02d%s</span>'
-                        % (int(ph), int(round((ph % 1) * 60 / 15) * 15) % 60, precision))
-        # Nessun ramo "else": la voce sull'orario non e' un ripiego di quando
-        # i minuti non si possono scrivere, e' una riga che c'e' sempre. Viene
-        # aggiunta piu' sotto, accanto all'etichetta di affidabilita'.
-        if win and not faint:
-            if orario_fine and win.get("from_min") is not None:
-                bits.append('<span class="tag">finestra migliore <b>%s–%s</b></span>'
-                            % (hhmm(win["from_min"]), hhmm(win["to_min"])))
-            else:
-                bits.append('<span class="tag">meglio fra le %02d e le %02d</span>'
-                            % (win["from"], win["to"]))
-            bits.append('<span class="tag">raffiche ~%.0f kn</span>' % win["gust"])
-        hint = engine.wing_hint(data["speed"])
-        if hint and data["prob"] >= 0.4:
-            bits.append('<span class="tag">wing %s</span>' % E(hint))
-        caption = "se entrasse" if faint else "che entri"
-    dirbit = ""
-    if data.get("dir") is not None:
-        dirbit = ('<span class="tag">%s da <b>%s</b></span>'
-                  % (arrow(data["dir"], 15, "currentColor"), E(compass(data["dir"]))))
-    return (
-        '<div class="row%s">'
-        '<div class="spot"><span class="swatch" style="background:%s"></span>%s</div>'
-        '<div>%s</div>'
-        '<div class="num"><div class="kn">%.0f <small>kn</small></div>'
-        '<div class="pct">%d%% che entri</div>%s</div>'
-        '<div class="detail">%s%s%s</div>%s</div>'
-        % (" faint" if faint else "", color, E(spot["place"]), strip, data["speed"],
-           round(data["prob"] * 100),
-           ('<div class="pct">%s</div>' % E(caption)) if caption != "che entri" else "",
-           confidence_badge(conf, compact=True) + tmbadge, "".join(bits), dirbit,
-           other_wind_note(spot_name, data)))
-
-
-def day_block(entry, index):
-    sessions = entry["sessions"]
-    name, date = day_title(entry["day"], entry["lead"])
-
-    scale_max = 5 * math.ceil(max([20.0] + [s["hi"] for s in sessions.values()]) / 5.0)
-    colors = {place: ["var(--s1)", "var(--s2)"][i % 2]
-              for i, place in enumerate(config.PLACES)}
-
-    blocks, bands = [], []
-    for label, regime in SESSION_ORDER:
-        members = [(n, sessions[n]) for n in config.SPOT_ORDER
-                   if n in sessions and config.SPOTS[n]["regime"] == regime]
-        if not members:
+def half_cards(place, sessions):
+    """Mattina contro pomeriggio, affiancate, con la stessa grammatica."""
+    spots = place_spots(place)
+    cards = []
+    for key, lab, when in META_REGIME:
+        name = spots.get(key)
+        data = sessions.get(name) if name else None
+        if not data:
             continue
-        w0 = min(config.SPOTS[n]["window"][0] for n, _d in members)
-        w1 = max(config.SPOTS[n]["window"][1] for n, _d in members)
-        if regime != "GIORNO":
-            start = w0
-            if bands:                      # niente sovrapposizioni fra le fasce
-                start = max(start, bands[-1]["to"])
-                bands[-1]["to"] = min(bands[-1]["to"], w0 + 1)
-            bands.append({"from": start, "to": w1 + 1,
-                          "label": label.split("·")[-1].strip()})
-        rows = "".join(session_row(n, d, scale_max, colors[config.SPOTS[n]["place"]])
-                       for n, d in members)
-        blocks.append(
-            '<div class="session"><div class="shead"><span class="name">%s</span>'
-            '<span class="when">%02d:00 – %02d:00</span></div>%s%s</div>'
-            % (E(label), w0, w1 + 1, scale_bar(scale_max), rows))
+        spot = config.SPOTS[name]
+        cls, word = quality(data, spot)
+        h0, h1 = spot["window"]
+        win = data.get("window")
+        # I minuti compaiono SOLO se esiste una finestra di ingresso con
+        # copertura misurata a questa scadenza. Senza quella misura si scrive
+        # l'ora piena: e' meno preciso ed e' vero, mentre "meglio 14:20-17:40"
+        # senza copertura nota e' preciso e non si sa se e' vero.
+        ing = data.get("ingresso")
+        if win and ing and win.get("from_min") is not None:
+            wtxt = "meglio %s\u2013%s" % (hhmm(win["from_min"]), hhmm(win["to_min"]))
+        elif win:
+            wtxt = "meglio fra le %02d e le %02d" % (win["from"], win["to"])
+        else:
+            wtxt = "nessuna finestra"
+        cards.append(
+            '<div class="half"><div class="h">%s \u00b7 %s</div>'
+            '<div class="when">%02d:00 \u2013 %02d:00</div>'
+            '<div class="q q-%s"><i></i>%s</div>'
+            '<div class="kn">%.0f\u2013%.0f <small>kn</small></div>'
+            '<div class="win">%s</div></div>'
+            % (E(when.upper()), E(lab), h0, h1 + 1, cls, E(word),
+               data["lo"], data["hi"], E(wtxt)))
+    return '<div class="halves">%s</div>' % "".join(cards) if cards else ""
 
-    profiles = [(place, entry["places"][place]["profile"]) for place in config.PLACES]
-    chart = hourly_chart(profiles, bands, "d%d" % index)
 
-    any_s = next(iter(sessions.values()))
-    trust = [SOURCE_LABEL.get(any_s["source"], any_s["source"])]
-    # L'errore medio si dichiara solo dove e' stato misurato A QUESTA SCADENZA.
-    # Prestare il numero di D+0 a un giorno lontano e' il modo piu' elegante di
-    # dire una cosa falsa: la cifra e' vera, ma non parla di quel giorno.
-    if any_s.get("mae") is not None and any_s.get("validata"):
-        trust.append("errore medio fuori campione <b>±%.1f kn</b>" % any_s["mae"])
-    elif any_s.get("mae") is not None:
-        trust.append("errore misurato solo a giornata in corso (±%.1f kn); "
-                     "a questa scadenza non è stato misurato" % any_s["mae"])
-    if any_s.get("band_source"):
-        trust.append("banda da %s" % E(any_s["band_source"]))
-    if any_s.get("peak_hour_mae_min"):
-        trust.append("orario del picco <b>±%d min</b>" % round(any_s["peak_hour_mae_min"]))
-    trust.append("<b>%d modelli</b> disponibili a questa scadenza" % any_s["n_models"])
-    trust.append("pesi %s" % any_s["weights"])
+def best_callout(place, sessions):
+    """Una frase: dove sta la giornata. E se non c'e', lo dice."""
+    spots = place_spots(place)
+    best = None
+    for key, lab, when in META_REGIME:
+        name = spots.get(key)
+        data = sessions.get(name) if name else None
+        if not data:
+            continue
+        spot = config.SPOTS[name]
+        cls, _word = quality(data, spot)
+        score = (data.get("prob") or 0.0) * min(
+            (data.get("speed") or 0.0) / spot["planing_kn"], 1.6)
+        if best is None or score > best[0]:
+            best = (score, cls, lab, when, data, spot)
+    if best is None:
+        return ('<div class="callout no"><div class="big no">Nessun dato</div>'
+                '<p>Per questo giorno non c\u2019\u00e8 ancora una previsione.</p></div>')
+    _score, cls, lab, when, data, spot = best
+    if cls == "no":
+        return ('<div class="callout no"><div class="big no">Niente da fare</div>'
+                '<p>N\u00e9 la mattina n\u00e9 il pomeriggio arrivano a vento '
+                'navigabile.</p></div>')
+    win = data.get("window") or {}
+    gust = (" \u00b7 raffiche fino a <b>%.0f kn</b>" % win["gust"]) if win.get("gust") else ""
+    hint = engine.wing_hint(data.get("speed") or 0.0)
+    wing = (" \u00b7 wing %s" % E(hint)) if hint and (data.get("prob") or 0) >= 0.4 else ""
+    return ('<div class="callout %s"><div class="big %s">Meglio %s</div>'
+            '<p>%s fino a <b>%.0f kn</b>%s%s</p></div>'
+            % (cls, cls, E("la mattina" if when == "mattina" else "nel pomeriggio"),
+               E(lab), data.get("speed") or 0.0, gust, wing))
 
-    # L'intestazione del giorno porta il livello PIU' BASSO fra le sessioni
-    # mostrate: letta da sola verrebbe presa per un giudizio sul giorno, e non
-    # puo' promettere piu' di quanto prometta la riga piu' debole. Il livello
-    # per singolo spot-regime resta su ciascuna riga, che e' dove si decide.
-    lead_note = confidence_badge(
-        confidence.sintesi_giorno([s.get("affidabilita") for s in sessions.values()]))
 
-    return ('<section class="day"><div class="dayhead"><h2 class="display">%s</h2>'
-            '<span class="date">%s</span>%s</div>%s%s'
-            '<div class="trust">%s</div></section>'
-            % (E(name), E(date), lead_note, "".join(blocks), chart, " · ".join(trust)))
+def timing_line(place, sessions):
+    """La seconda voce, indipendente dalla prima: a che ora entra.
+
+    Qui NON compare l'errore medio del modello. Un "\u00b180 min" e' una
+    misura vera che come informazione operativa non serve a niente: chi deve
+    decidere se partire da casa non sa cosa farne. Al suo posto c'e' la
+    finestra di ingresso con la sua COPERTURA misurata - quanti ingressi reali
+    cadono davvero dentro - e quando quella misura non esiste, o non batte il
+    climatologico, si dichiara la fascia larga e si dice che l'orario e'
+    incerto. L'errore medio resta in diagnostica, che e' il posto dove serve.
+    """
+    spots = place_spots(place)
+    best = None
+    for key, _lab, _when in META_REGIME:
+        name = spots.get(key)
+        data = sessions.get(name) if name else None
+        if not data:
+            continue
+        ing = data.get("ingresso")
+        if ing and (best is None or ing["half_min"] < best[0]["half_min"]):
+            best = (ing, name)
+    if best:
+        ing = best[0]
+        return ('<div class="tmline tm-3"><i></i><span>Ingresso pi\u00f9 probabile '
+                '<b>%s</b> \u00b7 \u00b1%d min, copre il %d%% delle volte</span></div>'
+                % (hhmm(ing["min"]), round(ing["half_min"]),
+                   round(ing["coverage"] * 100)))
+    return ('<div class="tmline tm-1"><i></i><span>Orario <b>incerto</b> \u2014 '
+            'vale la fascia, non un\u2019ora precisa</span></div>')
+
+
+def regime_bands(place):
+    """Le finestre dei due regimi, senza sovrapposizioni."""
+    spots = place_spots(place)
+    fills = {"PELER": "#1a2635", "ORA": "#20303f"}
+    out = []
+    for key, lab, _when in META_REGIME:
+        name = spots.get(key)
+        if not name:
+            continue
+        h0, h1 = config.SPOTS[name]["window"]
+        if out and h0 < out[-1]["to"]:
+            out[-1]["to"] = h0
+        out.append({"from": h0, "to": h1 + 1, "label": lab, "fill": fills[key]})
+    return out
+
+
+def source_note(place, sessions):
+    """Se il numero non e' ancora calibrato su quella centralina, lo si dice."""
+    fonti = [sessions[n].get("source") for n in place_spots(place).values()
+             if n in sessions]
+    for key in FONTI_DA_DICHIARARE:
+        if key in fonti:
+            return '<div class="snote">%s</div>' % E(SOURCE_LABEL[key])
+    return ""
+
+
+def place_section(place, index, entry, visible):
+    """Una sezione per luogo: adesso, poi il grafico, poi il giudizio."""
+    sessions = entry["sessions"]
+    pl = entry["places"][place]
+    conf = confidence.sintesi_giorno(
+        [sessions[n].get("affidabilita") for n in place_spots(place).values()
+         if n in sessions])
+    return (
+        '<section class="place p%d" data-day="%d" data-place="%s"%s>'
+        '<div class="pgrid">'
+        '<div class="pnow">%s</div>'
+        '<div class="pchart"><p class="lbl">Previsione vento</p>'
+        '<h3>%s</h3>%s</div>'
+        '<div class="pjudge">'
+        '<div class="ringrow">%s<div><p class="lbl">Affidabilit\u00e0</p>'
+        '<div class="rword" style="color:%s">%s</div>'
+        '<div class="rtxt">%s</div></div></div>%s'
+        '%s%s%s</div></div></section>'
+        % (index + 1, entry["_i"], E(place), "" if visible else " hidden",
+           now_column(place, index, pl.get("live"), pl.get("profile") or []),
+           E(day_title(entry["day"], entry["lead"])[1]),
+           place_chart(place, pl.get("profile") or [], regime_bands(place),
+                       "c%d%d" % (entry["_i"], index)),
+           reliability_ring(conf),
+           RING_COLOR[int((conf or {}).get("livello") or 0)],
+           E(RING_WORD[int((conf or {}).get("livello") or 0)]),
+           E((conf or {}).get("motivo") or (conf or {}).get("uso") or ""),
+           source_note(place, sessions),
+           best_callout(place, sessions),
+           half_cards(place, sessions),
+           timing_line(place, sessions)))
+
+
+def week_strip(days):
+    """Cinque giorni, compatti. Cliccando si cambia il giorno mostrato sopra."""
+    cards = []
+    for i, entry in enumerate(days):
+        sessions = entry["sessions"]
+        name, date = day_title(entry["day"], entry["lead"])
+        dt = parse_dt_any(entry["day"] + " 12:00:00")
+        best = None
+        for place in config.PLACES:
+            for n in place_spots(place).values():
+                d = sessions.get(n)
+                if not d:
+                    continue
+                spot = config.SPOTS[n]
+                score = (d.get("prob") or 0) * min(
+                    (d.get("speed") or 0) / spot["planing_kn"], 1.6)
+                if best is None or score > best[0]:
+                    best = (score, d, spot, config.SPOTS[n]["regime"])
+        if best:
+            _s, d, spot, regime = best
+            kn = ('%.0f <small>/ %.0f kn</small>'
+                  % (d.get("speed") or 0, (d.get("window") or {}).get("gust")
+                     or (d.get("speed") or 0) * 1.35))
+            # Il numero e' il migliore dei due luoghi: senza dire QUALE, la
+            # riga sarebbe una media di niente.
+            bestxt = "%s \u00b7 %s" % (
+                spot["place"],
+                "meglio la mattina" if regime == "PELER" else "meglio il pomeriggio")
+            if quality(d, spot)[0] == "no":
+                bestxt = "nessuna finestra"
+        else:
+            kn, bestxt = "\u2014", ""
+        confs = []
+        for place in config.PLACES:
+            c = confidence.sintesi_giorno(
+                [sessions[n].get("affidabilita") for n in place_spots(place).values()
+                 if n in sessions])
+            liv = int((c or {}).get("livello") or 0)
+            confs.append('<div><i class="cfd-%d"></i>%s \u00b7 %s</div>'
+                         % (liv, E(place), E(RING_WORD[liv].lower())))
+        cards.append(
+            '<button class="dcard" type="button" data-goto="%d" aria-current="%s">'
+            '<div class="dd">%s</div><div class="dl">%s</div>'
+            '<div class="dk">%s</div><div class="dbest">%s</div>'
+            '<div class="dconf">%s</div></button>'
+            % (i, "true" if i == 0 else "false", E(name),
+               "%s %d" % (GIORNI[dt.weekday()][:3], dt.day),
+               kn, E(bestxt), "".join(confs)))
+    return ('<section class="week"><div class="whead">'
+            '<h2 class="display">Previsione 5 giorni</h2>'
+            '<div class="wlegend">'
+            '<span><i style="background:var(--good)"></i>buono per wing</span>'
+            '<span><i style="background:var(--warn)"></i>discreto</span>'
+            '<span><i style="background:var(--crit)"></i>scarso</span>'
+            '</div></div><div class="days">%s</div></section>'
+            % "".join(cards))
 
 
 def sources_panel():
@@ -808,27 +1006,57 @@ def status_line():
             "bad" if engine.STATE["errors"] else "")
 
 
+# La previsione visibile si ferma a cinque giorni. Non e' una semplificazione
+# grafica: a sette giorni il Brier del Pel\u00e8r misurato e' 0,240 contro 0,238
+# climatologici, cioe' zero. Mostrare quei due giorni sarebbe riempire spazio
+# con qualcosa che non sa niente.
+MAX_GIORNI = 5
+
+
+def live_summary(days):
+    """Eta' del dato osservato piu' fresco fra le due centraline."""
+    if not days:
+        return "nessun dato dalle centraline", "bad"
+    ages = [pl["live"]["age_min"] for pl in days[0]["places"].values()
+            if pl.get("live") and pl["live"].get("age_min") is not None]
+    if not ages:
+        return "nessuna lettura dalle centraline", "bad"
+    a = min(ages)
+    if a < 12:
+        return "dati reali aggiornati adesso", ""
+    if a < 60:
+        return "dati reali aggiornati %d min fa" % round(a), ""
+    if a < 24 * 60:
+        return "ultimo dato reale %d ore fa" % round(a / 60.0), "warn"
+    return "dati reali non aggiornati", "bad"
+
+
 def page_home():
     engine.ensure_update(False)
-    days = engine.by_day()
+    days = engine.by_day()[:MAX_GIORNI]
+    for i, entry in enumerate(days):
+        entry["_i"] = i
     text, cls = status_line()
+    live_txt, live_cls = live_summary(days)
 
     if not days:
-        body = '<div class="panel"><div class="empty">Sto raccogliendo i dati…</div></div>'
+        body = ('<div class="panel"><div class="empty">Sto raccogliendo i dati\u2026'
+                '</div></div>')
     else:
-        first = days[0]["places"]
-        now = '<div class="now">%s</div>' % "".join(
-            now_card(place, first[place]["live"]) for place in config.PLACES)
-        body = now + "".join(day_block(d, i) for i, d in enumerate(days))
+        sezioni = "".join(
+            place_section(place, pi, entry, visible=(entry["_i"] == 0))
+            for entry in days
+            for pi, place in enumerate(config.PLACES))
+        body = sezioni + week_strip(days)
 
     return TEMPLATE % {
         "title": "Garda Wind",
-        "css": CSS, "wave": WAVE, "status": E(text), "dotcls": cls,
-        "nav": '<a href="/diagnostica">diagnostica</a> · <a href="/aggiorna">aggiorna</a>',
-        "body": body + sources_panel(),
+        "css": CSS, "status": E(text), "dotcls": cls,
+        "live": E(live_txt), "livecls": live_cls,
+        "nav": '<a href="/diagnostica">dati e modelli</a> · <a href="/aggiorna">aggiorna</a>',
+        "body": body,
         "reload": 8000 if engine.STATE["running"] else 900000,
     }
-
 
 # --------------------------------------------------------------------------
 # Diagnostica
@@ -1045,9 +1273,10 @@ def page_diagnostics():
     text, cls = status_line()
     return TEMPLATE % {
         "title": "Diagnostica",
-        "css": CSS, "wave": WAVE, "status": E(text), "dotcls": cls,
+        "css": CSS, "status": E(text), "dotcls": cls,
+        "live": "diagnostica", "livecls": "",
         "nav": '<a href="/">previsione</a> · <a href="/aggiorna?deep=1">ricalcola</a>',
-        "body": "".join(r),
+        "body": sources_panel() + "".join(r),
         "reload": 600000,
     }
 
@@ -1061,15 +1290,25 @@ Riaprila quando vuoi dall’icona dell’app.</p></body></html>"""
 
 TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <title>%(title)s</title><style>%(css)s</style></head><body>
 <header><div class="wrap"><div class="hbar">
-<h1 class="display">Garda Wind<span class="sub">Torbole &amp; Malcesine · Pel&egrave;r e Ora</span></h1>
-<div class="status"><span class="dot %(dotcls)s"></span>%(status)s &nbsp;·&nbsp; %(nav)s</div>
-</div></div>%(wave)s</header>
+<div class="brand">
+<svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
+<path d="M3 27 L13 9 L23 27 Z" fill="var(--s1)"/>
+<path d="M17 27 L25 13 L33 27 Z" fill="var(--s2)" opacity=".9"/>
+<path d="M2 31 C9 28 14 34 20 31 C26 28 31 33 36 30" fill="none" stroke="var(--ink-3)"
+ stroke-width="2" stroke-linecap="round"/></svg>
+<h1 class="display">Garda<em>Wind</em><span class="sub">Lago di Garda &middot;
+previsioni vento per wing</span></h1>
+</div>
+<div class="status"><span class="when">%(status)s</span>
+<span class="live"><span class="dot %(livecls)s"></span>%(live)s</span><br>%(nav)s</div>
+</div></div></header>
 <main class="wrap">%(body)s</main>
-<footer class="wrap">Previsione ricalcolata in locale e corretta sullo storico delle
-centraline. &nbsp;·&nbsp; <a href="/spegni">chiudi Garda Wind</a></footer>
+<footer class="wrap">Previsione corretta sullo storico delle centraline di Torbole e
+Malcesine. &nbsp;&middot;&nbsp; <a href="/diagnostica">quanto sbaglia</a>
+&nbsp;·&nbsp; <a href="/spegni">chiudi Garda Wind</a></footer>
 <script>
 function gwChart(id,data,W,pl,pr,h0,h1){
   var svg=document.getElementById(id); if(!svg||!data.length) return;
@@ -1084,8 +1323,8 @@ function gwChart(id,data,W,pl,pr,h0,h1){
     cross.setAttribute('x1',xOf(best.h)); cross.setAttribute('x2',xOf(best.h));
     cross.setAttribute('opacity','.5');
     var h='<b>'+(best.h<10?'0':'')+best.h+':00</b>';
-    keys.forEach(function(k){ if(best[k]) h+='<br>'+k+' <b>'+best[k][0]+' kn</b>'+
-      ' <span style="opacity:.6">raff '+best[k][1]+' · '+best[k][2]+'</span>';});
+    keys.forEach(function(k){ if(best[k]) h+='<br>medio <b>'+best[k][0]+' kn</b>'+
+      ' <span style="opacity:.65">raffica '+best[k][1]+' &middot; '+best[k][2]+'</span>';});
     tip.innerHTML=h; tip.style.opacity='1';
     var px=xOf(best.h)/W*r.width;
     tip.style.left=Math.min(Math.max(px-tip.offsetWidth/2,0),r.width-tip.offsetWidth)+'px';
@@ -1098,8 +1337,28 @@ function gwChart(id,data,W,pl,pr,h0,h1){
   svg.addEventListener('touchmove',function(e){show(e.touches[0]);},{passive:true});
   svg.addEventListener('touchend',hide);
 }
+/* Svuota la coda dei grafici gia' emessi nel corpo, poi accetta le chiamate
+   successive come se la funzione fosse sempre stata li'. */
+(window.gwq||[]).forEach(function(a){gwChart.apply(null,a)});
+window.gwq={push:function(a){gwChart.apply(null,a)}};
+/* La striscia dei giorni cambia il giorno mostrato sopra. Tutti i giorni sono
+   gia' nella pagina: nessuna richiesta, funziona anche senza rete. */
+document.addEventListener('click',function(ev){
+  var b=ev.target.closest ? ev.target.closest('.dcard') : null;
+  if(!b) return;
+  var i=b.getAttribute('data-goto');
+  var cards=document.querySelectorAll('.dcard');
+  for(var c=0;c<cards.length;c++)
+    cards[c].setAttribute('aria-current', cards[c]===b ? 'true':'false');
+  var secs=document.querySelectorAll('.place');
+  for(var s=0;s<secs.length;s++)
+    secs[s].hidden = (secs[s].getAttribute('data-day')!==i);
+  var first=document.querySelector('.place:not([hidden])');
+  if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
+});
 setTimeout(function(){location.reload()},%(reload)d);
 </script></body></html>"""
+
 
 
 # --------------------------------------------------------------------------
@@ -1107,7 +1366,7 @@ setTimeout(function(){location.reload()},%(reload)d);
 # --------------------------------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "GardaWind/3.5"
+    server_version = "GardaWind/" + config.APP_VERSION
 
     def log_message(self, *_a):
         pass

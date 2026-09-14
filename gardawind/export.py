@@ -42,7 +42,7 @@ def _banner(built_at):
     return (
         '<div class="panel"><p style="margin:0">Pagina statica, generata il '
         '<b>%s</b>. Non si aggiorna da sola: la rigenera il processo che la '
-        'pubblica. Se i numeri sembrano vecchi, e\' perche\' lo sono.</p></div>'
+        'pubblica. Se i numeri sembrano vecchi, è perché lo sono.</p></div>'
         % built_at)
 
 
