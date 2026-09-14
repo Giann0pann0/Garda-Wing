@@ -91,7 +91,19 @@ engine.ensure_update = lambda force=False: False
 SITO = "/tmp/gwlivepag/site"
 shutil.rmtree(SITO, ignore_errors=True)
 export.export(SITO)
-pagina = "file://" + os.path.join(SITO, "index.html")
+
+# Si serve su HTTP, non da file://, per due ragioni: e' come la pagina vive
+# davvero su Pages, e un indirizzo relativo da una pagina file:// il browser
+# non lo carica affatto - la catena di ripiego non si potrebbe provare.
+import functools
+import threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+_srv = ThreadingHTTPServer(
+    ("127.0.0.1", 0),
+    functools.partial(SimpleHTTPRequestHandler, directory=SITO))
+threading.Thread(target=_srv.serve_forever, daemon=True).start()
+pagina = "http://127.0.0.1:%d/index.html" % _srv.server_address[1]
 
 URL_LIVE = config.LIVE_JSON_URL
 
@@ -105,13 +117,21 @@ def json_nuovo(ts, wind, gust, direzione=191.0):
             "luoghi": {"Torbole": v, "Malcesine": dict(v, station="malcesine")}}
 
 
-def apri(p, corpo=None, fallisci=False):
-    """Apre la pagina intercettando la richiesta del dato osservato."""
+def apri(p, corpo=None, fallisci=False, solo_ramo_rotto=False):
+    """Apre la pagina intercettando la richiesta del dato osservato.
+
+    solo_ramo_rotto: il primo indirizzo (il ramo dedicato) fallisce e il
+    secondo (il file accanto alla pagina) risponde. E' il caso da cui la
+    catena di indirizzi difende: se raw.githubusercontent non fosse
+    raggiungibile, o non mandasse l'intestazione CORS giusta, la pagina deve
+    peggiorare - un dato vecchio con la sua eta' - non rompersi.
+    """
     chiamate = []
 
     def gestisci(route):
-        chiamate.append(route.request.url)
-        if fallisci:
+        url = route.request.url
+        chiamate.append(url)
+        if fallisci or (solo_ramo_rotto and url.startswith("https://raw.")):
             route.abort()
         else:
             route.fulfill(status=200, content_type="application/json",
@@ -120,7 +140,7 @@ def apri(p, corpo=None, fallisci=False):
     p.route("**/live.json*", gestisci)
     pg = p.new_page()
     pg.goto(pagina)
-    pg.wait_for_timeout(700)
+    pg.wait_for_timeout(900)
     return pg, chiamate
 
 
@@ -252,6 +272,29 @@ with sync_playwright() as pw:
        "un live.json senza letture lascia il dato buono al suo posto (%r)" % v)
     ok(testo(pg, ".nowblock .nowage") == "20 min fa",
        "e la sua eta' continua a crescere normalmente")
+    pg.close()
+
+    # ---- 9. se il ramo dedicato non risponde, si prova il file accanto ----
+    pg, chiamate = apri(ctx, json_nuovo(ADESSO - dt.timedelta(minutes=4),
+                                        19.0, 26.0),
+                        solo_ramo_rotto=True)
+    ok(len(chiamate) >= 2, "catena: provati due indirizzi (%d)" % len(chiamate))
+    ok(chiamate[0].startswith("https://raw."),
+       "catena: prima il ramo dedicato")
+    ok(chiamate[1].startswith("http://127.0.0.1"),
+       "catena: poi il file accanto alla pagina (%s)" % chiamate[1][:40])
+    v = testo(pg, ".nowblock .nowbig .v")
+    ok(v is not None and v.startswith("19"),
+       "catena: il secondo indirizzo viene applicato (%r)" % v)
+    pg.close()
+
+    # E se cadono entrambi, resta quello con cui la pagina e' nata.
+    pg, chiamate = apri(ctx, None, fallisci=True)
+    ok(len(chiamate) >= 2, "catena: con entrambi rotti si provano entrambi (%d)"
+       % len(chiamate))
+    v = testo(pg, ".nowblock .nowbig .v")
+    ok(v is not None and v.startswith("14"),
+       "catena: e la pagina resta quella di partenza (%r)" % v)
     pg.close()
 
     browser.close()

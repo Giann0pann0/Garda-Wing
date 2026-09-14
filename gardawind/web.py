@@ -1140,8 +1140,22 @@ def _live_vars(attivo=True):
     Python per scrivere la pagina: una definizione, due consumatori. Il limite
     None diventa null, cioe' "per tutto il resto".
     """
+    # Piu' di un indirizzo, provati in ordine. Il primo e' il ramo dedicato,
+    # che e' l'unico che si aggiorna fra due ricostruzioni del sito; l'ultimo
+    # e' il file accanto alla pagina, scritto quando la pagina e' stata
+    # costruita. Se il primo non e' raggiungibile - rete, CORS, ramo non
+    # ancora creato - si finisce sul secondo, che e' vecchio ma vero, e la sua
+    # eta' si vede. Non ho potuto verificare da qui che raw.githubusercontent
+    # mandi l'intestazione CORS giusta: e' documentato che lo faccia, ma
+    # "documentato" non e' "provato", e questa catena fa in modo che, se non
+    # lo facesse, la pagina peggiori invece di rompersi.
+    indirizzi = []
+    if attivo:
+        indirizzi.append(LIVE_URL)
+        if LIVE_URL != "live.json" and not LIVE_URL.startswith("/"):
+            indirizzi.append("live.json")
     return {
-        "liveurl": json.dumps(LIVE_URL if attivo else ""),
+        "liveurls": json.dumps(indirizzi),
         "livems": int(config.LIVE_REFRESH_MIN * 60000) if attivo else 0,
         "etawords": json.dumps([[lim, parola] for lim, parola in ETA_PAROLE]),
         "bannerwords": json.dumps([[lim, frase, classe, unita]
@@ -1498,7 +1512,7 @@ document.addEventListener('click',function(ev){
    Le parole dell'eta' arrivano da Python (GW_ETA), non sono riscritte qui:
    due copie della stessa frase prima o poi dicono due cose diverse.
    ---------------------------------------------------------------------- */
-var GW_LIVE_URL=%(liveurl)s, GW_LIVE_MS=%(livems)d, GW_ETA=%(etawords)s,
+var GW_LIVE_URLS=%(liveurls)s, GW_LIVE_MS=%(livems)d, GW_ETA=%(etawords)s,
     GW_BANNER=%(bannerwords)s;
 function gwEtaParole(min){
   if(min===null||isNaN(min)) return 'orario sconosciuto';
@@ -1558,19 +1572,25 @@ function gwApplyLive(d){
   }
   gwPaintAge();
 }
-function gwFetchLive(){
-  if(!GW_LIVE_URL||!window.fetch) return;
-  var u=GW_LIVE_URL+(GW_LIVE_URL.indexOf('?')<0?'?':'&')+'t='+Math.floor(Date.now()/60000);
-  fetch(u,{cache:'no-store'}).then(function(r){return r.ok?r.json():null})
-    .then(gwApplyLive).catch(function(){});
+function gwFetchLive(i){
+  i=i||0;
+  if(!window.fetch||i>=GW_LIVE_URLS.length) return;
+  var b=GW_LIVE_URLS[i];
+  var u=b+(b.indexOf('?')<0?'?':'&')+'t='+Math.floor(Date.now()/60000);
+  fetch(u,{cache:'no-store'}).then(function(r){
+    if(!r.ok) throw new Error('http');
+    return r.json();
+  }).then(function(d){
+    if(d&&d.luoghi) gwApplyLive(d); else gwFetchLive(i+1);
+  }).catch(function(){ gwFetchLive(i+1); });
 }
 gwPaintAge();
 setInterval(gwPaintAge,30000);
-if(GW_LIVE_MS>0){
-  gwFetchLive();
-  setInterval(gwFetchLive,GW_LIVE_MS);
+if(GW_LIVE_MS>0&&GW_LIVE_URLS.length){
+  gwFetchLive(0);
+  setInterval(function(){gwFetchLive(0);},GW_LIVE_MS);
   document.addEventListener('visibilitychange',function(){
-    if(!document.hidden) gwFetchLive();});
+    if(!document.hidden) gwFetchLive(0);});
 }
 setTimeout(function(){location.reload()},%(reload)d);
 </script></body></html>"""
