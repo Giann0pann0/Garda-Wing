@@ -264,3 +264,33 @@ ok(visti <= set(REASONS),
    "nessun codice inventato fuori dall'insieme: %s" % sorted(visti))
 ok("ok" in visti and len(visti) >= 4,
    "e i casi costruiti ne esercitano diversi (%d)" % len(visti))
+
+# --------------------------------------------------------------------------
+# I due picchi della giornata: uguali quando la direzione e' buona, diversi
+# quando non lo e'. Servono alla descrittiva, e stanno nella logica pura
+# perche' "quanto ha tirato dal settore giusto" usa la stessa definizione di
+# settore dell'ingresso: due copie di quella definizione divergerebbero.
+# --------------------------------------------------------------------------
+g = giudica_giornata(giorno([(720, 900, 18.0, DENTRO)]), ASSE, SETTORE, REG, PLAN)
+ok(g["peak_wind"] == 18.0 and g["peak_regime"] == 18.0,
+   "picchi: con la direzione giusta le due letture coincidono")
+
+# Nella giornata di prova il fondo da 3 kn non ha direzione, quindi nella
+# lettura REGIME vale zero come tutto il resto di cio' che non sappiamo.
+g = giudica_giornata(giorno([(720, 900, 18.0, FUORI)]), ASSE, SETTORE, REG, PLAN)
+ok(g["peak_wind"] == 18.0 and g["peak_regime"] == 0.0,
+   "picchi: fuori settore il picco di regime va a zero (%s)" % g["peak_regime"])
+
+g = giudica_giornata(giorno([(720, 900, 18.0, None)]), ASSE, SETTORE, REG, PLAN)
+ok(g["peak_wind"] == 18.0 and g["peak_regime"] == 0.0,
+   "picchi: direzione sconosciuta non vale come coerente nemmeno sul picco")
+
+g = giudica_giornata(giorno([(720, 900, 18.0, DENTRO)], dir_calmo=DENTRO),
+                     ASSE, SETTORE, REG, PLAN)
+ok(g["peak_regime"] == 18.0,
+   "picchi: col fondo dentro settore il picco di regime resta il picco")
+
+g = giudica_giornata([(m, None, None) for m in range(660, 1200, 10)],
+                     ASSE, SETTORE, REG, PLAN)
+ok(g["peak_wind"] is None and g["peak_regime"] is None,
+   "picchi: senza vento restano None, non zero")

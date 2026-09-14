@@ -239,10 +239,10 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
     Niente costanti di cadenza: i minuti si misurano in minuti, la cadenza si
     deduce dai dati, e la finestra della mediana mobile si adatta.
     """
-    from gardawind.util import (FINESTRA_RICORRENTE_MIN, covered_minutes,
-                                gust_level, median, merge_by_instant,
-                                sampling_cadence, sustained_onset,
-                                time_above, window_estimable)
+    from gardawind.util import (FINESTRA_RICORRENTE_MIN, angle_diff,
+                                covered_minutes, gust_level, median,
+                                merge_by_instant, sampling_cadence,
+                                sustained_onset, time_above, window_estimable)
 
     spots = [spot_name] if spot_name else [
         n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
@@ -315,7 +315,8 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             if u["wind"] is None:
                 continue
             giorno, minuti = etichetta[key]
-            per_giorno.setdefault(giorno, []).append((minuti, u["wind"], u["gust"]))
+            per_giorno.setdefault(giorno, []).append(
+                (minuti, u["wind"], u["gust"], u["dir"]))
             tempi.append(key / 60.0)
         tempi.sort()
         n_unici = len(per_istante)
@@ -326,7 +327,7 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
 
         cadenza = sampling_cadence(tempi) or 0.0
         gg_con_raffica = sum(1 for v in per_giorno.values()
-                             if any(g is not None for _m, _w, g in v))
+                             if any(g is not None for _m, _w, g, _d in v))
         print("")
         print("  archivio: %d campioni su %d giornate, cadenza tipica %g min"
               % (n_camp, len(per_giorno), cadenza))
@@ -363,41 +364,87 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
                   % (gg_con_raffica, len(per_giorno)))
 
         # ---- livello 1: il vento medio, su TUTTO lo storico ----
-        medie, durate_m = [], {}
-        for t in (spot["min_kn"], spot["planing_kn"]):
-            durate_m[t] = []
-        gg_validi = 0
+        # Il giudizio di ogni giornata NON si rifa' qui: lo fa la logica pura,
+        # orari.giudica_giornata(), che e' l'unico posto dove sono definiti il
+        # settore, la copertura minima e "sopra soglia". Due copie della stessa
+        # definizione sono una definizione che prima o poi divergera', e la
+        # differenza si scoprirebbe leggendo due tabelle che non tornano.
+        from gardawind import orari as O
+        asse_obs = spot.get("axis_obs", spot["axis"])
+        settore = config.REGIME_SECTOR_DEG
+        LETTURE = ("vento", "regime")
+        SOGLIE_W = (spot["min_kn"], spot["planing_kn"])
+        medie = {l: [] for l in LETTURE}
+        durate_m = {(l, t): [] for l in LETTURE for t in SOGLIE_W}
+        gg_validi = gg_dir_ignota = 0
         for day in sorted(per_giorno):
-            # Ordinare per tupla confronta anche la raffica quando minuto e
-            # vento coincidono, e None non si confronta con un numero: era
-            # il TypeError. Si ordina per TEMPO, che e' l'unica cosa che
-            # questo ordinamento deve significare.
-            righe = sorted(per_giorno[day], key=lambda r: r[0])
-            sel = [(m, w, g) for m, w, g in righe if h0 * 60 <= m <= (h1 + 1) * 60]
-            if covered_minutes([m for m, _w, _g in sel], cadenza) < MIN_COPERTURA_MIN:
+            righe = [(m, w, d) for m, w, _g, d in per_giorno[day]
+                     if h0 * 60 <= m <= (h1 + 1) * 60]
+            G = O.giudica_giornata(righe, asse_obs, settore,
+                                   SOGLIE_W[0], SOGLIE_W[1],
+                                   min_copertura_min=MIN_COPERTURA_MIN,
+                                   date=day)
+            if not G["estimable"]:
                 continue
             gg_validi += 1
-            ws = [w for _m, w, _g in sel if w is not None]
-            if ws:
-                medie.append(max(ws))
-            serie_w = [(m, w) for m, w, _g in sel if w is not None]
-            for t in durate_m:
-                durate_m[t].append(time_above(serie_w, float(t), cadenza))
+            if (G["dir_unknown_frac"] or 0.0) > 0.2:
+                gg_dir_ignota += 1
+            if G["peak_wind"] is not None:
+                medie["vento"].append(G["peak_wind"])
+            if G["peak_regime"] is not None:
+                medie["regime"].append(G["peak_regime"])
+            # I nomi del contratto: "_wind" e' la lettura senza direzione.
+            durate_m[("vento", SOGLIE_W[0])].append(
+                G["regime_duration_wind_min"] or 0.0)
+            durate_m[("regime", SOGLIE_W[0])].append(
+                G["regime_duration_min"] or 0.0)
+            durate_m[("vento", SOGLIE_W[1])].append(
+                G["planing_duration_wind_min"] or 0.0)
+            durate_m[("regime", SOGLIE_W[1])].append(
+                G["planing_duration_min"] or 0.0)
 
         print("")
         print("  VENTO MEDIO  -  %d giornate con almeno due ore di copertura"
               % gg_validi)
+        if gg_dir_ignota:
+            print("  (%d con direzione ignota su oltre un quinto dei campioni:"
+                  % gg_dir_ignota)
+            print("   in quelle la lettura REGIME e' per forza piu' bassa)")
         print("  %-22s %7s %7s %7s %7s %7s"
               % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
-        print(riga_q("vento medio", medie))
-        for t in sorted(durate_m):
-            d = [x for x in durate_m[t] if x > 0]
-            etichetta = ("soglia di regime" if abs(t - spot["min_kn"]) < 1e-9
-                         else "soglia di planata")
-            if d:
-                print("  sopra %2g kn (%s): %d giornate (%.0f%%), mediana %.0f min"
-                      % (t, etichetta, len(d), 100.0 * len(d) / max(1, gg_validi),
-                         median(d) or 0))
+        print(riga_q("vento, ogni direzione", medie["vento"]))
+        print(riga_q("regime (nel settore)", medie["regime"]))
+        # Due letture affiancate, sempre, perche' la prima non diventi la
+        # seconda: "il vento supera i 14 nodi nel 63% dei pomeriggi" e "l'Ora
+        # e' utile nel 63% dei pomeriggi" sono frasi diverse, e la differenza
+        # fra le due colonne E' quanto conta la direzione.
+        print("")
+        print("  %-18s %22s   %22s"
+              % ("", "VENTO (intensita')", "REGIME (+ direzione)"))
+        print("  %-18s %8s %13s   %8s %13s"
+              % ("soglia", "giornate", "durata med.", "giornate", "durata med."))
+        for t in SOGLIE_W:
+            etichetta = ("regime %g kn" % t if abs(t - SOGLIE_W[0]) < 1e-9
+                         else "planata %g kn" % t)
+            celle = []
+            for l in LETTURE:
+                d = [x for x in durate_m[(l, t)] if x > 0]
+                if len(d) < MIN_MEDIANA:
+                    celle.append("%4d %3.0f%% %13s"
+                                 % (len(d), 100.0 * len(d) / max(1, gg_validi), "-"))
+                else:
+                    celle.append("%4d %3.0f%% %9.0f min"
+                                 % (len(d), 100.0 * len(d) / max(1, gg_validi),
+                                    median(d) or 0))
+            print("  %-18s %s   %s" % (etichetta, celle[0], celle[1]))
+        dv = len([x for x in durate_m[("vento", SOGLIE_W[0])] if x > 0])
+        dr = len([x for x in durate_m[("regime", SOGLIE_W[0])] if x > 0])
+        if dv:
+            print("  La direzione taglia %d giornate su %d (%.0f%%): il vento"
+                  % (dv - dr, dv, 100.0 * (dv - dr) / dv))
+            print("  bastava ma non era %s. L'orario di INGRESSO, con le stesse"
+                  % ("l'Ora" if spot["regime"] == "ORA" else "il Peler"))
+            print("  due letture, sta in --orari.")
 
         # ---- livello 2: la raffica. Una tabella PER METRICA, mai mescolate ----
         # Ogni giornata finisce nel secchio della metrica che il suo dato
@@ -411,9 +458,9 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         gg_senza_raffica = 0
         for day in sorted(per_giorno):
             righe = sorted(per_giorno[day], key=lambda r: r[0])
-            if not any(g is not None for _m, _w, g in righe):
+            if not any(g is not None for _m, _w, g, _d in righe):
                 continue
-            cad_g = sampling_cadence([m for m, _w, g in righe
+            cad_g = sampling_cadence([m for m, _w, g, _d in righe
                                       if g is not None]) or cadenza
             fin, nome = next(
                 ((w, n) for w, n in METRICHE if window_estimable(cad_g, w)),
@@ -421,9 +468,10 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             if fin is None:
                 gg_senza_raffica += 1
                 continue
-            serie_ric = gust_level([(m, g) for m, _w, g in righe],
+            serie_ric = gust_level([(m, g) for m, _w, g, _d in righe],
                                    fin, centered=True, cadence_min=cad_g)
-            sel = [(m, w, g, r) for (m, w, g), (_m2, r) in zip(righe, serie_ric)
+            sel = [(m, w, g, r) for (m, w, g, _d), (_m2, r)
+                   in zip(righe, serie_ric)
                    if h0 * 60 <= m <= (h1 + 1) * 60]
             if covered_minutes([m for m, _w, _g, _r in sel],
                                cad_g) < MIN_COPERTURA_MIN:

@@ -396,3 +396,43 @@ ok(b90 and 40 <= int(b90.group(1)) <= 60,
    "le rade alla sostenuta 90': %s" % (b90.group(1) if b90 else "?"))
 ok(um.index("raffica ricorrente 30'") < um.index("raffica sostenuta 90'"),
    "e non sono mescolate nella stessa tabella")
+
+# ===== il vento medio con e senza il filtro di direzione, affiancati =====
+# Meta' delle giornate hanno vento buono DALLA DIREZIONE dell'Ora, meta' lo
+# stesso vento ma da nord: per l'Ora quelle sono negativi corretti, non
+# positivi. Le due colonne devono dirlo, e la differenza fra loro E' quanto
+# conta la direzione. Se un domani qualcuno legge la colonna VENTO come se
+# fosse il regime, questo controllo lo ferma.
+shutil.rmtree("/tmp/gwdir", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwdir"
+store.close()
+store.init()
+b2 = dt.datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
+camp_dir = []
+for d in range(60):
+    # 191 deg e' l'asse osservato dell'Ora a Torbole; 11 deg dista 180 gradi.
+    direzione = 191.0 if d % 2 == 0 else 11.0
+    for k in range(0, 24 * 6):
+        t = b2 + dt.timedelta(days=d, minutes=10 * k)
+        camp_dir.append((iso_utc(t), 16.0, None, direzione))
+store.save_samples("T0193", camp_dir, "t_raffiche")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    cmd_raffiche("Torbole-Ora")
+u = buf.getvalue()
+ok("VENTO (intensita')" in u and "REGIME (+ direzione)" in u,
+   "raffiche: le due letture del vento medio sono affiancate")
+righe_soglia = [r for r in u.splitlines() if r.strip().startswith("regime 11")]
+ok(len(righe_soglia) == 1, "raffiche: una riga per la soglia di regime")
+numeri = righe_soglia[0].split()
+# "regime 11 kn   <gg_vento> <perc> <durata> min   <gg_regime> <perc> <durata> min"
+gg_vento = int(numeri[3])
+gg_regime = int([n for n in numeri if n.isdigit()][3])
+ok(gg_vento >= 55, "raffiche: il vento supera la soglia quasi ogni giornata (%d)"
+   % gg_vento)
+ok(20 <= gg_regime <= 35,
+   "raffiche: il regime solo nella meta' con la direzione giusta (%d)" % gg_regime)
+ok("La direzione taglia" in u and "su %d" % gg_vento in u,
+   "raffiche: quante giornate taglia la direzione, detto esplicitamente")
+ok("sta in --orari" in u,
+   "raffiche: e si dice dove sta l'orario di ingresso, per non duplicarlo")

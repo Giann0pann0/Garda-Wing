@@ -105,6 +105,7 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
         "cadence_min": None, "coverage_min": 0.0, "n_samples": 0,
         "source_span_min": 0.0,
         "dir_unknown_frac": None, "direction_ok": False,
+        "peak_wind": None, "peak_regime": None,
         "regime_onset": None, "planing_onset": None,
         "regime_onset_wind": None, "planing_onset_wind": None,
         "regime_duration_min": None, "planing_duration_min": None,
@@ -139,6 +140,12 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
                     else 0.0) for m, w, d in dati],
     }
     base["estimable"] = True
+    # Il picco della giornata nelle due letture. Non serve a giudicare
+    # l'ingresso: serve alla descrittiva, e sta qui perche' "quanto ha tirato
+    # oggi" e "quanto ha tirato oggi DAL SETTORE GIUSTO" vanno definiti una
+    # volta sola, nello stesso posto dove e' definito il settore.
+    base["peak_wind"] = max(v for _m, v in serie["vento"])
+    base["peak_regime"] = max(v for _m, v in serie["regime"])
     for bers, soglia in (("regime", soglia_regime), ("planata", soglia_planata)):
         for lettura in LETTURE:
             s = serie[lettura]
