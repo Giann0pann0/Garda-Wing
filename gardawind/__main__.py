@@ -219,19 +219,45 @@ def cmd_validate(spots=None, bands=None, sector=True, out_json=None,
 
 
 def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
-    """Analisi descrittiva delle raffiche. Nessuna soglia decisa qui.
+    """Analisi descrittiva. Nessuna soglia decisa qui.
 
-    Serve a scegliere le soglie operative guardando i dati invece di una
-    tabella teorica. Stampa, per ogni regime, come si distribuiscono le tre
-    grandezze separate - vento medio, raffica ricorrente, raffica massima - il
-    rapporto fra la ricorrente e la media, e per ogni soglia candidata quante
-    giornate la superano e per quanto tempo. E' quel "per quanto tempo" che
-    dice se una soglia descrive una sessione o un colpo di vento.
+    Due livelli, tenuti SEPARATI, ognuno col proprio numero di giornate:
+
+      il vento medio, su tutto lo storico disponibile - a Torbole quattordici
+      anni - perche' e' li' che si imparano stagionalita', orari, durata e
+      differenze fra Ora e Peler;
+
+      la raffica, solo sulle giornate che ce l'hanno davvero.
+
+    La prima versione di questo comando scartava ogni campione senza raffica, e
+    siccome l'archivio storico di Torbole non contiene la raffica, "analisi di
+    quattordici anni" diventava in silenzio "analisi di nove giorni". La
+    raffica e' un livello che si aggiunge man mano che la raccogliamo, non un
+    filtro d'ingresso che rende inutilizzabile tutto il resto.
+
+    Niente costanti di cadenza: i minuti si misurano in minuti, la cadenza si
+    deduce dai dati, e la finestra della mediana mobile si adatta.
     """
-    from gardawind.util import recurrent_gust, sustained_onset, median
+    from gardawind.util import (covered_minutes, effective_window, median,
+                                recurrent_gust, sampling_cadence,
+                                sustained_onset, time_above)
 
     spots = [spot_name] if spot_name else [
         n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
+    MIN_GIORNI_Q = 30           # sotto, nessun quantile: vedi riga_q
+    MIN_COPERTURA_MIN = 120.0   # due ore dentro la finestra del regime
+
+    def q(xs, p):
+        y = sorted(xs)
+        return y[min(len(y) - 1, max(0, int(p * (len(y) - 1))))] if y else float("nan")
+
+    def riga_q(etichetta, dati):
+        if len(dati) < MIN_GIORNI_Q:
+            return ("  %-22s   %d giornate: troppe poche per dei quantili"
+                    % (etichetta, len(dati)))
+        return ("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
+                % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
+                   q(dati, .90), q(dati, .99)))
 
     for name in spots:
         spot = config.SPOTS[name]
@@ -243,177 +269,156 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
               % (name, h0, h1 + 1, station))
         print("=" * 74)
 
-        # Campioni grezzi raggruppati per giorno locale. La raffica ricorrente
-        # si calcola sulla serie continua della giornata, poi si guarda solo
-        # dentro la finestra del regime - che e' fissata in configurazione, non
-        # scelta a giornata finita.
         per_giorno = {}
-        giorni_totali = set()
-        n_campioni = n_con_raffica = 0
-        spaziature = []
-        precedente = {}
+        tempi = []
+        n_camp = n_gust = 0
         for s in store.samples_since(station, "0000"):
             dt_ = parse_dt_any(s["ts"])
-            if dt_ is None:
+            if dt_ is None or s["wind_kn"] is None:
                 continue
-            g = local_day(dt_)
-            giorni_totali.add(g)
-            n_campioni += 1
-            prev = precedente.get(g)
-            if prev is not None:
-                d = (dt_ - prev).total_seconds() / 60.0
-                if 0 < d <= 120:
-                    spaziature.append(d)
-            precedente[g] = dt_
-            if s["gust_kn"] is None:
-                continue
-            n_con_raffica += 1
-            per_giorno.setdefault(g, []).append((dt_, s["wind_kn"], s["gust_kn"]))
-
-        cadenza = sorted(spaziature)[len(spaziature) // 2] if spaziature else None
-        print("")
-        print("  archivio: %d campioni su %d giornate%s"
-              % (n_campioni, len(giorni_totali),
-                 ("  -  cadenza tipica %g min" % cadenza) if cadenza else ""))
-        if n_campioni:
-            print("  di cui CON RAFFICA: %d campioni (%.1f%%) su %d giornate"
-                  % (n_con_raffica, 100.0 * n_con_raffica / n_campioni,
-                     len(per_giorno)))
-        # Il numero che conta di piu' e' questo. Senza raffica misurata non
-        # esiste un bersaglio: tutto il resto del rapporto parlerebbe di un
-        # sottoinsieme minuscolo facendolo sembrare l'archivio intero.
-        if len(per_giorno) < 0.5 * max(1, len(giorni_totali)):
-            print("")
-            print("  ⚠  La raffica manca sulla maggior parte dell'archivio. Quello")
-            print("     che segue descrive SOLO le %d giornate che ce l'hanno, non"
-                  % len(per_giorno))
-            print("     le %d dell'archivio. Non e' la distribuzione del Garda."
-                  % len(giorni_totali))
+            loc = to_local(dt_)
+            minuti = loc.hour * 60.0 + loc.minute
+            per_giorno.setdefault(local_day(dt_), []).append(
+                (minuti, s["wind_kn"], s["gust_kn"]))
+            tempi.append(dt_.timestamp() / 60.0)
+            n_camp += 1
+            if s["gust_kn"] is not None:
+                n_gust += 1
 
         if not per_giorno:
-            print("")
-            print("  Nessun campione con raffica: per questa centralina la")
-            print("  raffica non e' disponibile, quindi la raffica ricorrente")
-            print("  non e' calcolabile. Non e' vento assente, e' misura assente.")
+            print("  nessun campione per questa centralina.")
             continue
 
-        # Una finestra di 30 minuti vuole almeno tre campioni dentro. Con una
-        # cadenza di 15-30 minuti non ce ne stanno tre, e la ricorrente esce
-        # None su tutto: va detto qui, non lasciato capire da una colonna di nan.
-        if cadenza and cadenza * 2 > 30.0:
-            print("")
-            print("  ⚠  Cadenza %g min: in una finestra di 30 minuti non entrano"
-                  % cadenza)
-            print("     i tre campioni che la mediana mobile richiede, quindi la")
-            print("     raffica ricorrente non e' calcolabile su questa")
-            print("     centralina. Servirebbe una finestra piu' larga, che")
-            print("     misurerebbe un'altra cosa.")
+        cadenza = sampling_cadence(tempi) or 0.0
+        finestra = effective_window(cadenza)
+        gg_con_raffica = sum(1 for v in per_giorno.values()
+                             if any(g is not None for _m, _w, g in v))
+        print("")
+        print("  archivio: %d campioni su %d giornate, cadenza tipica %g min"
+              % (n_camp, len(per_giorno), cadenza))
+        print("  raffica presente su %d campioni (%.1f%%) e %d giornate"
+              % (n_gust, 100.0 * n_gust / n_camp, gg_con_raffica))
+        print("  finestra della mediana mobile: %g min (tre campioni a questa "
+              "cadenza)" % finestra)
+        if gg_con_raffica == 0:
+            print("  -> raffica storica NON disponibile per questa centralina.")
+        elif gg_con_raffica < 0.5 * len(per_giorno):
+            print("  -> raffica storica disponibile solo di recente: il secondo")
+            print("     blocco parla di %d giornate, non di %d."
+                  % (gg_con_raffica, len(per_giorno)))
 
-        medie, ric, massime, rapporti = [], [], [], []
-        durate = {t: [] for t in soglie}
-        ingressi = {t: [] for t in soglie}
-        n_giorni = 0
+        # ---- livello 1: il vento medio, su TUTTO lo storico ----
+        medie, durate_m = [], {}
+        for t in (spot["min_kn"], spot["planing_kn"]):
+            durate_m[t] = []
+        gg_validi = 0
         for day in sorted(per_giorno):
             righe = sorted(per_giorno[day])
-            minuti = [(d.timestamp() / 60.0, w, g) for d, w, g in righe]
-            serie = recurrent_gust([(t, g) for t, _w, g in minuti],
-                                   window_min=30.0, centered=True)
-            # La ricorrente si calcola su tutta la giornata e solo DOPO si
-            # taglia alla finestra del regime, che sta in configurazione. Se si
-            # tagliasse prima, la mediana mobile ai bordi della finestra
-            # lavorerebbe su meno campioni e la grandezza cambierebbe
-            # definizione a seconda di dove capita l'ora.
-            # I tempi della serie tagliata sono MINUTI DALLA MEZZANOTTE
-            # LOCALE, non minuti dall'epoca: e' la scala in cui la domanda ha
-            # senso ("a che ora si entra"), ed e' monotona dentro la giornata.
-            # Con i minuti dall'epoca la mediana degli ingressi stampava ore
-            # senza significato.
-            sel = []
-            for (d, w, g), (_t, rv) in zip(righe, serie):
-                if h0 <= local_hour(d) <= h1:
-                    loc = to_local(d)
-                    sel.append((loc.hour * 60.0 + loc.minute, w, g, rv))
-            if len(sel) < 12:                  # meno di due ore di copertura
+            sel = [(m, w, g) for m, w, g in righe if h0 * 60 <= m <= (h1 + 1) * 60]
+            if covered_minutes([m for m, _w, _g in sel], cadenza) < MIN_COPERTURA_MIN:
                 continue
-            n_giorni += 1
-            ws = [w for _t, w, _g, _r in sel if w is not None]
-            gs = [g for _t, _w, g, _r in sel if g is not None]
-            rs = [r for _t, _w, _g, r in sel if r is not None]
+            gg_validi += 1
+            ws = [w for _m, w, _g in sel if w is not None]
             if ws:
                 medie.append(max(ws))
+            serie_w = [(m, w) for m, w, _g in sel if w is not None]
+            for t in durate_m:
+                durate_m[t].append(time_above(serie_w, float(t), cadenza))
+
+        print("")
+        print("  VENTO MEDIO  -  %d giornate con almeno due ore di copertura"
+              % gg_validi)
+        print("  %-22s %7s %7s %7s %7s %7s"
+              % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
+        print(riga_q("vento medio", medie))
+        for t in sorted(durate_m):
+            d = [x for x in durate_m[t] if x > 0]
+            etichetta = ("soglia di regime" if abs(t - spot["min_kn"]) < 1e-9
+                         else "soglia di planata")
+            if d:
+                print("  sopra %2g kn (%s): %d giornate (%.0f%%), mediana %.0f min"
+                      % (t, etichetta, len(d), 100.0 * len(d) / max(1, gg_validi),
+                         median(d) or 0))
+
+        # ---- livello 2: la raffica, solo dove c'e' ----
+        ric, massime, rapporti = [], [], []
+        durate_g = {t: [] for t in soglie}
+        ingressi = {t: [] for t in soglie}
+        gg_raffica = 0
+        for day in sorted(per_giorno):
+            righe = sorted(per_giorno[day])
+            if not any(g is not None for _m, _w, g in righe):
+                continue
+            serie_ric = recurrent_gust([(m, g) for m, _w, g in righe],
+                                       window_min=30.0, centered=True,
+                                       cadence_min=cadenza)
+            sel = [(m, w, g, r) for (m, w, g), (_m2, r) in zip(righe, serie_ric)
+                   if h0 * 60 <= m <= (h1 + 1) * 60]
+            if covered_minutes([m for m, _w, _g, _r in sel], cadenza) < MIN_COPERTURA_MIN:
+                continue
+            gg_raffica += 1
+            gs = [g for _m, _w, g, _r in sel if g is not None]
+            rs = [r for _m, _w, _g, r in sel if r is not None]
+            ws = [w for _m, w, _g, _r in sel if w is not None]
             if gs:
                 massime.append(max(gs))
             if rs:
-                picco_ric = max(rs)
-                ric.append(picco_ric)
+                ric.append(max(rs))
                 if ws and max(ws) > 0.5:
-                    rapporti.append(picco_ric / max(ws))
-            serie_ric = [(t, r) for t, _w, _g, r in sel if r is not None]
+                    rapporti.append(max(rs) / max(ws))
+            sr = [(m, r) for m, _w, _g, r in sel if r is not None]
             for t in soglie:
-                sopra = [1 for _tt, r in serie_ric if r >= t]
-                # la copertura di ogni campione e' la cadenza: dieci minuti
-                durate[t].append(len(sopra) * 10)
-                ing = sustained_onset(serie_ric, float(t), persist_min=30.0)
+                durate_g[t].append(time_above(sr, float(t), cadenza))
+                ing = sustained_onset(sr, float(t), persist_min=30.0,
+                                      cadence_min=cadenza)
                 if ing is not None:
                     ingressi[t].append(ing)
 
-        # Sotto questa soglia i quantili non si stampano. Un q99 calcolato su
-        # nove giornate e' il valore massimo di nove numeri con un'etichetta
-        # che promette un centesimo di coda: una cifra vera che dice una cosa
-        # falsa, ed e' il tipo di numero su cui si prendono decisioni sbagliate.
-        MIN_GIORNI_QUANTILI = 30
-
-        def q(xs, p):
-            if not xs:
-                return float("nan")
-            y = sorted(xs)
-            return y[min(len(y) - 1, max(0, int(p * (len(y) - 1))))]
-
-        def riga_q(etichetta, dati):
-            if len(dati) < MIN_GIORNI_QUANTILI:
-                return ("  %-22s   %d giornate: troppe poche per dei quantili"
-                        % (etichetta, len(dati)))
-            return ("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
-                    % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
-                       q(dati, .90), q(dati, .99)))
-
         print("")
-        print("  %d giornate con copertura sufficiente nella finestra" % n_giorni)
-        print("")
+        if gg_raffica == 0:
+            print("  RAFFICA  -  non disponibile su questa centralina.")
+            print("  Non e' vento assente: e' misura assente. Si accumula da")
+            print("  qui in avanti, e questo blocco comparira' da solo.")
+            continue
+
+        print("  RAFFICA  -  %d giornate (finestra ricorrente %g min)"
+              % (gg_raffica, finestra))
         print("  %-22s %7s %7s %7s %7s %7s"
-              % ("picco a 10 minuti", "q10", "mediana", "q75", "q90", "q99"))
-        for etichetta, dati in (("vento medio", medie),
-                                ("raffica ricorrente", ric),
-                                ("raffica massima", massime)):
-            print(riga_q(etichetta, dati))
-        if len(rapporti) >= MIN_GIORNI_QUANTILI:
-            print("")
+              % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
+        print(riga_q("raffica ricorrente", ric))
+        print(riga_q("raffica massima", massime))
+        if len(rapporti) >= MIN_GIORNI_Q:
             print("  rapporto ricorrente/media   mediana %.2f   q10 %.2f   q90 %.2f"
                   % (q(rapporti, .5), q(rapporti, .1), q(rapporti, .9)))
         elif rapporti:
-            print("")
             print("  rapporto ricorrente/media: %d giornate, troppe poche"
                   % len(rapporti))
 
-        print("")
         if not ric:
-            print("  Tabella delle durate non prodotta: senza raffica ricorrente")
-            print("  ogni riga direbbe \"0 giornate\", che si legge come \"non c'e'")
-            print("  mai vento\" e invece vuol dire \"non l'abbiamo misurato\".")
+            print("")
+            print("  Tabella delle durate non prodotta: la raffica ricorrente non")
+            print("  e' calcolabile a questa cadenza. Ogni riga direbbe \"0\",")
+            print("  che si legge \"non c'e' mai vento\" e invece vuol dire")
+            print("  \"non l'abbiamo misurato\".")
             continue
+
+        print("")
         print("  quanto durano le soglie, sulla RAFFICA RICORRENTE")
-        print("  %6s %9s %11s %11s %11s %11s"
-              % ("soglia", "giornate", "% giornate", "durata med.",
-                 "durata q75", "ingresso >=30'"))
+        print("  %6s %9s %11s %12s %12s %14s"
+              % ("soglia", "giornate", "% giornate", "durata med.", "durata q75",
+                 "ingresso >=30'"))
         for t in soglie:
-            d = [x for x in durate[t] if x > 0]
-            perc = 100.0 * len(d) / n_giorni if n_giorni else 0.0
+            d = [x for x in durate_g[t] if x > 0]
+            perc = 100.0 * len(d) / gg_raffica if gg_raffica else 0.0
             ing = ingressi[t]
-            ora_ing = ("%02d:%02d" % (int(median(ing) // 60) % 24,
-                                      int(median(ing) % 60))) if ing else "-"
-            print("  %6d %9d %10.0f%% %9d min %9d min %11s"
-                  % (t, len(d), perc, median(d) or 0, q(d, .75) if d else 0,
-                     ora_ing))
+            if ing:
+                mm = median(ing) or 0
+                ora = "%02d:%02d" % (int(mm // 60) % 24, int(mm % 60))
+            else:
+                ora = "-"
+            print("  %6d %9d %10.0f%% %8.0f min %8.0f min %14s"
+                  % (t, len(d), perc, median(d) or 0,
+                     q(d, .75) if d else 0, ora))
         print("")
         print("  Le soglie qui NON sono decise: sono candidate. La colonna che")
         print("  conta e' la durata - una soglia superata per venti minuti e'")

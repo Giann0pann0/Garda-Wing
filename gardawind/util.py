@@ -720,7 +720,7 @@ def interval_coverage(lo_list, hi_list, obs):
 
 
 # --------------------------------------------------------------------------
-# Raffica ricorrente
+# Raffica ricorrente, e il tempo misurato in minuti
 # --------------------------------------------------------------------------
 # Con il wing non si plana sul vento medio, e non si plana nemmeno sulla
 # raffica di punta: un colpo isolato a 25 nodi dentro una media di 8 non e' una
@@ -732,33 +732,104 @@ def interval_coverage(lo_list, hi_list, obs):
 # le ore migliori e' una selezione fatta a giornata finita, e infilerebbe uno
 # sguardo sul futuro dentro il bersaglio dell'addestramento. Una finestra
 # mobile, invece, e' una funzione solo di quello che sta dentro la finestra.
+#
+# E non deve avere dentro la cadenza di una centralina in particolare. La prima
+# versione di queste funzioni aveva tre costanti nascoste - almeno 3 campioni
+# nella finestra, 12 campioni = due ore di copertura, ogni campione vale 10
+# minuti - tutte vere per Torbole, che campiona ogni dieci minuti, e tutte
+# false per Malcesine, che campiona ogni 15-30. Il risultato era che a
+# Malcesine la raffica ricorrente usciva None su tutto e le durate delle soglie
+# erano sbagliate di un fattore due o tre, senza che niente lo segnalasse.
+# Qui il tempo si misura in minuti e la cadenza si deduce dai dati.
 
-def recurrent_gust(samples, window_min=30.0, centered=True, min_points=3):
-    """Mediana mobile delle raffiche su una finestra di window_min minuti.
+
+def sampling_cadence(times, max_gap_min=180.0):
+    """Cadenza tipica di una serie: mediana degli intervalli fra campioni.
+
+    Gli intervalli piu' larghi di max_gap_min sono buchi, non cadenza, e non
+    entrano nella mediana: una notte senza dati non deve far credere che la
+    centralina campioni ogni otto ore.
+    """
+    t = sorted(float(x) for x in times if x is not None)
+    gaps = [b - a for a, b in zip(t, t[1:]) if 0 < b - a <= max_gap_min]
+    return median(gaps) if gaps else None
+
+
+def effective_window(cadence_min, target_min=30.0, min_samples=3):
+    """Finestra da usare davvero, dato quanto rado campiona la centralina.
+
+    Una mediana vuole almeno tre valori per poter scartare un estremo. Con
+    campioni ogni dieci minuti tre valori stanno in mezz'ora; con campioni ogni
+    mezz'ora servono novanta minuti. La finestra si allarga quindi fino a
+    contenerne tre.
+
+    Il prezzo va detto, perche' e' reale: "il livello che si ripete su mezz'ora"
+    e "su novanta minuti" non sono la stessa grandezza fisica. Chi stampa i
+    numeri deve stampare accanto la finestra usata, e nessuno deve confrontare
+    due centraline con finestre diverse come se misurassero la stessa cosa.
+    """
+    if not cadence_min or cadence_min <= 0:
+        return float(target_min)
+    return max(float(target_min), float(min_samples) * float(cadence_min))
+
+
+def covered_minutes(times, cadence_min=None, max_gap_min=None):
+    """Minuti effettivamente coperti da una serie di campioni.
+
+    Un campione copre l'intervallo che lo precede: la raffica pubblicata alle
+    12:20 e' il massimo fra le 12:10 e le 12:20. La copertura e' quindi la
+    somma di quegli intervalli, con i buchi esclusi invece di contati.
+    """
+    t = sorted(float(x) for x in times if x is not None)
+    if not t:
+        return 0.0
+    if cadence_min is None:
+        cadence_min = sampling_cadence(t) or 0.0
+    if max_gap_min is None:
+        max_gap_min = max(15.0, 2.5 * cadence_min) if cadence_min else 60.0
+    total = cadence_min          # il primo campione copre la sua cadenza
+    for a, b in zip(t, t[1:]):
+        d = b - a
+        total += d if d <= max_gap_min else cadence_min
+    return total
+
+
+def recurrent_gust(samples, window_min=30.0, centered=True, cadence_min=None,
+                   min_cover_frac=0.6):
+    """Mediana mobile delle raffiche, su una finestra adattata alla cadenza.
 
     samples: [(minuti, raffica)] in ordine di tempo. Ritorna [(minuti, valore)]
-    con valore None dove la finestra non ha abbastanza campioni - un buco nei
+    con valore None dove la finestra non e' coperta abbastanza - un buco nei
     dati non e' una raffica bassa, ed e' meglio dirlo che riempirlo.
 
-    La finestra centrata guarda cinque minuti oltre l'istante e va bene per il
-    BERSAGLIO, che e' storia osservata. Per il dato in diretta serve la
-    finestra all'indietro (centered=False): centrata, gli ultimi minuti non
-    sarebbero calcolabili, e nel frattempo mostrerebbe un valore costruito con
-    campioni che al momento della previsione non esistevano.
+    La validita' si giudica sulla COPERTURA TEMPORALE della finestra, non su un
+    numero di campioni: "almeno tre campioni" e' la stessa cosa solo se la
+    cadenza e' quella di Torbole.
+
+    La finestra centrata guarda oltre l'istante e va bene per il BERSAGLIO, che
+    e' storia osservata. Per il dato in diretta serve la finestra all'indietro
+    (centered=False): centrata, gli ultimi minuti non sarebbero calcolabili, e
+    nel frattempo mostrerebbe un valore costruito con campioni che al momento
+    della previsione non esistevano.
     """
     pts = [(float(t), float(v)) for t, v in samples if v is not None]
     pts.sort()
+    if not pts:
+        return []
+    if cadence_min is None:
+        cadence_min = sampling_cadence([t for t, _v in pts]) or 0.0
+    w = effective_window(cadence_min, window_min)
+    need = min_cover_frac * w
     out = []
-    half = window_min / 2.0
+    half = w / 2.0
     # Due indici che avanzano, non una scansione per ogni punto: la versione
     # ingenua e' O(n^2) e su Torbole - centoquarantamila campioni dal 2012 -
-    # l'aggregazione non finiva piu'. Qui ogni indice attraversa la lista una
-    # volta sola, e la mediana si prende su una fetta di tre valori.
+    # l'aggregazione non finiva piu'.
     i = j = 0
     n = len(pts)
     for k in range(n):
         t = pts[k][0]
-        lo = (t - half) if centered else (t - window_min)
+        lo = (t - half) if centered else (t - w)
         hi = (t + half) if centered else t
         while i < n and pts[i][0] < lo - 1e-9:
             i += 1
@@ -766,36 +837,65 @@ def recurrent_gust(samples, window_min=30.0, centered=True, min_points=3):
             j = i
         while j < n and pts[j][0] <= hi + 1e-9:
             j += 1
-        vals = [v for _tt, v in pts[i:j]]
-        out.append((t, median(vals) if len(vals) >= min_points else None))
+        fetta = pts[i:j]
+        if len(fetta) >= 2 and covered_minutes(
+                [x for x, _v in fetta], cadence_min) >= need - 1e-9:
+            out.append((t, median([v for _x, v in fetta])))
+        else:
+            out.append((t, None))
     return out
 
 
-def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=15.0,
+def time_above(series, threshold, cadence_min=None, max_gap_min=None):
+    """Minuti in cui la serie sta sopra soglia, dai tempi veri.
+
+    Non "quanti campioni sopra soglia per dieci": con campioni ogni mezz'ora
+    quella moltiplicazione sbaglia di tre volte. Ogni campione vale
+    l'intervallo che lo precede, i buchi valgono una cadenza e non la loro
+    intera larghezza.
+    """
+    pts = [(float(t), v) for t, v in series if v is not None]
+    pts.sort()
+    if not pts:
+        return 0.0
+    if cadence_min is None:
+        cadence_min = sampling_cadence([t for t, _v in pts]) or 0.0
+    if max_gap_min is None:
+        max_gap_min = max(15.0, 2.5 * cadence_min) if cadence_min else 60.0
+    total = 0.0
+    prev_t = None
+    for t, v in pts:
+        if v >= threshold:
+            if prev_t is None:
+                total += cadence_min
+            else:
+                d = t - prev_t
+                total += d if d <= max_gap_min else cadence_min
+        prev_t = t
+    return total
+
+
+def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=None,
                     cadence_min=None):
     """Primo istante in cui la serie sta sopra soglia e CI RESTA.
 
     Il "ci resta" e' il punto: il primo superamento puntuale lo produce
     qualunque colpo di vento, e non risponde alla domanda vera, che e' da che
-    ora posso entrare in acqua e planare con continuita'. Un buco nei dati piu'
-    largo di max_gap_min interrompe la serie invece di essere scavalcato:
-    altrimenti due picchi lontani un'ora si salderebbero in una finestra
-    inesistente.
+    ora posso entrare in acqua e planare con continuita'.
 
-    Un campione COPRE un intervallo, non un istante: la raffica che la
-    centralina pubblica alle 12:20 e' il massimo fra le 12:10 e le 12:20.
-    Quindi due campioni consecutivi sopra soglia coprono venti minuti di
-    orologio, non dieci, e la durata si misura sulla copertura
-    (t_ultimo - t_primo + cadenza). Contando la sola differenza fra i
-    timestamp, "trenta minuti" avrebbe significato in silenzio quaranta: una
-    richiesta piu' severa di quella dichiarata. La cadenza, se non passata, e'
-    la spaziatura mediana della serie.
+    Un campione COPRE un intervallo, non un istante, quindi due campioni
+    consecutivi sopra soglia coprono due cadenze di orologio e la durata si
+    misura sulla copertura. Contando la sola differenza fra i timestamp,
+    "trenta minuti" avrebbe significato in silenzio quaranta.
 
-    Ritorna il CENTRO dell'intervallo in cui il passaggio e' avvenuto. Il
-    campione dice che fra t-cadenza e t si era sopra soglia, non dove: prendere
-    t sarebbe sempre in ritardo di mezza cadenza, e su una grandezza che stiamo
-    cercando di misurare a mezz'ora di precisione un errore sistematico
-    regalato non serve a nessuno.
+    max_gap_min, se non passato, viene dalla cadenza e non da una costante:
+    con 15 minuti fissi, a Malcesine (campioni ogni mezz'ora) OGNI intervallo
+    avrebbe spezzato la serie e l'ingresso non si sarebbe trovato mai.
+
+    Ritorna il CENTRO dell'intervallo in cui il passaggio e' avvenuto: il
+    campione dice che fra t-cadenza e t si era sopra soglia, non dove, e su una
+    grandezza che vogliamo misurare a mezz'ora di precisione un errore
+    sistematico di mezza cadenza e' regalato a nessuno.
     """
     pts = [(float(t), v) for t, v in series if v is not None]
     pts.sort()
@@ -803,9 +903,9 @@ def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=15.0,
     if n == 0:
         return None
     if cadence_min is None:
-        gaps = [pts[k + 1][0] - pts[k][0] for k in range(n - 1)
-                if pts[k + 1][0] - pts[k][0] <= max_gap_min]
-        cadence_min = median(gaps) if gaps else 0.0
+        cadence_min = sampling_cadence([t for t, _v in pts]) or 0.0
+    if max_gap_min is None:
+        max_gap_min = max(15.0, 2.5 * cadence_min) if cadence_min else 60.0
     for i in range(n):
         if pts[i][1] < threshold:
             continue
