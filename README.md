@@ -100,7 +100,7 @@ lo dice.
 ## Verifiche
 
 ```bash
-for t in test/t_*.py; do python3 "$t"; done
+python3 test/tutti.py
 ```
 
 611 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
@@ -111,7 +111,12 @@ avvio a freddo con database vuoto, i casi pre-registrati dell'orario di ingresso
 vero. Se tocchi il codice, lancialo prima e dopo.
 
 `test/t_live_pagina.py` ha bisogno di Playwright: dove non c'è, stampa `SKIP` e
-non finge di aver provato.
+non finge di aver provato — e `test/tutti.py` conta i file saltati a parte,
+perché un controllo che non è stato fatto non è un controllo verde.
+
+Gli stessi controlli girano in cloud prima di pubblicare, ma solo quando il
+codice è cambiato: un sito è generato dal codice, e un codice rotto
+pubblicherebbe un sito rotto con l'aria di essere giusto.
 
 ## Documentazione
 

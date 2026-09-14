@@ -49,6 +49,21 @@ jobs:
           restore-keys: |
             gardawind-db-
 
+      # Cancello prima di pubblicare, ma solo quando il codice e' cambiato:
+      # il sito e' generato dal codice, quindi un codice rotto pubblicherebbe
+      # un sito rotto con l'aria di essere giusto. Sulle esecuzioni
+      # programmate si salta - il codice e' lo stesso di prima, e cinque
+      # minuti quattro volte al giorno non comprerebbero niente.
+      - name: Controlli
+        if: github.event_name != 'schedule'
+        # Ogni file di controllo si sceglie il suo database temporaneo, e
+        # quelli che non lo fanno non aprono nessun database. Questa riga lo
+        # rende strutturale invece che fidato: qualunque cosa i controlli
+        # scrivano, non puo' finire nel database vero che sta in "dati".
+        env:
+          GARDAWIND_HOME: /tmp/gardawind-controlli
+        run: python3 test/tutti.py
+
       - name: Raccogli, addestra, esporta
         env:
           GARDAWIND_HOME: dati
