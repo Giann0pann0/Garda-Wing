@@ -358,3 +358,41 @@ rq = store.obs_hours("QC")[0]
 ok(abs(rq["wind_mean"] - 12.3) < 1e-9,
    "e l'ora usa il valore dell'archivio, non la media dei due (%.2f)"
    % rq["wind_mean"])
+
+# ===== stimabilita' PER GIORNATA, non per stazione =====
+# L'archivio di Malcesine cambia cadenza nel tempo. Deciderlo una volta per
+# stazione buttava via le giornate buone di una stazione rada, o contava come
+# "zero" le giornate rade di una stazione fitta - che si legge "non c'era
+# vento". Le due metriche devono comparire in DUE tabelle separate, ognuna col
+# suo conteggio.
+shutil.rmtree("/tmp/gwmix", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwmix"
+store.close()
+store.init()
+b4 = dt.datetime(2026, 4, 1, 0, 0, tzinfo=UTC)
+mix = []
+for d in range(120):
+    passo = 10 if d < 60 else 30          # meta' fitta, meta' rada
+    k = 0
+    while k * passo < 24 * 60:
+        t = b4 + dt.timedelta(days=d, minutes=passo * k)
+        mix.append((iso_utc(t), 11.0, 18.0, 200.0))
+        k += 1
+store.save_samples("malcesine", mix, "meteoproject-intraday")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    cmd_raffiche("Malcesine-Ora")
+um = buf.getvalue()
+ok("PER GIORNATA" in um, "la stimabilita' e' dichiarata per giornata")
+b30 = re.search(r"RAFFICA\s+-\s+(\d+) giornate\s+-\s+metrica: raffica ricorrente 30'", um)
+b90 = re.search(r"RAFFICA\s+-\s+(\d+) giornate\s+-\s+metrica: raffica sostenuta 90'", um)
+ok(b30 is not None and b90 is not None,
+   "due tabelle, una per metrica (30': %s, 90': %s)"
+   % (b30.group(1) if b30 else "-", b90.group(1) if b90 else "-"))
+ok(b30 and 40 <= int(b30.group(1)) <= 60,
+   "le giornate fitte vanno alla ricorrente 30': %s"
+   % (b30.group(1) if b30 else "?"))
+ok(b90 and 40 <= int(b90.group(1)) <= 60,
+   "le rade alla sostenuta 90': %s" % (b90.group(1) if b90 else "?"))
+ok(um.index("raffica ricorrente 30'") < um.index("raffica sostenuta 90'"),
+   "e non sono mescolate nella stessa tabella")

@@ -312,14 +312,6 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             continue
 
         cadenza = sampling_cadence(tempi) or 0.0
-        # La ricorrente a 30 minuti si stima solo se la cadenza lo permette.
-        # Dove non lo permette si usa una metrica DIVERSA, con un nome diverso
-        # e una tabella sua: novanta minuti non sono mezz'ora, e confonderle
-        # farebbe sembrare Torbole e Malcesine confrontabili.
-        stimabile30 = window_estimable(cadenza, FINESTRA_RICORRENTE_MIN)
-        finestra = FINESTRA_RICORRENTE_MIN if stimabile30 else 90.0
-        nome_metrica = ("raffica ricorrente 30'" if stimabile30
-                        else "raffica sostenuta 90'")
         gg_con_raffica = sum(1 for v in per_giorno.values()
                              if any(g is not None for _m, _w, g in v))
         print("")
@@ -342,13 +334,14 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             print("  nessun conflitto: le due fonti concordavano")
         print("  raffica presente su %d campioni (%.1f%%) e %d giornate"
               % (n_gust, 100.0 * n_gust / n_camp, gg_con_raffica))
-        if stimabile30:
-            print("  raffica ricorrente 30': stimabile a questa cadenza")
-        else:
-            print("  raffica ricorrente 30': NON stimabile a cadenza %g min"
-                  % cadenza)
-            print("  al suo posto, come metrica DISTINTA: raffica sostenuta 90'")
-            print("  (non confrontabile con la ricorrente 30' di altre stazioni)")
+        # La stimabilita' della ricorrente a 30' NON e' una proprieta' della
+        # centralina: e' una proprieta' del dato di quella giornata. L'archivio
+        # di Malcesine cambia cadenza nel tempo, quindi alcune giornate la
+        # sostengono e altre no. Deciderlo una volta per stazione, sulla
+        # cadenza mediana, buttava via le giornate buone di una stazione rada -
+        # o, peggio, contava come "zero" le giornate rade di una stazione
+        # fitta, che si legge "non c'era vento".
+        print("  la stimabilita' della ricorrente 30' e' valutata PER GIORNATA")
         if gg_con_raffica == 0:
             print("  -> raffica storica NON disponibile per questa centralina.")
         elif gg_con_raffica < 0.5 * len(per_giorno):
@@ -393,89 +386,112 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
                       % (t, etichetta, len(d), 100.0 * len(d) / max(1, gg_validi),
                          median(d) or 0))
 
-        # ---- livello 2: la raffica, solo dove c'e' ----
-        ric, massime, rapporti = [], [], []
-        durate_g = {t: [] for t in soglie}
-        ingressi = {t: [] for t in soglie}
-        gg_raffica = 0
+        # ---- livello 2: la raffica. Una tabella PER METRICA, mai mescolate ----
+        # Ogni giornata finisce nel secchio della metrica che il suo dato
+        # sostiene: 30' dove la cadenza lo permette, 90' altrove.
+        METRICHE = ((FINESTRA_RICORRENTE_MIN, "raffica ricorrente 30'"),
+                    (90.0, "raffica sostenuta 90'"))
+        secchi = {nome: {"ric": [], "max": [], "rap": [], "gg": 0,
+                         "durate": {t: [] for t in soglie},
+                         "ingressi": {t: [] for t in soglie}}
+                  for _w, nome in METRICHE}
+        gg_senza_raffica = 0
         for day in sorted(per_giorno):
             righe = sorted(per_giorno[day], key=lambda r: r[0])
             if not any(g is not None for _m, _w, g in righe):
                 continue
+            cad_g = sampling_cadence([m for m, _w, g in righe
+                                      if g is not None]) or cadenza
+            fin, nome = next(
+                ((w, n) for w, n in METRICHE if window_estimable(cad_g, w)),
+                (None, None))
+            if fin is None:
+                gg_senza_raffica += 1
+                continue
             serie_ric = gust_level([(m, g) for m, _w, g in righe],
-                                   finestra, centered=True,
-                                   cadence_min=cadenza)
+                                   fin, centered=True, cadence_min=cad_g)
             sel = [(m, w, g, r) for (m, w, g), (_m2, r) in zip(righe, serie_ric)
                    if h0 * 60 <= m <= (h1 + 1) * 60]
-            if covered_minutes([m for m, _w, _g, _r in sel], cadenza) < MIN_COPERTURA_MIN:
+            if covered_minutes([m for m, _w, _g, _r in sel],
+                               cad_g) < MIN_COPERTURA_MIN:
                 continue
-            gg_raffica += 1
-            gs = [g for _m, _w, g, _r in sel if g is not None]
             rs = [r for _m, _w, _g, r in sel if r is not None]
+            if not rs:
+                gg_senza_raffica += 1
+                continue
+            B = secchi[nome]
+            B["gg"] += 1
+            gs = [g for _m, _w, g, _r in sel if g is not None]
             ws = [w for _m, w, _g, _r in sel if w is not None]
             if gs:
-                massime.append(max(gs))
-            if rs:
-                ric.append(max(rs))
-                if ws and max(ws) > 0.5:
-                    rapporti.append(max(rs) / max(ws))
+                B["max"].append(max(gs))
+            B["ric"].append(max(rs))
+            if ws and max(ws) > 0.5:
+                B["rap"].append(max(rs) / max(ws))
             sr = [(m, r) for m, _w, _g, r in sel if r is not None]
             for t in soglie:
-                durate_g[t].append(time_above(sr, float(t), cadenza))
+                B["durate"][t].append(time_above(sr, float(t), cad_g))
                 ing = sustained_onset(sr, float(t), persist_min=30.0,
-                                      cadence_min=cadenza)
+                                      cadence_min=cad_g)
                 if ing is not None:
-                    ingressi[t].append(ing)
+                    B["ingressi"][t].append(ing)
 
-        print("")
-        if gg_raffica == 0:
-            print("  RAFFICA  -  non disponibile su questa centralina.")
-            print("  Non e' vento assente: e' misura assente. Si accumula da")
-            print("  qui in avanti, e questo blocco comparira' da solo.")
-            continue
-
-        print("  RAFFICA  -  %d giornate  -  metrica: %s"
-              % (gg_raffica, nome_metrica))
-        print("  %-22s %7s %7s %7s %7s %7s"
-              % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
-        print(riga_q(nome_metrica, ric))
-        print(riga_q("raffica massima", massime))
-        if len(rapporti) >= MIN_GIORNI_Q:
-            print("  rapporto raffica/media      mediana %.2f   q10 %.2f   q90 %.2f"
-                  % (q(rapporti, .5), q(rapporti, .1), q(rapporti, .9)))
-        elif rapporti:
-            print("  rapporto raffica/media: %d giornate, troppe poche"
-                  % len(rapporti))
-
-        if not ric:
+        if not any(secchi[n]["gg"] for _w, n in METRICHE):
             print("")
-            print("  Tabella delle durate non prodotta: %s non e'" % nome_metrica)
-            print("  calcolabile su questi dati. Ogni riga direbbe \"0\",")
-            print("  che si legge \"non c'e' mai vento\" e invece vuol dire")
-            print("  \"non l'abbiamo misurato\".")
+            print("  RAFFICA  -  non stimabile su questa centralina.")
+            print("  Non e' vento assente: e' misura assente o troppo rada. Si")
+            print("  accumula da qui in avanti, e questo blocco comparira' da solo.")
             continue
 
-        print("")
-        print("  quanto durano le soglie, su: %s" % nome_metrica)
-        print("  %6s %9s %11s %12s %12s %14s"
-              % ("soglia", "giornate", "% giornate", "durata med.", "durata q75",
-                 "ingresso >=30'"))
-        for t in soglie:
-            d = [x for x in durate_g[t] if x > 0]
-            perc = 100.0 * len(d) / gg_raffica if gg_raffica else 0.0
-            ing = ingressi[t]
-            if ing:
-                mm = median(ing) or 0
-                ora = "%02d:%02d" % (int(mm // 60) % 24, int(mm % 60))
-            else:
-                ora = "-"
-            print("  %6d %9d %10.0f%% %8.0f min %8.0f min %14s"
-                  % (t, len(d), perc, median(d) or 0,
-                     q(d, .75) if d else 0, ora))
+        for _fin, nome in METRICHE:
+            B = secchi[nome]
+            if not B["gg"]:
+                continue
+            print("")
+            print("  RAFFICA  -  %d giornate  -  metrica: %s" % (B["gg"], nome))
+            print("  %-22s %7s %7s %7s %7s %7s"
+                  % ("picco del giorno", "q10", "mediana", "q75", "q90", "q99"))
+            print(riga_q(nome, B["ric"]))
+            print(riga_q("raffica massima", B["max"]))
+            if len(B["rap"]) >= MIN_GIORNI_Q:
+                print("  rapporto raffica/media      mediana %.2f   q10 %.2f   q90 %.2f"
+                      % (q(B["rap"], .5), q(B["rap"], .1), q(B["rap"], .9)))
+            elif B["rap"]:
+                print("  rapporto raffica/media: %d giornate, troppe poche"
+                      % len(B["rap"]))
+            print("")
+            print("  quanto durano le soglie, su: %s" % nome)
+            print("  %6s %9s %11s %12s %12s %14s"
+                  % ("soglia", "giornate", "% giornate", "durata med.",
+                     "durata q75", "ingresso >=30'"))
+            for t in soglie:
+                d = [x for x in B["durate"][t] if x > 0]
+                perc = 100.0 * len(d) / B["gg"]
+                ing = B["ingressi"][t]
+                if ing:
+                    mm = median(ing) or 0
+                    ora = "%02d:%02d" % (int(mm // 60) % 24, int(mm % 60))
+                else:
+                    ora = "-"
+                # Una mediana di durata su due giornate e' il massimo di due
+                # numeri con un'etichetta che promette una distribuzione.
+                if len(d) < MIN_GIORNI_Q:
+                    print("  %6d %9d %10.0f%%   %d giornate: durate non riassunte"
+                          % (t, len(d), perc, len(d)))
+                else:
+                    print("  %6d %9d %10.0f%% %8.0f min %8.0f min %14s"
+                          % (t, len(d), perc, median(d) or 0,
+                             q(d, .75) if d else 0, ora))
+        if gg_senza_raffica:
+            print("")
+            print("  %d giornate con raffica ma troppo rada per qualunque"
+                  % gg_senza_raffica)
+            print("  finestra: escluse, non contate come zero.")
         print("")
         print("  Le soglie qui NON sono decise: sono candidate. La colonna che")
         print("  conta e' la durata - una soglia superata per venti minuti e'")
         print("  un colpo di vento, non una sessione.")
+        sys.stdout.flush()
 
 
 def cmd_direzioni(spot_name=None, bin_deg=10):
