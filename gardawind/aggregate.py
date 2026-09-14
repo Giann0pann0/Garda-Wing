@@ -8,17 +8,18 @@ casuale e inietta rumore direttamente nel bersaglio dell'addestramento.
 """
 
 from . import store
-from .util import (iso_hour_utc, parse_dt_any, recurrent_gust,
-                   vector_mean_direction)
+from .util import (FINESTRA_RICORRENTE_MIN, iso_hour_utc, parse_dt_any,
+                   recurrent_gust, sampling_cadence, vector_mean_direction,
+                   window_estimable)
 
 # Un'ora con troppi pochi campioni non e' una media: la teniamo, ma il numero
 # di campioni viaggia con il dato cosi' che il modello possa scartarla.
 MIN_SAMPLES_FULL = 4
 
-# La finestra della raffica ricorrente. Trenta minuti su campioni a dieci
-# minuti vuol dire mediana di tre valori: un colpo isolato viene scartato, un
-# livello che si ripete resta.
-FINESTRA_RIC_MIN = 30.0
+# La finestra della raffica ricorrente sta in util, una volta sola: trenta
+# minuti. Su campioni a dieci minuti e' la mediana di tre valori - un colpo
+# isolato viene scartato, un livello che si ripete resta. Dove la cadenza non
+# lo permette, gust_rec resta NULL: e' "non stimabile", non zero.
 
 
 def aggregate_station(station, since_iso=None):
@@ -44,8 +45,16 @@ def aggregate_station(station, since_iso=None):
     ric_per_ora = {}
     if serie:
         serie.sort()
-        valori = recurrent_gust([(t, v) for t, v, _h in serie],
-                                window_min=FINESTRA_RIC_MIN, centered=True)
+        cadenza = sampling_cadence([t for t, _v, _h in serie])
+        if not window_estimable(cadenza, FINESTRA_RICORRENTE_MIN):
+            # Cadenza troppo rada per una mediana su mezz'ora. Non si allarga
+            # la finestra tenendo il nome: si lascia NULL e chi legge sa che
+            # per questa centralina la grandezza non e' stimabile.
+            valori = []
+            serie = []
+        else:
+            valori = recurrent_gust([(t, v) for t, v, _h in serie],
+                                    centered=True, cadence_min=cadenza)
         for (_t, v), (_t2, _v2, hour) in zip(valori, serie):
             if v is not None:
                 prev = ric_per_ora.get(hour)

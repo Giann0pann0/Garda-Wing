@@ -720,27 +720,27 @@ def interval_coverage(lo_list, hi_list, obs):
 
 
 # --------------------------------------------------------------------------
-# Raffica ricorrente, e il tempo misurato in minuti
+# Livelli di raffica, e il tempo misurato in minuti
 # --------------------------------------------------------------------------
 # Con il wing non si plana sul vento medio, e non si plana nemmeno sulla
 # raffica di punta: un colpo isolato a 25 nodi dentro una media di 8 non e' una
 # sessione, e' una tavola che si ferma. Quello che fa la sessione e' un livello
 # di raffica che TORNA.
 #
-# La definizione deve essere causale, cioe' non deve guardare come e' andata la
-# giornata. "La mediana delle raffiche nelle ore migliori" non lo e': scegliere
-# le ore migliori e' una selezione fatta a giornata finita, e infilerebbe uno
-# sguardo sul futuro dentro il bersaglio dell'addestramento. Una finestra
-# mobile, invece, e' una funzione solo di quello che sta dentro la finestra.
+# La definizione deve essere causale: "la mediana delle raffiche nelle ore
+# migliori" non lo e', perche' scegliere le ore migliori e' una selezione fatta
+# a giornata finita e infilerebbe uno sguardo sul futuro dentro il bersaglio.
+# Una finestra mobile e' funzione solo di quello che sta dentro la finestra.
 #
-# E non deve avere dentro la cadenza di una centralina in particolare. La prima
-# versione di queste funzioni aveva tre costanti nascoste - almeno 3 campioni
-# nella finestra, 12 campioni = due ore di copertura, ogni campione vale 10
-# minuti - tutte vere per Torbole, che campiona ogni dieci minuti, e tutte
-# false per Malcesine, che campiona ogni 15-30. Il risultato era che a
-# Malcesine la raffica ricorrente usciva None su tutto e le durate delle soglie
-# erano sbagliate di un fattore due o tre, senza che niente lo segnalasse.
-# Qui il tempo si misura in minuti e la cadenza si deduce dai dati.
+# E la finestra NON si allarga da sola. Una versione precedente, trovando una
+# centralina che campiona ogni mezz'ora, portava la finestra da 30 a 90 minuti
+# per farci stare tre campioni - e continuava a chiamare il risultato "raffica
+# ricorrente". Ma "il livello che si ripete su mezz'ora" e "su novanta minuti"
+# non sono la stessa grandezza fisica: tenere lo stesso nome fa sembrare due
+# centraline confrontabili quando non lo sono, ed e' il modo piu' silenzioso di
+# mettere insieme mele e pere. La finestra e' un parametro dichiarato: dove la
+# cadenza non permette di stimare la ricorrente a 30 minuti, la risposta e'
+# "non stimabile", non un numero che misura un'altra cosa.
 
 
 def sampling_cadence(times, max_gap_min=180.0):
@@ -755,22 +755,21 @@ def sampling_cadence(times, max_gap_min=180.0):
     return median(gaps) if gaps else None
 
 
-def effective_window(cadence_min, target_min=30.0, min_samples=3):
-    """Finestra da usare davvero, dato quanto rado campiona la centralina.
+def window_estimable(cadence_min, window_min=30.0, min_samples=3):
+    """La finestra chiesta e' stimabile a questa cadenza?
 
-    Una mediana vuole almeno tre valori per poter scartare un estremo. Con
-    campioni ogni dieci minuti tre valori stanno in mezz'ora; con campioni ogni
-    mezz'ora servono novanta minuti. La finestra si allarga quindi fino a
-    contenerne tre.
+    Una mediana vuole almeno tre valori per poter scartare un estremo. In una
+    finestra di w minuti, a cadenza c, ci stanno circa floor(w/c)+1 campioni:
+    quindi servono c <= w/2 per averne tre. A 30 minuti di finestra, una
+    centralina a 10 o 15 minuti va bene, una a 30 no.
 
-    Il prezzo va detto, perche' e' reale: "il livello che si ripete su mezz'ora"
-    e "su novanta minuti" non sono la stessa grandezza fisica. Chi stampa i
-    numeri deve stampare accanto la finestra usata, e nessuno deve confrontare
-    due centraline con finestre diverse come se misurassero la stessa cosa.
+    Questa e' la funzione che decide se una centralina puo' avere la raffica
+    ricorrente a 30 minuti. Se dice no, la risposta e' "non stimabile": non si
+    cambia la finestra tenendo il nome.
     """
     if not cadence_min or cadence_min <= 0:
-        return float(target_min)
-    return max(float(target_min), float(min_samples) * float(cadence_min))
+        return False
+    return int(window_min // cadence_min) + 1 >= min_samples
 
 
 def covered_minutes(times, cadence_min=None, max_gap_min=None):
@@ -794,17 +793,19 @@ def covered_minutes(times, cadence_min=None, max_gap_min=None):
     return total
 
 
-def recurrent_gust(samples, window_min=30.0, centered=True, cadence_min=None,
-                   min_cover_frac=0.6):
-    """Mediana mobile delle raffiche, su una finestra adattata alla cadenza.
+def gust_level(samples, window_min, centered=True, cadence_min=None,
+               min_cover_frac=0.6, min_samples=3):
+    """Mediana mobile delle raffiche su una finestra DICHIARATA.
+
+    window_min e' obbligatorio e non viene mai modificato: e' il nome della
+    grandezza. Chi la chiama sa quale finestra ha chiesto, e deve stampare quel
+    numero accanto ai risultati.
 
     samples: [(minuti, raffica)] in ordine di tempo. Ritorna [(minuti, valore)]
     con valore None dove la finestra non e' coperta abbastanza - un buco nei
-    dati non e' una raffica bassa, ed e' meglio dirlo che riempirlo.
-
-    La validita' si giudica sulla COPERTURA TEMPORALE della finestra, non su un
-    numero di campioni: "almeno tre campioni" e' la stessa cosa solo se la
-    cadenza e' quella di Torbole.
+    dati non e' una raffica bassa, ed e' meglio dirlo che riempirlo. La
+    validita' si giudica sulla COPERTURA TEMPORALE e su un minimo di campioni,
+    non su un conteggio tarato su una cadenza particolare.
 
     La finestra centrata guarda oltre l'istante e va bene per il BERSAGLIO, che
     e' storia osservata. Per il dato in diretta serve la finestra all'indietro
@@ -818,7 +819,7 @@ def recurrent_gust(samples, window_min=30.0, centered=True, cadence_min=None,
         return []
     if cadence_min is None:
         cadence_min = sampling_cadence([t for t, _v in pts]) or 0.0
-    w = effective_window(cadence_min, window_min)
+    w = float(window_min)
     need = min_cover_frac * w
     out = []
     half = w / 2.0
@@ -838,12 +839,31 @@ def recurrent_gust(samples, window_min=30.0, centered=True, cadence_min=None,
         while j < n and pts[j][0] <= hi + 1e-9:
             j += 1
         fetta = pts[i:j]
-        if len(fetta) >= 2 and covered_minutes(
-                [x for x, _v in fetta], cadence_min) >= need - 1e-9:
+        if (len(fetta) >= min_samples and covered_minutes(
+                [x for x, _v in fetta], cadence_min) >= need - 1e-9):
             out.append((t, median([v for _x, v in fetta])))
         else:
             out.append((t, None))
     return out
+
+
+# La finestra canonica della raffica ricorrente. E' una scelta di prodotto -
+# mezz'ora e' il tempo in cui si decide se scendere in acqua - e sta scritta
+# qui una volta sola, non sparsa nei chiamanti.
+FINESTRA_RICORRENTE_MIN = 30.0
+
+
+def recurrent_gust(samples, centered=True, cadence_min=None):
+    """Raffica ricorrente: il livello che si ripete su TRENTA minuti.
+
+    Finestra fissa. A cadenze troppo rade esce None su tutto, e va riportato
+    come "non stimabile a questa cadenza" (window_estimable lo dice in
+    anticipo). Per un livello sostenuto su una finestra piu' larga si chiama
+    gust_level con la sua finestra e si usa un altro nome: e' un'altra
+    grandezza.
+    """
+    return gust_level(samples, FINESTRA_RICORRENTE_MIN, centered=centered,
+                      cadence_min=cadence_min)
 
 
 def time_above(series, threshold, cadence_min=None, max_gap_min=None):
@@ -891,6 +911,10 @@ def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=None,
     max_gap_min, se non passato, viene dalla cadenza e non da una costante:
     con 15 minuti fissi, a Malcesine (campioni ogni mezz'ora) OGNI intervallo
     avrebbe spezzato la serie e l'ingresso non si sarebbe trovato mai.
+
+    Funziona su qualunque serie temporale, non solo sulle raffiche: sul vento
+    medio, che a Torbole c'e' dal 2012, da' l'ingresso del regime senza
+    aspettare che il campione di raffiche cresca.
 
     Ritorna il CENTRO dell'intervallo in cui il passaggio e' avvenuto: il
     campione dice che fra t-cadenza e t si era sopra soglia, non dove, e su una

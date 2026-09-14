@@ -20,9 +20,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import shutil
 shutil.rmtree("/tmp/gwraff", ignore_errors=True)
 
-from gardawind.util import (covered_minutes, effective_window, iso_utc,
-                            recurrent_gust, sampling_cadence, sustained_onset,
-                            time_above)
+from gardawind.util import (FINESTRA_RICORRENTE_MIN, covered_minutes,
+                            gust_level, iso_utc, recurrent_gust,
+                            sampling_cadence, sustained_onset, time_above,
+                            window_estimable)
 from gardawind import store, aggregate
 import datetime as dt
 
@@ -41,25 +42,25 @@ def val(series, minute):
 
 # un colpo isolato non alza la ricorrente: e' tutto il punto della grandezza
 s = [(0, 10.0), (10, 10.0), (20, 30.0), (30, 10.0), (40, 10.0)]
-r = recurrent_gust(s, window_min=30.0)
+r = recurrent_gust(s)
 ok(val(r, 20) == 10.0, "un colpo isolato non alza la ricorrente (%s)" % val(r, 20))
 ok(max(v for _t, v in r if v is not None) == 10.0,
    "nessun punto della ricorrente arriva al valore del colpo")
 
 # un livello che TORNA invece la alza
 s = [(0, 10.0), (10, 22.0), (20, 21.0), (30, 23.0), (40, 10.0)]
-ok(val(recurrent_gust(s, window_min=30.0), 20) == 22.0,
+ok(val(recurrent_gust(s), 20) == 22.0,
    "tre raffiche alte di fila fanno salire la ricorrente")
 
 # i buchi non vengono riempiti
-r = recurrent_gust([(0, 15.0), (600, 15.0)], window_min=30.0)
+r = recurrent_gust([(0, 15.0), (600, 15.0)])
 ok(all(v is None for _t, v in r), "due campioni a dieci ore di distanza: None")
 ok(len(r) == 2, "ma i punti restano, non vengono buttati")
 
 # centrata contro all'indietro: devono essere diverse, cosi' chi le usa scegli
 s = [(0, 10.0), (10, 10.0), (20, 10.0), (30, 25.0), (40, 25.0), (50, 25.0)]
-c = recurrent_gust(s, window_min=30.0, centered=True)
-b = recurrent_gust(s, window_min=30.0, centered=False)
+c = recurrent_gust(s, centered=True)
+b = recurrent_gust(s, centered=False)
 ok(val(c, 30) != val(b, 30),
    "centrata %s e all'indietro %s non coincidono" % (val(c, 30), val(b, 30)))
 ok(val(b, 50) == 25.0, "all'indietro, a fine rampa, la ricorrente e' salita")
@@ -75,18 +76,37 @@ ok(sampling_cadence([t for t, _v in t30]) == 30.0, "cadenza 30 min riconosciuta"
 ok(sampling_cadence([0.0, 10.0, 20.0, 600.0, 610.0]) == 10.0,
    "un buco di dieci ore non entra nella cadenza")
 
-ok(effective_window(10.0) == 30.0, "a 10 min la finestra resta 30")
-ok(effective_window(30.0) == 90.0, "a 30 min la finestra diventa 90 (tre campioni)")
-ok(effective_window(None) == 30.0, "senza cadenza nota si usa il bersaglio")
+# La finestra della ricorrente NON si allarga mai. Una versione precedente, a
+# cadenza 30, la portava a 90 minuti e continuava a chiamarla "ricorrente":
+# faceva sembrare due centraline confrontabili quando misuravano due grandezze
+# diverse. Ora la risposta e' "non stimabile".
+ok(window_estimable(10.0, 30.0), "a 10 min la ricorrente a 30' e' stimabile")
+ok(window_estimable(15.0, 30.0), "a 15 min lo e' ancora (tre campioni esatti)")
+ok(not window_estimable(30.0, 30.0),
+   "a 30 min NON lo e': un campione solo dentro mezz'ora")
+ok(not window_estimable(None, 30.0), "senza cadenza nota, non stimabile")
 
-r30 = recurrent_gust(t30, window_min=30.0)
-calcolati = sum(1 for _t, v in r30 if v is not None)
-ok(calcolati == len(t30),
-   "a cadenza 30 la ricorrente si calcola (%d/%d) - prima erano tutti None"
-   % (calcolati, len(t30)))
-r10 = recurrent_gust(t10, window_min=30.0)
-ok(sum(1 for _t, v in r10 if v is not None) == len(t10),
-   "a cadenza 10 continua a calcolarsi")
+r10 = recurrent_gust(t10)
+n10 = sum(1 for _t, v in r10 if v is not None)
+ok(n10 == len(t10) - 2, "a cadenza 10 la ricorrente si calcola (%d su %d)"
+   % (n10, len(t10)))
+# Il primo e l'ultimo punto hanno mezza finestra e restano None: ai bordi di
+# una serie la finestra centrata e' davvero incompleta, e dirlo e' giusto.
+ok(r10[0][1] is None and r10[-1][1] is None,
+   "ai bordi della serie la finestra e' incompleta: None, non un mezzo valore")
+
+r30 = recurrent_gust(t30)
+ok(all(v is None for _t, v in r30),
+   "a cadenza 30 la ricorrente resta None: non si finge di saperla")
+
+# Per un livello su una finestra piu' larga si chiede esplicitamente quella
+# finestra, e il nome della grandezza cambia di conseguenza.
+g90 = gust_level(t30, 90.0)
+n90 = sum(1 for _t, v in g90 if v is not None)
+ok(n90 == len(t30) - 2,
+   "il livello sostenuto su 90' invece si calcola (%d su %d)" % (n90, len(t30)))
+ok(FINESTRA_RICORRENTE_MIN == 30.0,
+   "la finestra canonica sta scritta in un posto solo")
 
 # durate: minuti veri, non numero di righe per dieci
 ok(time_above(t10, 14.0) == 120.0, "12 campioni a 10 min = 120 minuti (%s)"
@@ -100,8 +120,10 @@ ok(covered_minutes([0.0, 10.0, 20.0]) == 30.0, "tre campioni a 10 min coprono 30
 cop = covered_minutes([0.0, 10.0, 600.0, 610.0])
 ok(cop == 40.0, "un buco di dieci ore non diventa copertura (%s)" % cop)
 
-# ingresso: a cadenza 30 si deve trovare. Con max_gap fisso a 15 minuti ogni
-# intervallo spezzava la serie e non si trovava MAI.
+# Ingresso a cadenza 30: si deve trovare. Con max_gap fisso a 15 minuti ogni
+# intervallo spezzava la serie e non si trovava MAI. Qui la serie e' il vento
+# osservato, non la ricorrente - ed e' il motivo per cui il timing si puo'
+# misurare sui quattordici anni di Torbole senza aspettare le raffiche.
 ing30 = sustained_onset(t30, 14.0, persist_min=30.0)
 ok(ing30 is not None, "a cadenza 30 l'ingresso si trova (%s)" % ing30)
 ok(ing30 == -15.0, "ed e' il centro del primo intervallo coperto (%s)" % ing30)
@@ -145,6 +167,20 @@ ok(row["gust_rec"] is not None and abs(row["gust_rec"] - 14.0) < 1e-6,
 ok(row["gust_rec"] < row["gust_max"],
    "ricorrente e massima sono due grandezze separate, non un alias")
 ok(abs(row["wind_mean"] - 10.0) < 1e-6, "il vento medio resta quello che era")
+
+# A cadenza rada l'aggregazione NON scrive un valore preso da un'altra
+# finestra: lascia NULL.
+base2 = dt.datetime(2026, 5, 2, 12, 0, tzinfo=UTC)
+camp2 = [(iso_utc(base2 + dt.timedelta(minutes=30 * i)), 10.0, 16.0, 200.0)
+         for i in range(8)]
+store.save_samples("RADA", camp2, "t_raffiche")
+aggregate.aggregate_station("RADA")
+righe_rade = store.obs_hours("RADA")
+ok(righe_rade and all(r["gust_rec"] is None for r in righe_rade),
+   "a cadenza 30 min gust_rec resta NULL su tutte le ore (%d righe)"
+   % len(righe_rade))
+ok(righe_rade and all(r["gust_max"] is not None for r in righe_rade),
+   "ma la raffica massima, che non ha bisogno di finestra, c'e'")
 
 cols = {r["name"] for r in store.connect().execute("PRAGMA table_info(obs_hour)")}
 ok("gust_rec" in cols, "la colonna esiste dopo la migrazione")
