@@ -28,6 +28,9 @@ ok("GARDAWIND_HOME: dati" in y, "il database va in una cartella persistente")
 ok("actions/cache@v4" in y and "restore-keys" in y, "cache con chiave di ripiego")
 ok("upload-artifact" in y, "copia di sicurezza del database")
 ok("cron:" in y and "workflow_dispatch" in y, "schedulato e lanciabile a mano")
+ok("push:" in y and "branches: [main]" in y,
+   "una modifica al codice ripubblica il sito senza aspettare il cron")
+ok("gardawind/**" in y, "il trigger su push guarda il pacchetto, non i documenti")
 try:
     import yaml; yaml.safe_load(y); ok(True,"YAML valido")
 except ImportError:

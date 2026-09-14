@@ -329,13 +329,18 @@ def confidence_badge(val, compact=False):
             % (cls, E(label[0].upper() + label[1:]), extra))
 
 
-def hhmm(minutes):
-    """Minuti dalla mezzanotte -> HH:MM, arrotondati a dieci minuti.
+def hhmm(minutes, step=10):
+    """Minuti dalla mezzanotte -> HH:MM, arrotondati al passo.
 
-    L'arrotondamento a dieci non e' estetica: scrivere 08:07 suggerirebbe una
-    precisione al minuto che l'interpolazione di un profilo orario non ha.
+    L'arrotondamento non e' estetica: scrivere 08:07 suggerirebbe una
+    precisione al minuto che l'interpolazione di un profilo orario non ha. Il
+    passo di default e' dieci minuti; gli estremi della finestra di ingresso
+    usano cinque, perche' vengono da un quantile misurato e non da
+    un'interpolazione, e con dieci un intervallo simmetrico si sbilancia.
+    Mezzo passo si arrotonda sempre verso l'alto: il round di Python va al
+    pari piu' vicino, e su una coppia di estremi si vedeva.
     """
-    m = int(round(clamp(minutes, 0.0, 24 * 60 - 1) / 10.0) * 10)
+    m = int(math.floor(clamp(minutes, 0.0, 24 * 60 - 1) / float(step) + 0.5) * step)
     return "%02d:%02d" % (m // 60, m % 60)
 
 
@@ -754,6 +759,23 @@ def best_callout(place, sessions):
                E(lab), data.get("speed") or 0.0, gust, wing))
 
 
+# La finestra si mostra con i suoi estremi in orologio, non come "±35 min", e
+# la sua qualita' con una parola. La percentuale di copertura e' corretta ed e'
+# la cosa sbagliata da mettere in home: chiede a chi si sta vestendo di fare
+# statistica. Vive in diagnostica, accanto all'errore medio.
+# 25 minuti e' il confine fra "posso programmare l'uscita" e "devo tenermi
+# largo"; 45 e' la soglia operativa oltre la quale non mostriamo niente.
+TIMING_PAROLA = ((25.0, "buona"), (45.0, "moderata"))
+
+
+def timing_words(half_min):
+    """La parola per una semiampiezza, o None se oltre la soglia operativa."""
+    for soglia, parola in TIMING_PAROLA:
+        if half_min <= soglia:
+            return parola
+    return None
+
+
 def timing_line(place, sessions):
     """La seconda voce, indipendente dalla prima: a che ora entra.
 
@@ -777,10 +799,15 @@ def timing_line(place, sessions):
             best = (ing, name)
     if best:
         ing = best[0]
-        return ('<div class="tmline tm-3"><i></i><span>Ingresso pi\u00f9 probabile '
-                '<b>%s</b> \u00b7 \u00b1%d min, copre il %d%% delle volte</span></div>'
-                % (hhmm(ing["min"]), round(ing["half_min"]),
-                   round(ing["coverage"] * 100)))
+        parola = timing_words(ing["half_min"])
+        if parola:
+            return ('<div class="tmline tm-%d"><i></i><span>Ingresso pi\u00f9 probabile '
+                    '<b>%s</b> \u00b7 finestra %s\u2013%s \u00b7 affidabilit\u00e0 timing '
+                    '<b>%s</b></span></div>'
+                    % (3 if ing["half_min"] <= TIMING_PAROLA[0][0] else 2,
+                       hhmm(ing["min"], 5),
+                       hhmm(ing["min"] - ing["half_min"], 5),
+                       hhmm(ing["min"] + ing["half_min"], 5), E(parola)))
     return ('<div class="tmline tm-1"><i></i><span>Orario <b>incerto</b> \u2014 '
             'vale la fascia, non un\u2019ora precisa</span></div>')
 

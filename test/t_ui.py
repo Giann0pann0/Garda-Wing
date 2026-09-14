@@ -120,7 +120,24 @@ G2[0] = dict(G2[0], sessions=s)
 engine.by_day = lambda product=None: G2
 H2 = web.page_home()
 ok("Ingresso più probabile" in H2 and "12:40" in H2, "finestra di ingresso mostrata")
-ok("copre il 68%" in H2, "la copertura e' dichiarata accanto alla finestra")
+ok("12:05" in H2 and "13:15" in H2, "la finestra ha i suoi estremi in orologio")
+ok("affidabilità timing" in H2 and "moderata" in H2,
+   "la qualita' del timing e' una parola")
+ok("68" not in H2.split("Ingresso")[1][:220] and "±" not in H2,
+   "niente percentuale di copertura ne' ± in home")
+
+# oltre la soglia operativa dei 45 minuti non si mostra nessuna ora
+G3 = [dict(g) for g in GIORNI]
+s3 = dict(G3[0]["sessions"])
+t3 = dict(s3["Torbole-Ora"])
+t3["ingresso"] = {"min": 12 * 60 + 40, "half_min": 70.0, "coverage": 0.68}
+s3["Torbole-Ora"] = t3
+G3[0] = dict(G3[0], sessions=s3)
+engine.by_day = lambda product=None: G3
+H3 = web.page_home()
+ok("Ingresso più probabile" not in H3 and "incerto" in H3,
+   "sopra i 45 minuti si torna a dichiarare l'orario incerto")
+engine.by_day = lambda product=None: G2
 
 # ---- raffica: la parola per esteso, e la curva nel grafico ----
 ok("raffica" in H, "la parola raffica e' scritta per esteso")

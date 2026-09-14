@@ -7,6 +7,16 @@ on:
   schedule:
     - cron: "20 3,9,15,21 * * *"
   workflow_dispatch:          # per lanciarlo a mano dalla pagina Actions
+  # E a ogni modifica del codice. Senza questo, pubblicare una versione nuova
+  # voleva dire spingere il codice e poi ASPETTARE la prossima esecuzione
+  # programmata - fino a sei ore in cui il sito mostra la versione vecchia e
+  # sembra che la patch non sia arrivata. Il sito e' generato dal codice:
+  # quando il codice cambia, il sito va rifatto.
+  push:
+    branches: [main]
+    paths:
+      - "gardawind/**"
+      - ".github/workflows/garda-wind.yml"
 
 permissions:
   contents: read
