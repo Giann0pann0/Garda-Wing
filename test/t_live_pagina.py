@@ -39,7 +39,7 @@ except Exception as e:                                        # pragma: no cover
     raise SystemExit(0)
 
 from gardawind import config, engine, export, live, store, web
-from gardawind.util import iso_utc
+from gardawind.util import iso_utc, local_day, utc_now
 
 store.init()
 ST = config.SPOTS["Torbole-Ora"]["station"]
@@ -79,12 +79,16 @@ def sessione(speed):
 VIVO = {"wind": 14.0, "gust": 20.0, "dir": 191.0,
         "ts": iso_utc(ADESSO - dt.timedelta(minutes=20)),
         "age_min": 20.0, "stale": False}
+# La giornata e' OGGI, perche' il segno dell'ora corrente compare solo sul
+# grafico di oggi: con una data fissa non lo si proverebbe mai.
+OGGI = local_day(utc_now())
+from gardawind.util import day_shift
 GIORNI = [{
-    "day": "2026-09-14", "lead": 0,
+    "day": day_shift(OGGI, lead), "lead": lead,
     "sessions": {n: sessione(16.0) for n in config.SPOT_ORDER},
     "places": {p: {"profile": profilo(18.0), "live": dict(VIVO)}
                for p in config.PLACES},
-}]
+} for lead in range(3)]
 engine.by_day = lambda product=None: [dict(g) for g in GIORNI]
 engine.ensure_update = lambda force=False: False
 
@@ -295,6 +299,56 @@ with sync_playwright() as pw:
     v = testo(pg, ".nowblock .nowbig .v")
     ok(v is not None and v.startswith("14"),
        "catena: e la pagina resta quella di partenza (%r)" % v)
+    pg.close()
+
+    # ---- 10. il segno dell'ora corrente sul grafico di oggi --------------
+    # Nasce da una domanda: "perche' il pallino e' alle 7 mentre ora sono le
+    # 14.25?". Il pallino e' il picco previsto, ma su una curva del tempo un
+    # punto con un numero accanto si legge come "sei qui". Ora il "sei qui"
+    # c'e' davvero, lo mette il browser, e sta nell'ora del lago.
+    pg, _ = apri(ctx, json_nuovo(ADESSO - dt.timedelta(minutes=5), 14.0, 20.0))
+    oggi_n = len(pg.query_selector_all('svg.chart[data-today="1"]'))
+    altri_n = len(pg.query_selector_all('svg.chart[data-today="0"]'))
+    ok(oggi_n == len(config.PLACES),
+       "adesso: un segno per luogo sul grafico di oggi (%d)" % oggi_n)
+    ok(altri_n == 2 * len(config.PLACES),
+       "adesso: i due giorni successivi non lo hanno (%d grafici senza segno)"
+       % altri_n)
+    ok(len(pg.query_selector_all('line[id$="-now"]')) == oggi_n,
+       "adesso: e l'elemento esiste solo dove serve")
+
+    # L'ora del lago, con l'orologio vero, PRIMA di sostituirla: se la si
+    # legge dopo si sta solo rileggendo il proprio finto.
+    ora_lago = pg.evaluate("() => gwOraLago()")
+    ora_sistema = pg.evaluate("() => new Date().getHours()+new Date().getMinutes()/60")
+    ok(isinstance(ora_lago, (int, float)) and 0 <= ora_lago < 24,
+       "adesso: l'ora del lago e' un numero di ore (%.2f)" % ora_lago)
+    # Il container gira in UTC, il lago e' a UTC+1 o +2: la differenza deve
+    # esserci, e deve essere di ore intere.
+    _diff = (ora_lago - ora_sistema) % 24
+    ok(abs(_diff - round(_diff)) < 0.02,
+       "adesso: la differenza col fuso del dispositivo e' di ore intere (%.2f)"
+       % _diff)
+
+    def segno(ora):
+        pg.evaluate("(o) => { window.gwOraLago = function(){return o;}; gwNowLine(); }",
+                    ora)
+        pg.wait_for_timeout(60)
+        return pg.eval_on_selector(
+            'svg.chart[data-today="1"] line[id$="-now"]',
+            "e => [parseFloat(e.getAttribute('x1')), e.getAttribute('opacity')]")
+
+    x15, op15 = segno(15.5)
+    x7, op7 = segno(7.0)
+    ok(float(op15) > 0 and float(op7) > 0,
+       "adesso: dentro la finestra il segno si vede")
+    ok(x15 > x7, "adesso: alle 15.30 sta a destra che alle 7 (%s > %s)" % (x15, x7))
+    _x, op2 = segno(2.0)
+    ok(float(op2) == 0.0,
+       "adesso: fuori dalla finestra disegnata si nasconde invece di incollarsi al bordo")
+    ok((pg.eval_on_selector('svg.chart[data-today="1"] text[id$="-nowlab"]',
+                            "e => e.textContent") or "").strip() == "ADESSO",
+       "adesso: l'etichetta dice ADESSO")
     pg.close()
 
     browser.close()

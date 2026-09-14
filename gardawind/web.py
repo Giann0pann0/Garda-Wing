@@ -20,7 +20,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config, confidence, engine, store, verify
-from .util import clamp, parse_dt_any, to_local
+from .util import clamp, local_day, parse_dt_any, to_local, utc_now
 
 E = html.escape
 
@@ -592,8 +592,15 @@ def now_column(place, index, live, profile):
            ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits)) if bits else ""))
 
 
-def place_chart(place, profile, bands, chart_id):
+def place_chart(place, profile, bands, chart_id, oggi=False):
     """La giornata di un luogo: vento medio e raffica.
+
+    oggi: se e' la giornata di oggi, il grafico porta anche una riga verticale
+    sull'ora corrente, messa dal browser. Nasce da una domanda che si e'
+    rivelata piu' importante della risposta: "perche' il pallino e' alle 7
+    mentre ora sono le 14.25?". Il pallino e' il PICCO previsto, ma un punto
+    con un numero accanto, su una curva del tempo, si legge come "sei qui" -
+    e senza un "sei qui" vero non c'era modo di accorgersi che non lo fosse.
 
     Due curve, distinte da tratto e da etichetta diretta oltre che dal colore -
     la raffica e' tratteggiata, e resta leggibile anche per chi non separa il
@@ -652,6 +659,12 @@ def place_chart(place, profile, bands, chart_id):
         yy = y(v)
         p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" stroke="var(--grid)" '
                  'stroke-width="1"/>' % (pl, yy, W - pr, yy))
+        # Lo zero non si scrive: sta alla stessa altezza delle ore e alla
+        # stessa ascissa della prima, e le due scritte si leggevano insieme -
+        # "004" al posto di "0" e "04". Che la linea di base sia zero si vede
+        # dalla scala, e una scritta in meno non toglie niente.
+        if v == 0:
+            continue
         p.append('<text x="%g" y="%.1f" text-anchor="end" font-size="11" '
                  'fill="var(--ink-3)">%d</text>' % (pl - 7, yy + 4, v))
 
@@ -705,6 +718,19 @@ def place_chart(place, profile, bands, chart_id):
     p.append('<line id="%s-cross" x1="0" y1="%g" x2="0" y2="%g" stroke="var(--axis)" '
              'stroke-width="1.5" opacity="0"/>' % (chart_id, pt, H - pb))
 
+    # Il segno dell'ora corrente. Viene disegnato invisibile e lo posiziona il
+    # browser: la pagina e' statica e puo' essere vecchia di ore, quindi un
+    # "adesso" scritto al momento della costruzione sarebbe un "adesso" falso -
+    # lo stesso errore che la Fase 2 ha tolto dalle condizioni attuali.
+    if oggi:
+        p.append('<line id="%s-now" x1="0" y1="%g" x2="0" y2="%g" '
+                 'stroke="var(--ink-2)" stroke-width="1.5" '
+                 'stroke-dasharray="2 3" opacity="0"/>' % (chart_id, pt, H - pb))
+        p.append('<text id="%s-nowlab" x="0" y="%g" text-anchor="middle" '
+                 'font-size="10" font-weight="800" letter-spacing=".08em" '
+                 'fill="var(--ink-2)" opacity="0">ADESSO</text>'
+                 % (chart_id, H - pb + 36))
+
     payload = [{"h": r["hour"],
                 place: [round(r["wind"], 1), round(r["gust"], 1),
                         compass(r.get("dir"))]} for r in rows]
@@ -717,6 +743,8 @@ def place_chart(place, profile, bands, chart_id):
     return (
         '<div class="chartwrap">'
         '<svg class="chart" id="%s" viewBox="0 0 %g %g" role="img" '
+        'data-today="%d" data-w="%g" data-pl="%g" data-pr="%g" '
+        'data-h0="%g" data-h1="%g" '
         'aria-label="Vento previsto a %s, ora per ora">%s</svg>'
         '<div class="tip" id="%s-tip"></div></div>'
         '<div class="legend">'
@@ -735,7 +763,8 @@ def place_chart(place, profile, bands, chart_id):
         # not defined" dieci volte per pagina, e il tooltip dei grafici non
         # ha mai funzionato. La coda viene svuotata quando la funzione esiste.
         '<script>(window.gwq=window.gwq||[]).push([%s,%s,%g,%g,%g,%g,%g]);</script>'
-        % (chart_id, W, H, E(place), "".join(p), chart_id, body,
+        % (chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
+           E(place), "".join(p), chart_id, body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
 
 
@@ -908,7 +937,8 @@ def place_section(place, index, entry, visible):
            now_column(place, index, pl.get("live"), pl.get("profile") or []),
            E(day_title(entry["day"], entry["lead"])[1]),
            place_chart(place, pl.get("profile") or [], regime_bands(place),
-                       "c%d%d" % (entry["_i"], index)),
+                       "c%d%d" % (entry["_i"], index),
+                       oggi=(entry.get("day") == local_day(utc_now()))),
            reliability_ring(conf),
            RING_COLOR[int((conf or {}).get("livello") or 0)],
            E(RING_WORD[int((conf or {}).get("livello") or 0)]),
@@ -1538,6 +1568,49 @@ function gwBanner(min){
     }
   }
 }
+/* L'ora corrente sul grafico di oggi. La calcola il browser, e la calcola
+   nell'ora del LAGO: un telefono in un altro fuso mostrerebbe altrimenti una
+   riga verticale spostata di ore su un grafico che parla di ore locali. Se il
+   browser non sa fare i fusi si ripiega sull'ora locale del dispositivo, che
+   per chi e' sul posto e' la stessa. */
+function gwOraLago(){
+  var d=new Date();
+  try{
+    var p=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Rome',hour:'2-digit',
+      minute:'2-digit',hour12:false}).format(d).split(':');
+    var h=parseInt(p[0],10), m=parseInt(p[1],10);
+    if(!isNaN(h)&&!isNaN(m)) return h+m/60;
+  }catch(e){}
+  return d.getHours()+d.getMinutes()/60;
+}
+function gwNowLine(){
+  var ora=gwOraLago();
+  var g=document.querySelectorAll('svg.chart[data-today="1"]');
+  for(var i=0;i<g.length;i++){
+    var svg=g[i];
+    var W=parseFloat(svg.getAttribute('data-w')),
+        pl=parseFloat(svg.getAttribute('data-pl')),
+        pr=parseFloat(svg.getAttribute('data-pr')),
+        h0=parseFloat(svg.getAttribute('data-h0')),
+        h1=parseFloat(svg.getAttribute('data-h1'));
+    var linea=document.getElementById(svg.id+'-now'),
+        lab=document.getElementById(svg.id+'-nowlab');
+    if(!linea) continue;
+    /* Fuori dalla finestra disegnata non si mette una riga al bordo: si
+       nasconde. Una riga incollata al margine sinistro alle sei del mattino
+       direbbe "sei qui" nel punto sbagliato. */
+    if(ora<h0||ora>h1){
+      linea.setAttribute('opacity','0');
+      if(lab) lab.setAttribute('opacity','0');
+      continue;
+    }
+    var xx=pl+(W-pl-pr)*((ora-h0)/Math.max(1,h1-h0));
+    linea.setAttribute('x1',xx.toFixed(1));
+    linea.setAttribute('x2',xx.toFixed(1));
+    linea.setAttribute('opacity','.85');
+    if(lab){ lab.setAttribute('x',xx.toFixed(1)); lab.setAttribute('opacity','.9'); }
+  }
+}
 function gwPaintAge(){
   var now=Date.now(), b=document.querySelectorAll('.nowblock'), fresca=null;
   for(var i=0;i<b.length;i++){
@@ -1585,7 +1658,8 @@ function gwFetchLive(i){
   }).catch(function(){ gwFetchLive(i+1); });
 }
 gwPaintAge();
-setInterval(gwPaintAge,30000);
+gwNowLine();
+setInterval(function(){gwPaintAge();gwNowLine();},30000);
 if(GW_LIVE_MS>0&&GW_LIVE_URLS.length){
   gwFetchLive(0);
   setInterval(function(){gwFetchLive(0);},GW_LIVE_MS);

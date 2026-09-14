@@ -104,7 +104,7 @@ python3 test/tutti.py            # tutto (cinque minuti)
 python3 test/tutti.py orari      # solo i file che parlano di orari
 ```
 
-611 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
+620 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
 centraline contro i payload reali, algebra dei modelli, proprietà del forward
 chaining, memoria all'età giusta a ogni scadenza, tassonomia dei regimi,
 avvio a freddo con database vuoto, i casi pre-registrati dell'orario di ingresso
