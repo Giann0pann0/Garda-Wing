@@ -248,16 +248,66 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         # dentro la finestra del regime - che e' fissata in configurazione, non
         # scelta a giornata finita.
         per_giorno = {}
+        giorni_totali = set()
+        n_campioni = n_con_raffica = 0
+        spaziature = []
+        precedente = {}
         for s in store.samples_since(station, "0000"):
             dt_ = parse_dt_any(s["ts"])
-            if dt_ is None or s["gust_kn"] is None:
+            if dt_ is None:
                 continue
-            per_giorno.setdefault(local_day(dt_), []).append(
-                (dt_, s["wind_kn"], s["gust_kn"]))
+            g = local_day(dt_)
+            giorni_totali.add(g)
+            n_campioni += 1
+            prev = precedente.get(g)
+            if prev is not None:
+                d = (dt_ - prev).total_seconds() / 60.0
+                if 0 < d <= 120:
+                    spaziature.append(d)
+            precedente[g] = dt_
+            if s["gust_kn"] is None:
+                continue
+            n_con_raffica += 1
+            per_giorno.setdefault(g, []).append((dt_, s["wind_kn"], s["gust_kn"]))
+
+        cadenza = sorted(spaziature)[len(spaziature) // 2] if spaziature else None
+        print("")
+        print("  archivio: %d campioni su %d giornate%s"
+              % (n_campioni, len(giorni_totali),
+                 ("  -  cadenza tipica %g min" % cadenza) if cadenza else ""))
+        if n_campioni:
+            print("  di cui CON RAFFICA: %d campioni (%.1f%%) su %d giornate"
+                  % (n_con_raffica, 100.0 * n_con_raffica / n_campioni,
+                     len(per_giorno)))
+        # Il numero che conta di piu' e' questo. Senza raffica misurata non
+        # esiste un bersaglio: tutto il resto del rapporto parlerebbe di un
+        # sottoinsieme minuscolo facendolo sembrare l'archivio intero.
+        if len(per_giorno) < 0.5 * max(1, len(giorni_totali)):
+            print("")
+            print("  ⚠  La raffica manca sulla maggior parte dell'archivio. Quello")
+            print("     che segue descrive SOLO le %d giornate che ce l'hanno, non"
+                  % len(per_giorno))
+            print("     le %d dell'archivio. Non e' la distribuzione del Garda."
+                  % len(giorni_totali))
 
         if not per_giorno:
-            print("  nessun campione con raffica per questa centralina.")
+            print("")
+            print("  Nessun campione con raffica: per questa centralina la")
+            print("  raffica non e' disponibile, quindi la raffica ricorrente")
+            print("  non e' calcolabile. Non e' vento assente, e' misura assente.")
             continue
+
+        # Una finestra di 30 minuti vuole almeno tre campioni dentro. Con una
+        # cadenza di 15-30 minuti non ce ne stanno tre, e la ricorrente esce
+        # None su tutto: va detto qui, non lasciato capire da una colonna di nan.
+        if cadenza and cadenza * 2 > 30.0:
+            print("")
+            print("  ⚠  Cadenza %g min: in una finestra di 30 minuti non entrano"
+                  % cadenza)
+            print("     i tre campioni che la mediana mobile richiede, quindi la")
+            print("     raffica ricorrente non e' calcolabile su questa")
+            print("     centralina. Servirebbe una finestra piu' larga, che")
+            print("     misurerebbe un'altra cosa.")
 
         medie, ric, massime, rapporti = [], [], [], []
         durate = {t: [] for t in soglie}
@@ -307,11 +357,25 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
                 if ing is not None:
                     ingressi[t].append(ing)
 
+        # Sotto questa soglia i quantili non si stampano. Un q99 calcolato su
+        # nove giornate e' il valore massimo di nove numeri con un'etichetta
+        # che promette un centesimo di coda: una cifra vera che dice una cosa
+        # falsa, ed e' il tipo di numero su cui si prendono decisioni sbagliate.
+        MIN_GIORNI_QUANTILI = 30
+
         def q(xs, p):
             if not xs:
                 return float("nan")
             y = sorted(xs)
             return y[min(len(y) - 1, max(0, int(p * (len(y) - 1))))]
+
+        def riga_q(etichetta, dati):
+            if len(dati) < MIN_GIORNI_QUANTILI:
+                return ("  %-22s   %d giornate: troppe poche per dei quantili"
+                        % (etichetta, len(dati)))
+            return ("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
+                    % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
+                       q(dati, .90), q(dati, .99)))
 
         print("")
         print("  %d giornate con copertura sufficiente nella finestra" % n_giorni)
@@ -321,15 +385,22 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         for etichetta, dati in (("vento medio", medie),
                                 ("raffica ricorrente", ric),
                                 ("raffica massima", massime)):
-            print("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
-                  % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
-                     q(dati, .90), q(dati, .99)))
-        if rapporti:
+            print(riga_q(etichetta, dati))
+        if len(rapporti) >= MIN_GIORNI_QUANTILI:
             print("")
             print("  rapporto ricorrente/media   mediana %.2f   q10 %.2f   q90 %.2f"
                   % (q(rapporti, .5), q(rapporti, .1), q(rapporti, .9)))
+        elif rapporti:
+            print("")
+            print("  rapporto ricorrente/media: %d giornate, troppe poche"
+                  % len(rapporti))
 
         print("")
+        if not ric:
+            print("  Tabella delle durate non prodotta: senza raffica ricorrente")
+            print("  ogni riga direbbe \"0 giornate\", che si legge come \"non c'e'")
+            print("  mai vento\" e invece vuol dire \"non l'abbiamo misurato\".")
+            continue
         print("  quanto durano le soglie, sulla RAFFICA RICORRENTE")
         print("  %6s %9s %11s %11s %11s %11s"
               % ("soglia", "giornate", "% giornate", "durata med.",
