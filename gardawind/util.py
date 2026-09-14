@@ -1030,3 +1030,59 @@ def merge_by_instant(samples, tol_kn=TOLLERANZA_KN, tol_deg=TOLLERANZA_DEG):
                     })
         per_istante[key] = unito
     return per_istante, conflitti
+
+
+def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35):
+    """Uno o due picchi in una distribuzione su una retta (non circolare).
+
+    Serve sugli orari: se in un mese l'ingresso ha due picchi distinti - meta'
+    delle giornate alle 12 e meta' alle 15 - allora una mediana mensile e' un
+    riferimento povero, perche' cade in un avvallamento dove non capita quasi
+    mai niente. Con un solo picco, invece, la mediana e' un buon riassunto.
+
+    Ritorna (modi, dip): i centri dei picchi trovati (uno o due) e il rapporto
+    fra il minimo della valle fra i due e il piu' basso dei due picchi. Un dip
+    piccolo vuol dire valle profonda, cioe' due popolazioni davvero separate;
+    un dip vicino a 1 vuol dire una gobba larga letta male.
+
+    dip e' None quando non ci sono due picchi: attenzione a non confonderlo con
+    0.0, che e' il caso PIU' bimodale di tutti - una valle vuota. Lo stesso
+    inciampo l'avevamo avuto sulle direzioni.
+    """
+    xs = [float(v) for v in values if v is not None]
+    if len(xs) < 6:
+        return [], None
+    lo, hi = min(xs), max(xs)
+    if hi - lo < bin_size:
+        return [median(xs)], None
+    n_bin = max(3, int((hi - lo) / bin_size) + 1)
+    conteggi = [0] * n_bin
+    for v in xs:
+        conteggi[min(n_bin - 1, int((v - lo) / bin_size))] += 1
+    for _ in range(max(0, smooth)):
+        conteggi = [
+            (conteggi[max(0, i - 1)] + conteggi[i] + conteggi[min(n_bin - 1, i + 1)]) / 3.0
+            for i in range(n_bin)]
+
+    def centro(i):
+        return lo + (i + 0.5) * bin_size
+
+    picchi = [i for i in range(n_bin)
+              if conteggi[i] >= conteggi[max(0, i - 1)]
+              and conteggi[i] >= conteggi[min(n_bin - 1, i + 1)]
+              and conteggi[i] > 0]
+    if not picchi:
+        return [median(xs)], None
+    picchi.sort(key=lambda i: -conteggi[i])
+    primo = picchi[0]
+    # Un secondo picco conta solo se e' alto almeno min_share del primo e non
+    # e' il suo vicino immediato: due bin adiacenti sono una gobba, non due.
+    secondo = next((i for i in picchi[1:]
+                    if conteggi[i] >= min_share * conteggi[primo]
+                    and abs(i - primo) >= 2), None)
+    if secondo is None:
+        return [centro(primo)], None
+    a, b = sorted((primo, secondo))
+    valle = min(conteggi[a + 1:b]) if b > a + 1 else min(conteggi[a], conteggi[b])
+    dip = valle / min(conteggi[a], conteggi[b]) if min(conteggi[a], conteggi[b]) else None
+    return [centro(a), centro(b)], dip

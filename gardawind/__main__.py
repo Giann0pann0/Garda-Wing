@@ -9,6 +9,7 @@
     python3 -m gardawind --bands         confronta i tagli di fascia di scadenza
     python3 -m gardawind --direzioni     da dove viene il vento, per settore
     python3 -m gardawind --raffiche      media, raffica ricorrente, raffica massima
+    python3 -m gardawind --orari         quando entra il vento: regime e planata
     python3 -m gardawind --poll-once     legge le centraline una volta ed esce
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
@@ -511,6 +512,164 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         sys.stdout.flush()
 
 
+# I codici di "reason" tradotti in italiano. La tabella sta qui, nel
+# rendering, e non nella logica: cambiare una parola non deve poter toccare
+# un controllo scientifico, e aggiungere un codice deve costringere a
+# passare da gardawind/orari.py.
+MOTIVI = {
+    "ok": "regime entrato, orario misurato",
+    "no_data": "nessun campione con vento nella finestra",
+    "insufficient_coverage": "copertura oraria insufficiente",
+    "gap_too_large": "entrato, ma il passaggio cade in un buco: orario = limite",
+    "direction_outside_sector": "vento sufficiente, direzione fuori settore",
+    "threshold_not_sustained": "soglia superata, ma non abbastanza a lungo",
+    "no_regime": "soglia mai superata",
+}
+
+MESI_BREVI = ["gen", "feb", "mar", "apr", "mag", "giu",
+              "lug", "ago", "set", "ott", "nov", "dic"]
+
+
+def _hhmm(minuti):
+    return "%02d:%02d" % (int(minuti // 60) % 24, int(minuti % 60))
+
+
+def _cella(r):
+    """Una cella della tabella: giornate, mediana, dispersione, durata."""
+    if r["mediana"] is None:
+        return "%4d   %8s %5s %8s" % (r["n"], "-", "-", "-")
+    return "%4d   %8s %5s %8s" % (
+        r["n"], _hhmm(r["mediana"]),
+        ("+-%d" % round(r["disp"])) if r["disp"] is not None else "-",
+        ("%d min" % round(r["durata"])) if r["durata"] else "-")
+
+
+def cmd_orari(spot_name=None):
+    """Quando entra il vento: climatologia osservata dell'orario.
+
+    Due bersagli, tenuti separati fino alla UI finale:
+
+      INGRESSO DEL REGIME   attraversamento sostenuto della soglia di regime.
+                            "Quando entra davvero Ora/Peler."
+      INGRESSO DA PLANATA   attraversamento sostenuto della soglia di planata.
+                            "Da quando ha senso andare in acqua."
+
+    E due letture di ciascuno, affiancate:
+
+      VENTO     solo intensita': il vento supera la soglia, da qualunque parte.
+      REGIME    intensita' E direzione dentro il settore attorno all'asse
+                osservato della centralina.
+
+    Affiancarle non e' pignoleria. "Il vento supera i 14 nodi nel 63% dei
+    pomeriggi" e "l'Ora e' utile nel 63% dei pomeriggi" sono due frasi diverse,
+    e la prima diventa la seconda appena la si stacca dalla sua colonna. La
+    differenza fra le due colonne E' la misura di quanto conta la direzione.
+
+    Questo comando non calcola nulla: tutta la logica sta in gardawind/orari.py
+    e qui si traduce e si impagina. E' il confine che serve perche' fra sei mesi
+    una modifica alla tabella non finisca per spostare una definizione.
+    """
+    from gardawind import orari as O
+
+    spots = [spot_name] if spot_name else [
+        n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
+
+    for name in spots:
+        spot = config.SPOTS[name]
+        h0, h1 = spot["window"]
+        C = O.climatologia(name)
+        print("")
+        print("=" * 78)
+        print("  ORARI DI INGRESSO  -  %s" % name)
+        print("  finestra %02d:00-%02d:00  -  asse osservato %g deg  -  settore +-%g"
+              % (h0, h1 + 1, C["asse"], C["settore"]))
+        print("  soglia di regime %g kn  -  soglia di planata %g kn"
+              % (C["soglie"]["regime"], C["soglie"]["planata"]))
+        print("  ingresso = soglia superata per almeno %g minuti consecutivi"
+              % O.PERSISTENZA_MIN)
+        print("  una mediana mensile si stampa da %d giornate in su" % O.MIN_GG_MESE)
+        print("=" * 78)
+
+        tot = C["n_giorni"] + C["n_non_stimabili"]
+        print("")
+        print("  %d giornate nell'archivio, %d stimabili, %d no"
+              % (tot, C["n_giorni"], C["n_non_stimabili"]))
+        if C["n_dir_ignota"]:
+            print("  %d stimabili hanno direzione ignota su oltre un quinto dei"
+                  % C["n_dir_ignota"])
+            print("  campioni: in quelle la colonna REGIME e' per forza piu' bassa.")
+
+        conteggi = {}
+        for g in C["per_giorno"].values():
+            conteggi[g["reason"]] = conteggi.get(g["reason"], 0) + 1
+        if conteggi:
+            print("")
+            print("  Cosa dice ogni giornata (codici chiusi, non testo libero):")
+            for codice in O.REASONS:
+                if codice in conteggi:
+                    print("    %-24s %5d  %5.1f%%   %s"
+                          % (codice, conteggi[codice],
+                             100.0 * conteggi[codice] / tot if tot else 0.0,
+                             MOTIVI.get(codice, "")))
+            sconosciuti = [c for c in conteggi if c not in O.REASONS]
+            if sconosciuti:
+                print("    ATTENZIONE, codici non previsti: %s"
+                      % ", ".join(sorted(str(c) for c in sconosciuti)))
+
+        for bers in O.BERSAGLI:
+            print("")
+            print("  INGRESSO %s  (soglia %g kn)"
+                  % (bers.upper(), C["soglie"][bers]))
+            print("                 VENTO (solo intensita')        "
+                  "REGIME (intensita' + direzione)")
+            print("  mese     gg   ingresso  disp   durata      "
+                  "gg   ingresso  disp   durata")
+            print("  " + "-" * 76)
+            for mese in range(1, 13):
+                celle = [_cella(C["per_mese"][(bers, l, mese)]) for l in O.LETTURE]
+                rr = C["per_mese"][(bers, "regime", mese)]
+                nota = ""
+                if rr["modi"] and len(rr["modi"]) >= 2:
+                    nota = ("   <- DUE PICCHI: %s e %s"
+                            % (_hhmm(rr["modi"][0]), _hhmm(rr["modi"][1])))
+                print("  %-6s %s   %s%s"
+                      % (MESI_BREVI[mese - 1], celle[0], celle[1], nota))
+            print("  " + "-" * 76)
+            celle = [_cella(C["annuale"][(bers, l)]) for l in O.LETTURE]
+            print("  %-6s %s   %s" % ("anno", celle[0], celle[1]))
+            v = C["annuale"][(bers, "vento")]["n"]
+            r = C["annuale"][(bers, "regime")]["n"]
+            if v:
+                print("  La direzione taglia %d ingressi su %d (%.0f%%): giornate in"
+                      % (v - r, v, 100.0 * (v - r) / v))
+                print("  cui il vento bastava ma non era %s."
+                      % ("l'Ora" if spot["regime"] == "ORA" else "il Peler"))
+
+        bimodali = [(b, m) for b in O.BERSAGLI for m in range(1, 13)
+                    if (C["per_mese"][(b, "regime", m)]["modi"] or [])
+                    and len(C["per_mese"][(b, "regime", m)]["modi"]) >= 2]
+        print("")
+        if bimodali:
+            print("  ATTENZIONE: %d mesi hanno due picchi di ingresso del regime."
+                  % len(bimodali))
+            print("  Per quei mesi una sola mediana mensile e' un riferimento povero:")
+            print("  cade nell'avvallamento fra i due picchi, dove capita poco.")
+            for b, m in bimodali:
+                rr = C["per_mese"][(b, "regime", m)]
+                print("    %-8s %-4s  n=%-4d picchi %s e %s   valle/picco %s"
+                      % (b, MESI_BREVI[m - 1], rr["n"], _hhmm(rr["modi"][0]),
+                         _hhmm(rr["modi"][1]),
+                         ("%.2f" % rr["dip"]) if rr["dip"] is not None else "n.d."))
+        else:
+            print("  Nessun mese con due picchi: la mediana mensile e' un riassunto")
+            print("  adeguato, e va bene come riferimento banale da battere.")
+        print("")
+        print("  \"disp\" e' la mediana degli scarti dalla mediana, in minuti:")
+        print("  quanto l'orario balla da un giorno all'altro DENTRO lo stesso mese.")
+        print("  E' il numero che un modello dell'orario deve battere fuori campione.")
+        sys.stdout.flush()
+
+
 def cmd_direzioni(spot_name=None, bin_deg=10):
     """Da dove viene davvero il vento. Nessuno scaricamento: legge l'archivio.
 
@@ -771,6 +930,9 @@ def main(argv=None):
     ap.add_argument("--direzioni", action="store_true",
                     help="istogramma delle provenienze osservate: verifica se "
                          "l'asse del regime e' messo nel posto giusto")
+    ap.add_argument("--orari", action="store_true",
+                    help="climatologia osservata dell'orario di ingresso: regime "
+                         "e planata, con e senza filtro di direzione, per mese")
     ap.add_argument("--raffiche", action="store_true",
                     help="analisi descrittiva di media, raffica ricorrente e "
                          "raffica massima: serve a scegliere le soglie sui dati")
@@ -797,6 +959,10 @@ def main(argv=None):
     if args.validate:
         cmd_validate(spots=args.spot, out_json=args.validate_json,
                      periodo_comune=args.periodo_comune)
+        return 0
+
+    if args.orari:
+        cmd_orari(args.spot[0] if args.spot else None)
         return 0
 
     if args.raffiche:
