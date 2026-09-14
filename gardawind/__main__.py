@@ -544,6 +544,136 @@ def _cella(r):
         ("%d min" % round(r["durata"])) if r["durata"] else "-")
 
 
+def _riga_previsore(O, nome, r, rif):
+    """Una riga della tabella di validazione. Nessun calcolo: solo formato."""
+    g, lo, hi = r.get("guadagno", (None, None, None))
+    guad = "-"
+    if nome != rif:
+        if g is None:
+            guad = "n.d."
+        else:
+            guad = "%+.0f%% [%+.0f,%+.0f]" % (g, lo if lo is not None else 0.0,
+                                              hi if hi is not None else 0.0)
+    def mm(x):
+        return "-" if x is None else "%.0f" % x
+    def pc(x):
+        return "-" if x is None else "%.0f%%" % (100.0 * x)
+    return ("  %-34s %5d  %5s %6s  %6s   %5s %5s %5s  %s"
+            % (r["nome"][:34], r["n"], mm(r["mae"]), mm(r["bias"]),
+               mm(r["semiampiezza"]), pc(r["copertura_30"]),
+               pc(r["copertura_45"]), pc(r["copertura_60"]), guad))
+
+
+def _stampa_validazione(O, C):
+    """La validazione fuori campione dell'orario. Traduzione, non calcolo.
+
+    Il riferimento e' la climatologia MENSILE osservata. Si misurano anche la
+    mediana annuale - per mostrare quanto sarebbe facile "vincere" contro di
+    lei - e la climatologia con il bias del mese corretto sul training.
+
+    Le tre porte sono quelle concordate: finestra abbastanza stretta, guadagno
+    che regge al bootstrap, nessun bias sistematico di mese o stagione.
+    """
+    records = list(C["per_giorno"].values())
+    previsori = {
+        "annuale": O.previsore_climatologico(mensile=False),
+        "climatologia+bias": O.previsore_corretto(
+            O.previsore_climatologico(), nome="climatologia mensile + bias del mese"),
+    }
+    for bers in O.BERSAGLI:
+        V = O.valida_ingressi(records, bersaglio=bers, lettura="regime",
+                              previsori=previsori)
+        print("")
+        print("  " + "=" * 74)
+        print("  VALIDAZIONE FUORI CAMPIONE  -  ingresso %s (con direzione)"
+              % bers)
+        print("  " + "=" * 74)
+        if not V["porte"]:
+            print("  %s." % (V.get("motivo") or "non validabile"))
+            continue
+        print("  %d giornate stimabili, %d con un ingresso (%.0f%% del totale)"
+              % (V["n_stimabili"], V["n_ingressi"],
+                 100.0 * (V["quota_stimabile"] or 0.0)))
+        print("  %d blocchi di validazione, sempre in avanti nel tempo: il primo"
+              % V["n_fold"])
+        print("  blocco di giornate serve solo ad addestrare e non viene predetto.")
+        print("")
+        print("  previsore                            gg    MAE   bias  semiamp"
+              "   <=30  <=45  <=60  guadagno sul rif.")
+        print("  " + "-" * 104)
+        ordine = [V["riferimento"]] + [n for n in sorted(V["previsori"])
+                                       if n != V["riferimento"]]
+        for nome in ordine:
+            print(_riga_previsore(O, nome, V["previsori"][nome], V["riferimento"]))
+        print("  " + "-" * 104)
+        print("  MAE, bias e semiamp. sono minuti; semiamp. e' la meta'-larghezza")
+        print("  della finestra che contiene il %.0f%% degli ingressi reali."
+              % (100.0 * O.QUOTA_FINESTRA))
+
+        r = V["previsori"][V["valutato"]]
+        peggio = [(abs(v["bias"]), m, v) for m, v in r["bias_per_mese"].items()
+                  if v["bias"] is not None]
+        if peggio:
+            peggio.sort(reverse=True)
+            print("")
+            print("  Bias per mese (mediana degli errori, + = previsto troppo tardi).")
+            print("  \"sist.\" = l'intervallo bootstrap non contiene lo zero:")
+            for mese in range(1, 13):
+                v = r["bias_per_mese"].get(mese)
+                if v and v["bias"] is not None:
+                    lo, hi = v.get("ic", (None, None))
+                    print("    %-4s n=%-4d %+6.0f min   [%+.0f,%+.0f]  %s"
+                          % (MESI_BREVI[mese - 1], v["n"], v["bias"],
+                             lo if lo is not None else 0.0,
+                             hi if hi is not None else 0.0,
+                             "sist." if v.get("significativo") else ""))
+            print("  Per stagione:")
+            for st in ("primavera", "estate", "autunno", "inverno"):
+                v = r["bias_per_stagione"].get(st)
+                if v and v["bias"] is not None:
+                    lo, hi = v.get("ic", (None, None))
+                    print("    %-10s n=%-5d %+6.0f min   [%+.0f,%+.0f]  %s"
+                          % (st, v["n"], v["bias"],
+                             lo if lo is not None else 0.0,
+                             hi if hi is not None else 0.0,
+                             "sist." if v.get("significativo") else ""))
+
+        P = V["porte"]
+        print("")
+        print("  Le tre porte, sul candidato migliore (%s):" % r["nome"])
+        def esito(p):
+            return "APERTA" if p["passa"] else ("CHIUSA" if p["passa"] is False
+                                                else "non applicabile")
+        print("    A  finestra <= %.0f min          %-16s semiampiezza %s"
+              % (P["semiampiezza"]["limite"], esito(P["semiampiezza"]),
+                 "n.d." if P["semiampiezza"]["valore"] is None
+                 else "%.0f min" % P["semiampiezza"]["valore"]))
+        g = P["guadagno"]
+        print("    B  batte la climatologia       %-16s %s"
+              % (esito(g),
+                 g.get("nota") or ("guadagno %+.0f%%, IC %+.0f..%+.0f"
+                                   % (g["valore"] or 0.0,
+                                      (g.get("ic") or (0, 0))[0] or 0.0,
+                                      (g.get("ic") or (0, 0))[1] or 0.0))))
+        b2 = P["bias_stagionale"]
+        if b2.get("sistematico") is not None:
+            dettaglio = ("sistematico: %s, %+.0f min (limite %.0f)"
+                         % (b2["sistematico_dove"], b2["sistematico"], b2["limite"]))
+        elif b2["valore"] is None:
+            dettaglio = "nessun gruppo con giornate a sufficienza"
+        else:
+            dettaglio = ("il piu' storto e' %s, %+.0f min, ma non e' "
+                         "distinguibile da zero"
+                         % (b2["dove"], b2["valore"]))
+        print("    C  nessun bias sistematico     %-16s %s" % (esito(b2), dettaglio))
+        print("")
+        if V["esito"] == "affidabile":
+            print("  ESITO: timing affidabile. La finestra si puo' dichiarare in home.")
+        else:
+            print("  ESITO: orario incerto. In home va una fascia larga, e va detto")
+            print("  che il timing e' incerto. %s" % (V["motivo"] or ""))
+
+
 def cmd_orari(spot_name=None):
     """Quando entra il vento: climatologia osservata dell'orario.
 
@@ -667,6 +797,8 @@ def cmd_orari(spot_name=None):
         print("  \"disp\" e' la mediana degli scarti dalla mediana, in minuti:")
         print("  quanto l'orario balla da un giorno all'altro DENTRO lo stesso mese.")
         print("  E' il numero che un modello dell'orario deve battere fuori campione.")
+
+        _stampa_validazione(O, C)
         sys.stdout.flush()
 
 
