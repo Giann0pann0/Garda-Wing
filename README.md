@@ -88,16 +88,30 @@ Il database vive nella cache di Actions fra un'esecuzione e l'altra, con copia d
 sicurezza come artefatto. Se la cache viene sfrattata (succede dopo 7 giorni di
 inattività) la prima esecuzione successiva riscarica tutto: è lenta, non è rotta.
 
+`.github/workflows/adesso.yml` è il processo veloce: ogni dieci minuti legge solo
+le centraline e scrive `live.json` sul ramo `live`. Non entra dentro il sito
+perché Pages si pubblica tutto insieme, e un file dentro il sito si aggiornerebbe
+solo ricostruendo il sito. La pagina rilegge quel file da sola, e l'età del dato
+la calcola il browser dall'orario del campione: se la richiesta non riesce restano
+i valori con cui la pagina è nata, con la loro età che cresce. La previsione, che
+ha un altro tempo, resta quella dell'ultima ricostruzione, e il riquadro in cima
+lo dice.
+
 ## Verifiche
 
 ```bash
 for t in test/t_*.py; do python3 "$t"; done
 ```
 
-435 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
+594 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
 centraline contro i payload reali, algebra dei modelli, proprietà del forward
 chaining, memoria all'età giusta a ogni scadenza, tassonomia dei regimi,
-avvio a freddo con database vuoto. Se tocchi il codice, lancialo prima e dopo.
+avvio a freddo con database vuoto, i casi pre-registrati dell'orario di ingresso
+(bias noto, causalità, leakage) e il comportamento dell'"adesso" in un browser
+vero. Se tocchi il codice, lancialo prima e dopo.
+
+`test/t_live_pagina.py` ha bisogno di Playwright: dove non c'è, stampa `SKIP` e
+non finge di aver provato.
 
 ## Documentazione
 
