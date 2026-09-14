@@ -26,6 +26,17 @@ QUI = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     files = sorted(glob.glob(os.path.join(QUI, "t_*.py")))
+    # Argomenti opzionali: pezzi di nome, per lanciarne solo alcuni mentre si
+    # lavora su una parte. "tutti.py orari live" lancia i cinque file che
+    # parlano di orari e di adesso. Senza argomenti, tutto.
+    filtri = [a.lower() for a in sys.argv[1:]]
+    if filtri:
+        files = [f for f in files
+                 if any(t in os.path.basename(f).lower() for t in filtri)]
+        if not files:
+            print("  nessun file di controllo corrisponde a: %s"
+                  % " ".join(filtri))
+            return 1
     pass_tot = fail_tot = 0
     rotti, saltati = [], []
     t0 = time.time()
@@ -57,8 +68,9 @@ def main():
                 print("      " + r)
 
     print("")
-    print("  %d controlli, %d falliti, %.0f secondi"
-          % (pass_tot, fail_tot, time.time() - t0))
+    print("  %d controlli, %d falliti, %.0f secondi%s"
+          % (pass_tot, fail_tot, time.time() - t0,
+             ("  (solo %s)" % " ".join(filtri)) if filtri else ""))
     if saltati:
         print("  saltati (non provati, non verdi): %s" % ", ".join(saltati))
     if rotti:

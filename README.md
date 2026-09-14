@@ -100,7 +100,8 @@ lo dice.
 ## Verifiche
 
 ```bash
-python3 test/tutti.py
+python3 test/tutti.py            # tutto (cinque minuti)
+python3 test/tutti.py orari      # solo i file che parlano di orari
 ```
 
 611 controlli: conversioni di fuso e cambio dell'ora legale, parser delle
