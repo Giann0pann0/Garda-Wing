@@ -1,0 +1,80 @@
+name: Garda Wind - adesso
+
+# Il processo veloce. Legge SOLO le centraline e scrive live.json: niente
+# modelli, niente previsioni scaricate, niente addestramento. Serve perche' il
+# dato osservato e la previsione hanno due tempi diversi - le centraline ogni
+# dieci minuti, i modelli globali ogni sei ore - e finche' viaggiavano insieme
+# il numero delle "condizioni attuali" invecchiava alla velocita' della
+# previsione, dicendo "adesso" dopo cinque ore.
+#
+# Perche' su un ramo e non dentro il sito: GitHub Pages si pubblica tutto
+# insieme, quindi un file dentro il sito si aggiornerebbe solo ricostruendo il
+# sito - cioe' mai, fra un'esecuzione e l'altra di quello lento. Il ramo
+# "live" invece si riscrive in pochi secondi, e da li' la pagina legge il file
+# via HTTP senza ricostruire niente.
+#
+# ATTENZIONE: gli orari cron di GitHub sono in UTC, e non sono puntuali: un
+# */10 in pratica gira ogni 10-20 minuti. La pagina lo sa e mostra sempre
+# l'eta' del dato, quindi un ritardo si vede invece di essere mascherato.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write            # per riscrivere il ramo "live"
+
+# Se un'esecuzione e' ancora in corso quando parte la successiva, l'ultima
+# vince: un dato osservato vecchio di dieci minuti non vale la coda.
+concurrency:
+  group: garda-wind-adesso
+  cancel-in-progress: true
+
+jobs:
+  adesso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Un database suo, separato da quello del processo lento. NON si tocca
+      # la cache dell'altro: le cache sono immutabili e si ripescano per
+      # "la piu' recente", quindi un'esecuzione veloce che salvasse sopra
+      # rischierebbe di far ripartire quella lenta da una copia priva dei
+      # modelli appena addestrati. Lo storico lungo lo raccoglie l'altro
+      # processo, che interroga anche la cronologia della giornata: quello che
+      # si perde qui viene ripreso da lui.
+      - name: Ripristina il database dell'adesso
+        uses: actions/cache@v4
+        with:
+          path: dati-adesso
+          key: gardawind-adesso-${{ github.run_id }}
+          restore-keys: |
+            gardawind-adesso-
+
+      - name: Leggi le centraline e scrivi live.json
+        env:
+          GARDAWIND_HOME: dati-adesso
+        run: |
+          mkdir -p dati-adesso
+          python3 -m gardawind --live-json pubblica/live.json
+          cat pubblica/live.json
+
+      # Il ramo "live" contiene un solo file e un solo commit: e' un
+      # contenitore, non una storia. Si riscrive ogni volta da zero, cosi' il
+      # repository non si gonfia di migliaia di commit di dieci minuti.
+      - name: Pubblica sul ramo live
+        run: |
+          cd pubblica
+          git init -q
+          git checkout -q -b live
+          git config user.name "Garda Wind"
+          git config user.email "noreply@anthropic.com"
+          git add live.json
+          git -c commit.gpgsign=false commit -q -m "adesso: $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            live

@@ -493,12 +493,74 @@ def sky_words(profile):
     return out
 
 
+# Le parole dell'eta' del dato, in un posto solo. Le usa Python per costruire
+# la pagina e le usa il browser per riscriverle mentre il dato invecchia: se
+# stessero in due posti, prima o poi direbbero due cose diverse. Il primo
+# limite che l'eta' non supera vince; l'ultimo vale per tutto il resto.
+ETA_PAROLE = ((12.0, "adesso"), (180.0, "%d min fa"),
+              (None, "dato non recente"))
+
+# Oltre questa eta' il dato non e' piu' "adesso" e la riga si ingiallisce.
+ETA_STANTIA_MIN = 45.0
+
+
+def eta_parole(minuti):
+    if minuti is None:
+        return "orario sconosciuto"
+    for limite, parola in ETA_PAROLE:
+        if limite is None or minuti < limite:
+            return (parola % round(minuti)) if "%d" in parola else parola
+    return ETA_PAROLE[-1][1]
+
+
+def now_observed_html(live):
+    """La parte OSSERVATA delle condizioni attuali: vento, direzione, raffica, ora.
+
+    Sta in una funzione sua perche' e' anche il contenuto che viaggia dentro
+    live.json: il processo veloce la costruisce, la pagina la sostituisce, e
+    cosi' le parole - i punti cardinali, "da nord-est", "raffica non
+    disponibile" - restano definite in un posto solo, qui, invece di essere
+    riscritte in JavaScript dove divergerebbero.
+
+    L'eta' non e' inclusa come testo definitivo: c'e' l'ORARIO del campione,
+    e l'eta' la calcola chi guarda, quando guarda.
+    """
+    if not live or live.get("wind") is None:
+        return '<div class="novalue nowempty">nessuna lettura</div>'
+    hhmm_txt = ""
+    dt = parse_dt_any(live.get("ts") or "")
+    if dt:
+        hhmm_txt = to_local(dt).strftime("%H:%M")
+    gust = ('<div class="nowgust">raffica <b>%.0f kn</b></div>' % live["gust"]
+            if live.get("gust") else
+            '<div class="nowgust" style="color:var(--ink-3)">'
+            'raffica non disponibile</div>')
+    return (
+        '<div class="nowbig"><div class="v">%.0f <small>kn</small></div>'
+        '<div class="compass">%s<span><b>%s</b>%s</span></div></div>'
+        '%s<div class="nowmeta"><span class="nowage">%s</span>'
+        '<span>%s</span></div>'
+        % (live["wind"], arrow(live.get("dir"), 26, "var(--pc)"),
+           E(compass(live.get("dir")) or "\u2014"),
+           ('<small>da %s</small>' % E(direzione_parole(live.get("dir"))))
+           if live.get("dir") is not None else "",
+           gust,
+           E(eta_parole(live.get("age_min"))),
+           ("ultimo dato %s" % hhmm_txt) if hhmm_txt else ""))
+
+
 def now_column(place, index, live, profile):
     """Colonna di sinistra: quanto tira ADESSO, con l'ora del dato.
 
     L'orario dell'ultima lettura non e' un dettaglio tecnico: senza di esso
     "14 kn" e' un numero senza tempo, e a Torbole fra le 11 e le 12 il vento
     cambia del doppio. Quando il dato invecchia, lo diciamo in giallo.
+
+    Il blocco porta con se' il nome del luogo e l'orario del campione: sono le
+    due cose che servono per aggiornarlo dopo, nel browser, senza rifare la
+    pagina. La previsione si rifa' quattro volte al giorno, il dato osservato
+    ogni dieci minuti: tenerli insieme voleva dire far invecchiare l'"adesso"
+    alla velocita' della previsione.
     """
     spots = place_spots(place)
     regimi = " \u00b7 ".join(
@@ -506,50 +568,27 @@ def now_column(place, index, live, profile):
     head = ('<div class="pname"><span class="mark">%s</span>'
             '<h2 class="display">%s</h2></div>'
             '<p class="pregimi">%s</p>'
-            % (arrow(0, 17, "var(--pc)") if False else
-               '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
+            % ('<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
                '<path d="M2 11 L8 3 L14 11 Z" fill="var(--pc)"/></svg>',
                E(place), E(regimi)))
 
-    if not live or live.get("wind") is None:
-        return (head + '<p class="lbl">Condizioni attuali</p>'
-                '<div class="novalue">nessuna lettura</div>')
-
-    age = live.get("age_min")
-    hhmm_txt = ""
-    dt = parse_dt_any(live.get("ts") or "")
-    if dt:
-        hhmm_txt = to_local(dt).strftime("%H:%M")
-    if age is None:
-        when = "orario sconosciuto"
-    elif age < 12:
-        when = "adesso"
-    elif age < 180:
-        when = "%d min fa" % round(age)
-    else:
-        when = "dato non recente"
-    gust = ('<div class="nowgust">raffica <b>%.0f kn</b></div>' % live["gust"]
-            if live.get("gust") else
-            '<div class="nowgust" style="color:var(--ink-3)">raffica non disponibile</div>')
     cond = sky_words(profile)
     bits = []
     if cond.get("tmax") is not None:
         bits.append("<b>%.0f \u00b0C</b> aria" % cond["tmax"])
     if cond.get("sky"):
         bits.append(E(cond["sky"]))
+    # Il cielo e la temperatura vengono dai modelli, non dalla centralina:
+    # stanno FUORI dal blocco che il processo veloce sostituisce, altrimenti
+    # un aggiornamento del dato osservato li cancellerebbe.
     return (
         head +
+        '<div class="nowblock" data-live-place="%s" data-ts="%s">'
         '<p class="lbl">Condizioni attuali</p>'
-        '<div class="nowbig"><div class="v">%.0f <small>kn</small></div>'
-        '<div class="compass">%s<span><b>%s</b>%s</span></div></div>'
-        '%s<div class="nowmeta%s"><span>%s</span>%s</div>'
+        '<div class="nowobs">%s</div></div>'
         '%s'
-        % (live["wind"], arrow(live.get("dir"), 26, "var(--pc)"),
-           E(compass(live.get("dir")) or "\u2014"),
-           ('<small>da %s</small>' % E(direzione_parole(live.get("dir"))))
-           if live.get("dir") is not None else "",
-           gust, " stale" if live.get("stale") else "", E(when),
-           ('<span>ultimo dato %s</span>' % hhmm_txt) if hhmm_txt else "",
+        % (E(place), E((live or {}).get("ts") or ""),
+           now_observed_html(live),
            ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits)) if bits else ""))
 
 
@@ -1049,22 +1088,66 @@ def status_line():
 MAX_GIORNI = 5
 
 
+# La riga in testa alla pagina: quanto e' fresco il dato osservato piu' fresco.
+# Come per ETA_PAROLE, la tabella sta in un posto solo, perche' la riscrive
+# anche il browser mentre il dato invecchia - e se l'intestazione dicesse
+# "aggiornati adesso" mentre la scheda sotto dice "tre ore fa", una delle due
+# frasi sarebbe una bugia, e chi legge non saprebbe quale.
+# (limite in minuti, frase, classe del pallino, unita' del numero)
+BANNER_PAROLE = (
+    (12.0, "dati reali aggiornati adesso", "", None),
+    (60.0, "dati reali aggiornati %d min fa", "", "min"),
+    (24 * 60.0, "ultimo dato reale %d ore fa", "warn", "ore"),
+    (None, "dati reali non aggiornati", "bad", None),
+)
+
+
+def banner_parole(minuti):
+    """(frase, classe) per l'eta' del dato piu' fresco. None = nessuna lettura."""
+    if minuti is None:
+        return "nessuna lettura dalle centraline", "bad"
+    for limite, frase, classe, unita in BANNER_PAROLE:
+        if limite is None or minuti < limite:
+            if unita == "min":
+                return frase % round(minuti), classe
+            if unita == "ore":
+                return frase % round(minuti / 60.0), classe
+            return frase, classe
+    return BANNER_PAROLE[-1][1], BANNER_PAROLE[-1][2]
+
+
 def live_summary(days):
     """Eta' del dato osservato piu' fresco fra le due centraline."""
     if not days:
         return "nessun dato dalle centraline", "bad"
     ages = [pl["live"]["age_min"] for pl in days[0]["places"].values()
             if pl.get("live") and pl["live"].get("age_min") is not None]
-    if not ages:
-        return "nessuna lettura dalle centraline", "bad"
-    a = min(ages)
-    if a < 12:
-        return "dati reali aggiornati adesso", ""
-    if a < 60:
-        return "dati reali aggiornati %d min fa" % round(a), ""
-    if a < 24 * 60:
-        return "ultimo dato reale %d ore fa" % round(a / 60.0), "warn"
-    return "dati reali non aggiornati", "bad"
+    return banner_parole(min(ages) if ages else None)
+
+
+# Dove la pagina va a cercare il dato osservato. Con un server dietro - l'app
+# sul Mac - e' una richiesta a se stessi. Nel sito pubblicato non puo' esserlo:
+# GitHub Pages si pubblica tutto insieme, quindi il live.json che sta accanto
+# alla pagina si aggiorna solo quando si ricostruisce il sito. L'esportazione
+# sostituisce questo valore con l'indirizzo del ramo dedicato.
+LIVE_URL = "/live.json"
+
+
+def _live_vars(attivo=True):
+    """I valori che il modello di pagina passa al pezzo di JavaScript dell'adesso.
+
+    Le parole dell'eta' vengono da ETA_PAROLE, che e' anche quello che usa
+    Python per scrivere la pagina: una definizione, due consumatori. Il limite
+    None diventa null, cioe' "per tutto il resto".
+    """
+    return {
+        "liveurl": json.dumps(LIVE_URL if attivo else ""),
+        "livems": int(config.LIVE_REFRESH_MIN * 60000) if attivo else 0,
+        "etawords": json.dumps([[lim, parola] for lim, parola in ETA_PAROLE]),
+        "bannerwords": json.dumps([[lim, frase, classe, unita]
+                                   for lim, frase, classe, unita in BANNER_PAROLE]),
+        "stale": ETA_STANTIA_MIN,
+    }
 
 
 def page_home():
@@ -1085,7 +1168,7 @@ def page_home():
             for pi, place in enumerate(config.PLACES))
         body = sezioni + week_strip(days)
 
-    return TEMPLATE % {
+    valori = {
         "title": "Garda Wind",
         "css": CSS, "status": E(text), "dotcls": cls,
         "live": E(live_txt), "livecls": live_cls,
@@ -1093,6 +1176,8 @@ def page_home():
         "body": body,
         "reload": 8000 if engine.STATE["running"] else 900000,
     }
+    valori.update(_live_vars(True))
+    return TEMPLATE % valori
 
 # --------------------------------------------------------------------------
 # Diagnostica
@@ -1307,7 +1392,7 @@ def page_diagnostics():
     r.append("</table></div>")
 
     text, cls = status_line()
-    return TEMPLATE % {
+    valori = {
         "title": "Diagnostica",
         "css": CSS, "status": E(text), "dotcls": cls,
         "live": "diagnostica", "livecls": "",
@@ -1315,6 +1400,9 @@ def page_diagnostics():
         "body": sources_panel() + "".join(r),
         "reload": 600000,
     }
+    # La diagnostica non ha blocchi "adesso" da aggiornare: nessuna richiesta.
+    valori.update(_live_vars(False))
+    return TEMPLATE % valori
 
 
 SHUTDOWN_PAGE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
@@ -1339,7 +1427,8 @@ TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 previsioni vento per wing</span></h1>
 </div>
 <div class="status"><span class="when">%(status)s</span>
-<span class="live"><span class="dot %(livecls)s"></span>%(live)s</span><br>%(nav)s</div>
+<span class="live"><span class="dot %(livecls)s" id="gwdot"></span
+><span id="gwlive">%(live)s</span></span><br>%(nav)s</div>
 </div></div></header>
 <main class="wrap">%(body)s</main>
 <footer class="wrap">Previsione corretta sullo storico delle centraline di Torbole e
@@ -1392,6 +1481,97 @@ document.addEventListener('click',function(ev){
   var first=document.querySelector('.place:not([hidden])');
   if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
 });
+/* ----------------------------------------------------------------------
+   L'ADESSO, separato dalla previsione.
+
+   Due tempi diversi: le centraline ogni dieci minuti, i modelli globali ogni
+   sei ore. La pagina nasce con dentro il dato osservato del momento in cui e'
+   stata costruita, poi si tiene aggiornata da sola rileggendo un file
+   piccolo. Due regole:
+
+     l'eta' si ricalcola sempre dall'ORARIO del campione, ogni mezzo minuto,
+     anche senza rete: un dato vecchio deve VEDERSI invecchiare;
+
+     se la richiesta non riesce, non si svuota niente: restano i valori con
+     cui la pagina e' nata, con la loro eta' che cresce.
+
+   Le parole dell'eta' arrivano da Python (GW_ETA), non sono riscritte qui:
+   due copie della stessa frase prima o poi dicono due cose diverse.
+   ---------------------------------------------------------------------- */
+var GW_LIVE_URL=%(liveurl)s, GW_LIVE_MS=%(livems)d, GW_ETA=%(etawords)s,
+    GW_BANNER=%(bannerwords)s;
+function gwEtaParole(min){
+  if(min===null||isNaN(min)) return 'orario sconosciuto';
+  for(var i=0;i<GW_ETA.length;i++){
+    var lim=GW_ETA[i][0], w=GW_ETA[i][1];
+    if(lim===null||min<lim) return w.indexOf('%%d')>=0
+      ? w.replace('%%d',String(Math.round(min))) : w;
+  }
+  return GW_ETA[GW_ETA.length-1][1];
+}
+function gwBanner(min){
+  var el=document.getElementById('gwlive'), dot=document.getElementById('gwdot');
+  if(!el) return;
+  if(min===null){ el.textContent='nessuna lettura dalle centraline';
+                  if(dot) dot.className='dot bad'; return; }
+  for(var i=0;i<GW_BANNER.length;i++){
+    var lim=GW_BANNER[i][0], f=GW_BANNER[i][1], c=GW_BANNER[i][2], u=GW_BANNER[i][3];
+    if(lim===null||min<lim){
+      var n = (u==='ore') ? Math.round(min/60) : Math.round(min);
+      el.textContent = u ? f.replace('%%d',String(n)) : f;
+      if(dot) dot.className='dot'+(c?' '+c:'');
+      return;
+    }
+  }
+}
+function gwPaintAge(){
+  var now=Date.now(), b=document.querySelectorAll('.nowblock'), fresca=null;
+  for(var i=0;i<b.length;i++){
+    var el=b[i].querySelector('.nowage'); if(!el) continue;
+    var ts=b[i].getAttribute('data-ts'), t=ts?Date.parse(ts):NaN;
+    if(isNaN(t)){ el.textContent='orario sconosciuto'; continue; }
+    var min=(now-t)/60000;
+    if(fresca===null||min<fresca) fresca=min;
+    el.textContent=gwEtaParole(min);
+    var meta=el.parentNode;
+    if(meta&&meta.className.indexOf('nowmeta')>=0)
+      meta.className='nowmeta'+(min>%(stale)g?' stale':'');
+  }
+  /* L'intestazione dice la stessa cosa della scheda piu' fresca, con le sue
+     parole: due frasi diverse sullo stesso dato sarebbero una bugia e mezza. */
+  if(b.length) gwBanner(fresca);
+}
+function gwApplyLive(d){
+  if(!d||!d.luoghi) return;
+  var b=document.querySelectorAll('.nowblock');
+  for(var i=0;i<b.length;i++){
+    var v=d.luoghi[b[i].getAttribute('data-live-place')];
+    if(!v||!v.ts||!v.html) continue;
+    /* Non si sostituisce mai con qualcosa di piu' vecchio di quello che c'e'
+       gia': un file pubblicato in ritardo non deve far tornare indietro la
+       pagina. */
+    var vecchio=Date.parse(b[i].getAttribute('data-ts')||''), nuovo=Date.parse(v.ts);
+    if(isNaN(nuovo)) continue;
+    if(!isNaN(vecchio)&&nuovo<=vecchio) continue;
+    var box=b[i].querySelector('.nowobs');
+    if(box){ box.innerHTML=v.html; b[i].setAttribute('data-ts',v.ts); }
+  }
+  gwPaintAge();
+}
+function gwFetchLive(){
+  if(!GW_LIVE_URL||!window.fetch) return;
+  var u=GW_LIVE_URL+(GW_LIVE_URL.indexOf('?')<0?'?':'&')+'t='+Math.floor(Date.now()/60000);
+  fetch(u,{cache:'no-store'}).then(function(r){return r.ok?r.json():null})
+    .then(gwApplyLive).catch(function(){});
+}
+gwPaintAge();
+setInterval(gwPaintAge,30000);
+if(GW_LIVE_MS>0){
+  gwFetchLive();
+  setInterval(gwFetchLive,GW_LIVE_MS);
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden) gwFetchLive();});
+}
 setTimeout(function(){location.reload()},%(reload)d);
 </script></body></html>"""
 
@@ -1441,6 +1621,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/diagnostica":
             return self._send(200, page_diagnostics())
+        if u.path == "/live.json":
+            from . import live as live_mod
+            return self._send(200, json.dumps(live_mod.snapshot(), default=str,
+                                              ensure_ascii=False),
+                              "application/json; charset=utf-8")
         if u.path == "/api/previsione":
             return self._send(200, json.dumps(engine.full_product(), default=str),
                               "application/json; charset=utf-8")

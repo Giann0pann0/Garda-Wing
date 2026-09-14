@@ -5,6 +5,7 @@ avviene solo in presentazione e nel calcolo del "giorno locale".
 """
 
 import math
+import os
 
 APP_NAME = "Garda Wind"
 APP_VERSION = "3.7"
@@ -310,6 +311,31 @@ HYDSTRA_UTC_OFFSET_HOURS = 1
 FORECAST_DAYS = 8
 UPDATE_INTERVAL_MIN = 25        # aggiornamento completo dei modelli
 POLL_INTERVAL_MIN = 8           # polling centraline (piu' frequente)
+
+# Il dato osservato e la previsione hanno due tempi diversi: le centraline
+# ogni dieci minuti, i modelli globali ogni sei ore. Finche' la pagina li
+# pubblicava insieme, l'"adesso" invecchiava come la previsione e diceva
+# "adesso" anche dopo cinque ore. Ora il dato osservato sta in un file suo,
+# che un processo veloce riscrive da solo, e la pagina lo rilegge.
+#
+# LIVE_JSON_URL e' dove la pagina pubblicata va a cercarlo. Non puo' essere
+# il live.json della pagina stessa: GitHub Pages si pubblica tutto insieme,
+# quindi quel file si aggiorna solo quando si ricostruisce il sito. Il
+# processo veloce scrive invece su un ramo dedicato del repository, e da li'
+# il file e' leggibile via HTTP senza ricostruire niente.
+#
+# Se la richiesta non riesce - rete assente, ramo non ancora creato - la
+# pagina NON resta vuota: tiene i valori con cui e' stata costruita e
+# continua a mostrarne l'eta', che cresce. Un dato vecchio che si vede
+# invecchiare e' onesto; un dato vecchio scritto "adesso" no.
+LIVE_JSON_URL = os.environ.get(
+    "GARDAWIND_LIVE_URL",
+    "https://raw.githubusercontent.com/Giann0pann0/Garda-Wing/live/live.json")
+
+# Ogni quanto la pagina rilegge quel file. Il processo veloce gira ogni dieci
+# minuti circa (il cron di GitHub non e' puntuale), quindi chiederlo piu'
+# spesso di cinque minuti non porta dati nuovi.
+LIVE_REFRESH_MIN = 5.0
 # Sette giorni. Oltre il terzo restano solo i modelli globali: quelli ad area
 # limitata (ICON-D2, AROME, ICON-2I, che sono anche i piu' bravi su un lago
 # stretto in mezzo alle montagne) si fermano prima. La scheda lo dichiara

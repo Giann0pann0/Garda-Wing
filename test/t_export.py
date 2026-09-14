@@ -9,7 +9,11 @@ store.init()
 
 # esportazione a freddo: non deve esplodere con il database vuoto
 paths = X.export("/tmp/sitotest")
-ok(len(paths)==3, "tre file scritti anche a database vuoto")
+# index.html, diagnostica.html, live.json, previsione.json. live.json e' il
+# dato osservato, che dalla Fase 2 sta in un file suo: la pagina lo rilegge da
+# sola invece di invecchiare insieme alla previsione.
+ok(len(paths) == 4, "quattro file scritti anche a database vuoto (%d)" % len(paths))
+ok(paths[-2].endswith("live.json"), "fra cui il dato osservato")
 h=open("/tmp/sitotest/index.html",encoding='utf-8').read()
 ok("Garda Wind" in h and "raccogliendo" in h, "home a freddo, senza eccezioni")
 ok("/spegni" not in h and "/aggiorna" not in h, "nessuna azione che richiede un server")

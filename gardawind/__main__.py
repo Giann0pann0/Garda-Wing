@@ -11,6 +11,7 @@
     python3 -m gardawind --raffiche      media, raffica ricorrente, raffica massima
     python3 -m gardawind --orari         quando entra il vento: regime e planata
     python3 -m gardawind --poll-once     legge le centraline una volta ed esce
+    python3 -m gardawind --live-json F   legge le centraline e scrive F (solo osservato)
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
 
@@ -1122,6 +1123,10 @@ def main(argv=None):
     ap.add_argument("--poll-once", action="store_true",
                     help="interroga le centraline una volta sola ed esce "
                          "(usato dall'agente di raccolta in background)")
+    ap.add_argument("--live-json", metavar="FILE",
+                    help="legge le centraline e scrive SOLO il dato osservato "
+                         "in FILE: nessun modello, nessuna previsione. E' il "
+                         "processo veloce che tiene aggiornato l'\"adesso\"")
     ap.add_argument("--export", metavar="DIR",
                     help="scrive il cruscotto come pagine statiche in DIR")
     ap.add_argument("--ci", action="store_true",
@@ -1160,6 +1165,26 @@ def main(argv=None):
     if args.poll_once:
         for line in engine.update_stations():
             print(line)
+        return 0
+
+    if args.live_json:
+        # Il processo veloce: legge le centraline e scrive il dato osservato.
+        # Separato dalla previsione perche' hanno due tempi diversi - le
+        # centraline ogni dieci minuti, i modelli globali ogni sei ore - e
+        # finche' stavano insieme il numero dell'"adesso" invecchiava insieme
+        # alla previsione, dicendo "adesso" quando erano passate cinque ore.
+        from . import live as live_mod
+        for line in engine.update_stations():
+            print(line)
+        dati = live_mod.scrivi(args.live_json)
+        for nome, v in sorted(dati["luoghi"].items()):
+            print("  %-10s %s  vento %s kn  raffica %s  ricorrente %s (%s)"
+                  % (nome, v["ts"] or "-",
+                     "-" if v["wind"] is None else "%.1f" % v["wind"],
+                     "-" if v["gust"] is None else "%.1f kn" % v["gust"],
+                     "-" if v["gust_rec"] is None else "%.1f kn" % v["gust_rec"],
+                     v["gust_rec_stato"]))
+        print("scritto %s" % args.live_json)
         return 0
 
     if args.ci:

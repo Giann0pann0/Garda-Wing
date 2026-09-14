@@ -14,7 +14,7 @@ import json
 import os
 import re
 
-from . import config, engine, store, web
+from . import config, engine, live, store, web
 from .util import iso_utc, utc_now
 
 # Le azioni che esistono solo con un server dietro.
@@ -39,10 +39,21 @@ def _staticize(html_text):
 
 
 def _banner(built_at):
+    """Cosa si aggiorna da solo e cosa no. Distinguerlo non e' un dettaglio.
+
+    La previsione e' quella del momento in cui la pagina e' stata costruita, e
+    per cambiarla bisogna ricostruirla. Il dato osservato no: quello la pagina
+    lo rilegge da sola, e l'eta' che mostra e' sempre calcolata sull'orario
+    del campione. Dire "non si aggiorna da sola", come diceva prima questa
+    riga, sarebbe ormai falso per metà della pagina - ed e' la metà che si
+    guarda per decidere se andare in acqua.
+    """
     return (
-        '<div class="panel"><p style="margin:0">Pagina statica, generata il '
-        '<b>%s</b>. Non si aggiorna da sola: la rigenera il processo che la '
-        'pubblica. Se i numeri sembrano vecchi, è perché lo sono.</p></div>'
+        '<div class="panel"><p style="margin:0">Previsione calcolata il '
+        '<b>%s</b>: per cambiarla la pagina va ricostruita. Le '
+        '<b>condizioni attuali</b>, invece, si aggiornano da sole ogni pochi '
+        'minuti, e l\u2019orario accanto dice sempre di quando è il dato: se '
+        'invecchia, lo vedi.</p></div>'
         % built_at)
 
 
@@ -52,7 +63,17 @@ def export(directory, with_json=True):
     built = utc_now()
     built_local = web.to_local(built).strftime("%d/%m/%Y alle %H:%M")
 
-    home = _staticize(web.page_home())
+    # Nel sito pubblicato il dato osservato non si legge accanto alla pagina
+    # (Pages si pubblica tutto insieme, quel file si aggiornerebbe solo
+    # ricostruendo il sito): si legge dal ramo dedicato che il processo veloce
+    # riscrive. L'indirizzo si sostituisce QUI, non dentro la pagina, cosi'
+    # l'app sul Mac continua a chiedere il suo /live.json.
+    url_prima = web.LIVE_URL
+    web.LIVE_URL = config.LIVE_JSON_URL or web.LIVE_URL
+    try:
+        home = _staticize(web.page_home())
+    finally:
+        web.LIVE_URL = url_prima
     home = home.replace('<main class="wrap">', '<main class="wrap">' + _banner(built_local))
     diag = _staticize(web.page_diagnostics())
 
@@ -62,6 +83,15 @@ def export(directory, with_json=True):
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)
         written.append(path)
+
+    # Il dato osservato va anche in un file suo, piccolo, che la pagina
+    # rilegge da sola. Scriverlo anche qui - e non solo nel processo veloce -
+    # serve perche' il sito appena costruito non resti senza: se il processo
+    # veloce non ha ancora girato, la pagina trova comunque un live.json
+    # coerente con i numeri che ha stampato dentro.
+    path = os.path.join(directory, "live.json")
+    live.scrivi(path)
+    written.append(path)
 
     if with_json:
         payload = {
