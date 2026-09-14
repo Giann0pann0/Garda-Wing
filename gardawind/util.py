@@ -717,3 +717,105 @@ def interval_coverage(lo_list, hi_list, obs):
         if lo <= o <= hi:
             hit += 1
     return (hit / n, n) if n else (None, 0)
+
+
+# --------------------------------------------------------------------------
+# Raffica ricorrente
+# --------------------------------------------------------------------------
+# Con il wing non si plana sul vento medio, e non si plana nemmeno sulla
+# raffica di punta: un colpo isolato a 25 nodi dentro una media di 8 non e' una
+# sessione, e' una tavola che si ferma. Quello che fa la sessione e' un livello
+# di raffica che TORNA.
+#
+# La definizione deve essere causale, cioe' non deve guardare come e' andata la
+# giornata. "La mediana delle raffiche nelle ore migliori" non lo e': scegliere
+# le ore migliori e' una selezione fatta a giornata finita, e infilerebbe uno
+# sguardo sul futuro dentro il bersaglio dell'addestramento. Una finestra
+# mobile, invece, e' una funzione solo di quello che sta dentro la finestra.
+
+def recurrent_gust(samples, window_min=30.0, centered=True, min_points=3):
+    """Mediana mobile delle raffiche su una finestra di window_min minuti.
+
+    samples: [(minuti, raffica)] in ordine di tempo. Ritorna [(minuti, valore)]
+    con valore None dove la finestra non ha abbastanza campioni - un buco nei
+    dati non e' una raffica bassa, ed e' meglio dirlo che riempirlo.
+
+    La finestra centrata guarda cinque minuti oltre l'istante e va bene per il
+    BERSAGLIO, che e' storia osservata. Per il dato in diretta serve la
+    finestra all'indietro (centered=False): centrata, gli ultimi minuti non
+    sarebbero calcolabili, e nel frattempo mostrerebbe un valore costruito con
+    campioni che al momento della previsione non esistevano.
+    """
+    pts = [(float(t), float(v)) for t, v in samples if v is not None]
+    pts.sort()
+    out = []
+    half = window_min / 2.0
+    # Due indici che avanzano, non una scansione per ogni punto: la versione
+    # ingenua e' O(n^2) e su Torbole - centoquarantamila campioni dal 2012 -
+    # l'aggregazione non finiva piu'. Qui ogni indice attraversa la lista una
+    # volta sola, e la mediana si prende su una fetta di tre valori.
+    i = j = 0
+    n = len(pts)
+    for k in range(n):
+        t = pts[k][0]
+        lo = (t - half) if centered else (t - window_min)
+        hi = (t + half) if centered else t
+        while i < n and pts[i][0] < lo - 1e-9:
+            i += 1
+        if j < i:
+            j = i
+        while j < n and pts[j][0] <= hi + 1e-9:
+            j += 1
+        vals = [v for _tt, v in pts[i:j]]
+        out.append((t, median(vals) if len(vals) >= min_points else None))
+    return out
+
+
+def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=15.0,
+                    cadence_min=None):
+    """Primo istante in cui la serie sta sopra soglia e CI RESTA.
+
+    Il "ci resta" e' il punto: il primo superamento puntuale lo produce
+    qualunque colpo di vento, e non risponde alla domanda vera, che e' da che
+    ora posso entrare in acqua e planare con continuita'. Un buco nei dati piu'
+    largo di max_gap_min interrompe la serie invece di essere scavalcato:
+    altrimenti due picchi lontani un'ora si salderebbero in una finestra
+    inesistente.
+
+    Un campione COPRE un intervallo, non un istante: la raffica che la
+    centralina pubblica alle 12:20 e' il massimo fra le 12:10 e le 12:20.
+    Quindi due campioni consecutivi sopra soglia coprono venti minuti di
+    orologio, non dieci, e la durata si misura sulla copertura
+    (t_ultimo - t_primo + cadenza). Contando la sola differenza fra i
+    timestamp, "trenta minuti" avrebbe significato in silenzio quaranta: una
+    richiesta piu' severa di quella dichiarata. La cadenza, se non passata, e'
+    la spaziatura mediana della serie.
+
+    Ritorna il CENTRO dell'intervallo in cui il passaggio e' avvenuto. Il
+    campione dice che fra t-cadenza e t si era sopra soglia, non dove: prendere
+    t sarebbe sempre in ritardo di mezza cadenza, e su una grandezza che stiamo
+    cercando di misurare a mezz'ora di precisione un errore sistematico
+    regalato non serve a nessuno.
+    """
+    pts = [(float(t), v) for t, v in series if v is not None]
+    pts.sort()
+    n = len(pts)
+    if n == 0:
+        return None
+    if cadence_min is None:
+        gaps = [pts[k + 1][0] - pts[k][0] for k in range(n - 1)
+                if pts[k + 1][0] - pts[k][0] <= max_gap_min]
+        cadence_min = median(gaps) if gaps else 0.0
+    for i in range(n):
+        if pts[i][1] < threshold:
+            continue
+        j = i
+        while j + 1 < n:
+            if pts[j + 1][0] - pts[j][0] > max_gap_min:
+                break
+            if pts[j + 1][1] < threshold:
+                break
+            j += 1
+        if pts[j][0] - pts[i][0] + cadence_min >= persist_min - 1e-9:
+            return pts[i][0] - cadence_min / 2.0
+    return None

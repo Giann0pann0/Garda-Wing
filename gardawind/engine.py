@@ -814,6 +814,19 @@ def ensemble_hours(spot_name):
                     continue
                 if col == "w10":
                     v = max(0.0, v - bias)
+                elif col == "g10":
+                    # La correzione di bias va applicata a ENTRAMBE le
+                    # grandezze, e in modo relativo. Correggendo solo la media
+                    # si rompe il rapporto raffica/media del modello: dove i
+                    # modelli sottostimano il Peler il bias e' negativo, la
+                    # media corretta sale SOPRA la raffica grezza, e piu' a
+                    # valle il rapporto viene stretto a 1,0 - cioe' la curva
+                    # della raffica si appiattisce su quella del vento medio e
+                    # sparisce dal grafico. Il livello si corregge, la
+                    # turbolenza del modello no: si scala.
+                    w10 = r["w10"]
+                    if w10 is not None and w10 > 0.5:
+                        v = v * max(0.0, w10 - bias) / w10
                 num += w * v
                 den += w
             agg[col] = (num / den) if den > 0 else None

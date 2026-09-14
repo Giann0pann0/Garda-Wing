@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS obs_hour(
   wind_mean   REAL,
   wind_max    REAL,
   gust_max    REAL,
+  gust_rec    REAL,               -- raffica ricorrente: mediana mobile a 30'
   dir_deg     REAL,
   dir_const   REAL,
   n_samples   INTEGER,
@@ -158,9 +159,29 @@ def connect():
         conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
+        _migra(conn)
         conn.commit()
         _LOCAL.conn = conn
     return conn
+
+
+# Colonne aggiunte dopo la prima versione dello schema. CREATE TABLE IF NOT
+# EXISTS non tocca una tabella che esiste gia', quindi su un database vissuto -
+# quello sul Mac, quello nella cache di Actions - una colonna nuova non
+# comparirebbe mai e l'aggregazione andrebbe in errore. Qui si aggiunge una
+# volta, in modo idempotente, senza ricostruire niente.
+MIGRAZIONI = (
+    ("obs_hour", "gust_rec", "REAL"),
+)
+
+
+def _migra(conn):
+    for tabella, colonna, tipo in MIGRAZIONI:
+        presenti = {r["name"] for r in
+                    conn.execute("PRAGMA table_info(%s)" % tabella)}
+        if presenti and colonna not in presenti:
+            conn.execute("ALTER TABLE %s ADD COLUMN %s %s"
+                         % (tabella, colonna, tipo))
 
 
 def close():
@@ -253,21 +274,22 @@ def samples_since(station, since_iso):
 
 
 def upsert_obs_hours(station, rows):
-    """rows: iterabile di dict con hour, wind_mean, wind_max, gust_max, dir_deg,
-    dir_const, n_samples."""
+    """rows: iterabile di dict con hour, wind_mean, wind_max, gust_max,
+    gust_rec, dir_deg, dir_const, n_samples."""
     c = connect()
     c.executemany(
         "INSERT OR REPLACE INTO obs_hour(station, hour, wind_mean, wind_max, gust_max,"
-        " dir_deg, dir_const, n_samples) VALUES(?,?,?,?,?,?,?,?)",
+        " gust_rec, dir_deg, dir_const, n_samples) VALUES(?,?,?,?,?,?,?,?,?)",
         [(station, r["hour"], r["wind_mean"], r["wind_max"], r["gust_max"],
-          r["dir_deg"], r["dir_const"], r["n_samples"]) for r in rows])
+          r.get("gust_rec"), r["dir_deg"], r["dir_const"], r["n_samples"])
+         for r in rows])
     c.commit()
     return c.total_changes
 
 
 def obs_hours(station, start_hour=None, end_hour=None):
-    q = "SELECT hour, wind_mean, wind_max, gust_max, dir_deg, dir_const, n_samples " \
-        "FROM obs_hour WHERE station=?"
+    q = "SELECT hour, wind_mean, wind_max, gust_max, gust_rec, dir_deg, " \
+        "dir_const, n_samples FROM obs_hour WHERE station=?"
     args = [station]
     if start_hour:
         q += " AND hour>=?"

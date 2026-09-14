@@ -8,6 +8,7 @@
     python3 -m gardawind --validate      tabella per spot x regime x scadenza
     python3 -m gardawind --bands         confronta i tagli di fascia di scadenza
     python3 -m gardawind --direzioni     da dove viene il vento, per settore
+    python3 -m gardawind --raffiche      media, raffica ricorrente, raffica massima
     python3 -m gardawind --poll-once     legge le centraline una volta ed esce
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
@@ -21,6 +22,7 @@ import threading
 import webbrowser
 
 from . import config, engine, store, web
+from .util import local_day, local_hour, parse_dt_any, to_local
 
 
 def cmd_report():
@@ -214,6 +216,137 @@ def cmd_validate(spots=None, bands=None, sector=True, out_json=None,
             json.dump(report, fh, ensure_ascii=False, default=str, indent=1)
         print("Dettaglio completo in %s" % out_json)
     return report
+
+
+def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
+    """Analisi descrittiva delle raffiche. Nessuna soglia decisa qui.
+
+    Serve a scegliere le soglie operative guardando i dati invece di una
+    tabella teorica. Stampa, per ogni regime, come si distribuiscono le tre
+    grandezze separate - vento medio, raffica ricorrente, raffica massima - il
+    rapporto fra la ricorrente e la media, e per ogni soglia candidata quante
+    giornate la superano e per quanto tempo. E' quel "per quanto tempo" che
+    dice se una soglia descrive una sessione o un colpo di vento.
+    """
+    from gardawind.util import recurrent_gust, sustained_onset, median
+
+    spots = [spot_name] if spot_name else [
+        n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
+
+    for name in spots:
+        spot = config.SPOTS[name]
+        station = spot["station"]
+        h0, h1 = spot["window"]
+        print("")
+        print("=" * 74)
+        print("  %s  -  finestra %02d:00-%02d:00  -  centralina %s"
+              % (name, h0, h1 + 1, station))
+        print("=" * 74)
+
+        # Campioni grezzi raggruppati per giorno locale. La raffica ricorrente
+        # si calcola sulla serie continua della giornata, poi si guarda solo
+        # dentro la finestra del regime - che e' fissata in configurazione, non
+        # scelta a giornata finita.
+        per_giorno = {}
+        for s in store.samples_since(station, "0000"):
+            dt_ = parse_dt_any(s["ts"])
+            if dt_ is None or s["gust_kn"] is None:
+                continue
+            per_giorno.setdefault(local_day(dt_), []).append(
+                (dt_, s["wind_kn"], s["gust_kn"]))
+
+        if not per_giorno:
+            print("  nessun campione con raffica per questa centralina.")
+            continue
+
+        medie, ric, massime, rapporti = [], [], [], []
+        durate = {t: [] for t in soglie}
+        ingressi = {t: [] for t in soglie}
+        n_giorni = 0
+        for day in sorted(per_giorno):
+            righe = sorted(per_giorno[day])
+            minuti = [(d.timestamp() / 60.0, w, g) for d, w, g in righe]
+            serie = recurrent_gust([(t, g) for t, _w, g in minuti],
+                                   window_min=30.0, centered=True)
+            # La ricorrente si calcola su tutta la giornata e solo DOPO si
+            # taglia alla finestra del regime, che sta in configurazione. Se si
+            # tagliasse prima, la mediana mobile ai bordi della finestra
+            # lavorerebbe su meno campioni e la grandezza cambierebbe
+            # definizione a seconda di dove capita l'ora.
+            # I tempi della serie tagliata sono MINUTI DALLA MEZZANOTTE
+            # LOCALE, non minuti dall'epoca: e' la scala in cui la domanda ha
+            # senso ("a che ora si entra"), ed e' monotona dentro la giornata.
+            # Con i minuti dall'epoca la mediana degli ingressi stampava ore
+            # senza significato.
+            sel = []
+            for (d, w, g), (_t, rv) in zip(righe, serie):
+                if h0 <= local_hour(d) <= h1:
+                    loc = to_local(d)
+                    sel.append((loc.hour * 60.0 + loc.minute, w, g, rv))
+            if len(sel) < 12:                  # meno di due ore di copertura
+                continue
+            n_giorni += 1
+            ws = [w for _t, w, _g, _r in sel if w is not None]
+            gs = [g for _t, _w, g, _r in sel if g is not None]
+            rs = [r for _t, _w, _g, r in sel if r is not None]
+            if ws:
+                medie.append(max(ws))
+            if gs:
+                massime.append(max(gs))
+            if rs:
+                picco_ric = max(rs)
+                ric.append(picco_ric)
+                if ws and max(ws) > 0.5:
+                    rapporti.append(picco_ric / max(ws))
+            serie_ric = [(t, r) for t, _w, _g, r in sel if r is not None]
+            for t in soglie:
+                sopra = [1 for _tt, r in serie_ric if r >= t]
+                # la copertura di ogni campione e' la cadenza: dieci minuti
+                durate[t].append(len(sopra) * 10)
+                ing = sustained_onset(serie_ric, float(t), persist_min=30.0)
+                if ing is not None:
+                    ingressi[t].append(ing)
+
+        def q(xs, p):
+            if not xs:
+                return float("nan")
+            y = sorted(xs)
+            return y[min(len(y) - 1, max(0, int(p * (len(y) - 1))))]
+
+        print("")
+        print("  %d giornate con copertura sufficiente nella finestra" % n_giorni)
+        print("")
+        print("  %-22s %7s %7s %7s %7s %7s"
+              % ("picco a 10 minuti", "q10", "mediana", "q75", "q90", "q99"))
+        for etichetta, dati in (("vento medio", medie),
+                                ("raffica ricorrente", ric),
+                                ("raffica massima", massime)):
+            print("  %-22s %7.1f %7.1f %7.1f %7.1f %7.1f"
+                  % (etichetta, q(dati, .10), q(dati, .50), q(dati, .75),
+                     q(dati, .90), q(dati, .99)))
+        if rapporti:
+            print("")
+            print("  rapporto ricorrente/media   mediana %.2f   q10 %.2f   q90 %.2f"
+                  % (q(rapporti, .5), q(rapporti, .1), q(rapporti, .9)))
+
+        print("")
+        print("  quanto durano le soglie, sulla RAFFICA RICORRENTE")
+        print("  %6s %9s %11s %11s %11s %11s"
+              % ("soglia", "giornate", "% giornate", "durata med.",
+                 "durata q75", "ingresso >=30'"))
+        for t in soglie:
+            d = [x for x in durate[t] if x > 0]
+            perc = 100.0 * len(d) / n_giorni if n_giorni else 0.0
+            ing = ingressi[t]
+            ora_ing = ("%02d:%02d" % (int(median(ing) // 60) % 24,
+                                      int(median(ing) % 60))) if ing else "-"
+            print("  %6d %9d %10.0f%% %9d min %9d min %11s"
+                  % (t, len(d), perc, median(d) or 0, q(d, .75) if d else 0,
+                     ora_ing))
+        print("")
+        print("  Le soglie qui NON sono decise: sono candidate. La colonna che")
+        print("  conta e' la durata - una soglia superata per venti minuti e'")
+        print("  un colpo di vento, non una sessione.")
 
 
 def cmd_direzioni(spot_name=None, bin_deg=10):
@@ -476,6 +609,9 @@ def main(argv=None):
     ap.add_argument("--direzioni", action="store_true",
                     help="istogramma delle provenienze osservate: verifica se "
                          "l'asse del regime e' messo nel posto giusto")
+    ap.add_argument("--raffiche", action="store_true",
+                    help="analisi descrittiva di media, raffica ricorrente e "
+                         "raffica massima: serve a scegliere le soglie sui dati")
     ap.add_argument("--bands", action="store_true",
                     help="confronta tagli di fascia alternativi sul periodo di "
                          "addestramento")
@@ -499,6 +635,10 @@ def main(argv=None):
     if args.validate:
         cmd_validate(spots=args.spot, out_json=args.validate_json,
                      periodo_comune=args.periodo_comune)
+        return 0
+
+    if args.raffiche:
+        cmd_raffiche(args.spot[0] if args.spot else None)
         return 0
 
     if args.direzioni:

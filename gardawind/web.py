@@ -573,7 +573,8 @@ def place_chart(place, profile, bands, chart_id):
     # vicino alla larghezza reale sul telefono, cosi' su desktop il grafico si
     # ingrandisce - e le scritte con lui - invece di rimpicciolirsi.
     W, H = 440.0, 280.0
-    pl, pr, pt, pb = 28.0, 50.0, 26.0, 50.0
+    # pr tiene la parola "raffica" dentro la tela: a 50 usciva dal bordo.
+    pl, pr, pt, pb = 28.0, 58.0, 26.0, 50.0
     peak = max([r["gust"] for r in rows] + [12.0])
     top = max(15.0, 5 * math.ceil(peak / 5.0))
     step = 5 if top <= 30 else 10
@@ -632,12 +633,20 @@ def place_chart(place, profile, bands, chart_id):
     p.append('<text x="%.1f" y="%.1f" font-size="12.5" font-weight="800" '
              'fill="var(--pc)">%.0f kn</text>'
              % (x(hi["hour"]) + 8, y(hi["wind"]) - 8, hi["wind"]))
+    # Etichette dirette a fine linea. A fine giornata medio e raffica possono
+    # arrivare quasi allo stesso valore: le due scritte si sovrapponevano e
+    # diventavano illeggibili. Se sono piu' vicine di una riga di testo le
+    # separo, tenendo la raffica sopra perche' e' sempre la maggiore.
     last = rows[-1]
-    p.append('<text x="%.1f" y="%.1f" font-size="11.5" font-weight="700" '
-             'fill="var(--pc)">medio</text>' % (x(last["hour"]) + 7, y(last["wind"]) + 4))
-    p.append('<text x="%.1f" y="%.1f" font-size="11.5" font-weight="700" '
-             'fill="var(--gust)">raffica</text>'
-             % (x(last["hour"]) + 7, y(last["gust"]) + 4))
+    ly_w, ly_g = y(last["wind"]) + 4, y(last["gust"]) + 4
+    if abs(ly_w - ly_g) < 13:
+        mid = (ly_w + ly_g) / 2.0
+        ly_g, ly_w = mid - 6.5, mid + 6.5
+    lx = x(last["hour"]) + 6
+    p.append('<text x="%.1f" y="%.1f" font-size="11" font-weight="700" '
+             'fill="var(--pc)">medio</text>' % (lx, ly_w))
+    p.append('<text x="%.1f" y="%.1f" font-size="11" font-weight="700" '
+             'fill="var(--gust)">raffica</text>' % (lx, ly_g))
 
     ay = H - pb + 22
     for r in rows:
