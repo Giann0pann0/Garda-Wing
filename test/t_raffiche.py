@@ -222,3 +222,139 @@ ok("raffica storica disponibile solo di recente" in uscita,
    "e lo dichiara in testa, invece di lasciarlo dedurre")
 ok(int(m_medio.group(1)) > int(m_raff.group(1)) * 5,
    "i due livelli non sono mescolati")
+
+# ===== lo stesso istante da due fonti (il TypeError del 14 settembre) =====
+# La chiave dei campioni e' (stazione, istante, FONTE), quindi l'archivio
+# storico e il canale realtime possono descrivere lo stesso minuto: il primo
+# senza raffica, il secondo con la raffica. Ordinando le righe per tupla, a
+# parita' di minuto e di vento Python arrivava a confrontare la raffica, e
+# None non si confronta con un float. Ma far sparire il crash non basta: i
+# doppioni falsano cadenza (un intervallo di zero minuti), copertura e durate,
+# e il record senza raffica butterebbe via quello con la raffica.
+shutil.rmtree("/tmp/gwdup", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwdup"
+store.close()
+store.init()
+b1 = dt.datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
+arch, live = [], []
+for d in range(40):
+    for k in range(0, 24 * 6):
+        t = iso_utc(b1 + dt.timedelta(days=d, minutes=10 * k))
+        arch.append((t, 13.0, None, 200.0))        # archivio: senza raffica
+        if d >= 37:                                 # realtime: ultimi giorni
+            live.append((t, 13.0, 19.0, 200.0))
+# e un campione con il VENTO assente sullo stesso istante, come nel caso di Gian
+live.append((iso_utc(b1 + dt.timedelta(days=38, hours=14)), None, 21.0, 200.0))
+store.save_samples("T0193", arch, "meteotrentino-archivio")
+store.save_samples("T0193", live, "meteotrentino-realtime")
+
+buf = io.StringIO()
+try:
+    with contextlib.redirect_stdout(buf):
+        cmd_raffiche("Torbole-Ora")
+    esploso = None
+except Exception as e:                                       # pragma: no cover
+    esploso = "%s: %s" % (type(e).__name__, e)
+u = buf.getvalue()
+ok(esploso is None, "nessuna eccezione con istanti duplicati (%s)" % esploso)
+ok("istanti distinti" in u, "i doppioni vengono dichiarati nella diagnostica")
+m_dup = re.search(r"(\d+) istanti distinti: (\d+) campioni", u)
+ok(m_dup is not None and int(m_dup.group(2)) > 0,
+   "e sono contati: %s" % (m_dup.group(0) if m_dup else "?"))
+ok("cadenza tipica 10 min" in u,
+   "la cadenza resta 10 min: i doppioni non la portano a zero")
+m_r = re.search(r"RAFFICA\s+-\s+(\d+) giornate", u)
+ok(m_r is not None and int(m_r.group(1)) >= 2,
+   "la raffica del realtime sopravvive all'unione: %s giornate"
+   % (m_r.group(1) if m_r else "?"))
+m_v = re.search(r"VENTO MEDIO\s+-\s+(\d+) giornate", u)
+ok(m_v is not None and int(m_v.group(1)) >= 35,
+   "e il vento medio vede tutto l'archivio: %s giornate"
+   % (m_v.group(1) if m_v else "?"))
+
+# l'aggregazione non deve contare due volte lo stesso istante: n_samples e' il
+# numero con cui il modello decide se un'ora e' una media o rumore.
+shutil.rmtree("/tmp/gwdup2", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwdup2"
+store.close()
+store.init()
+b2 = dt.datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
+ts = [iso_utc(b2 + dt.timedelta(minutes=10 * i)) for i in range(6)]
+store.save_samples("DUP", [(t, 12.0, None, 210.0) for t in ts], "archivio")
+store.save_samples("DUP", [(t, 12.0, 17.0, 210.0) for t in ts], "realtime")
+aggregate.aggregate_station("DUP")
+r = store.obs_hours("DUP")[0]
+ok(r["n_samples"] == 6,
+   "sei istanti da due fonti restano sei campioni, non dodici (%d)"
+   % r["n_samples"])
+ok(r["gust_max"] == 17.0, "e la raffica del realtime sopravvive all'unione")
+ok(abs(r["wind_mean"] - 12.0) < 1e-9, "la media resta quella dell'istante")
+ok(r["gust_rec"] is not None, "la ricorrente si calcola sulla serie unita")
+
+# ===== i due casi esatti che Gian ha chiesto =====
+from gardawind.util import merge_by_instant
+
+# 1) accordo: il realtime ARRICCHISCE la riga storica con la raffica
+uniti, conf = merge_by_instant([
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": None, "dir_deg": 200.0,
+     "source": "meteotrentino-archivio"},
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": 17.8, "dir_deg": 200.0,
+     "source": "meteotrentino-realtime"},
+])
+u = uniti[620.0]
+ok(len(uniti) == 1, "un solo istante nel risultato")
+ok(u["wind"] == 12.3 and u["gust"] == 17.8,
+   "10:20 wind=12.3 gust=17.8: il realtime arricchisce, non duplica (%s)" % u)
+ok(conf == [], "nessun conflitto quando le due fonti concordano")
+
+# 2) disaccordo vero sullo stesso campo: si registra, non si fonde alla cieca
+uniti, conf = merge_by_instant([
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": None, "dir_deg": 200.0,
+     "source": "meteotrentino-archivio"},
+    {"_key": 620.0, "wind_kn": 14.1, "gust_kn": 17.8, "dir_deg": 200.0,
+     "source": "meteotrentino-realtime"},
+])
+ok(len(conf) == 1 and conf[0]["campo"] == "wind",
+   "12.3 contro 14.1 e' un conflitto dichiarato (%d)" % len(conf))
+ok(conf[0]["tenuto"] == 12.3 and conf[0]["fonte_tenuta"] == "meteotrentino-archivio",
+   "vince l'archivio validato, per regola dichiarata e non a caso")
+ok(conf[0]["scartato"] == 14.1 and abs(conf[0]["differenza"] - 1.8) < 1e-9,
+   "e lo scartato viaggia col conflitto, insieme alla differenza")
+ok(uniti[620.0]["gust"] == 17.8, "la raffica del realtime resta comunque")
+
+# 3) una differenza da arrotondamento NON e' un conflitto
+_u, conf = merge_by_instant([
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": None, "dir_deg": 200.0,
+     "source": "meteotrentino-archivio"},
+    {"_key": 620.0, "wind_kn": 12.5, "gust_kn": None, "dir_deg": 203.0,
+     "source": "meteotrentino-realtime"},
+])
+ok(conf == [], "0.2 kn e 3 gradi stanno nella tolleranza: non sono conflitti")
+
+# 4) la direzione si confronta sul cerchio, non sulla retta
+_u, conf = merge_by_instant([
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": None, "dir_deg": 359.0,
+     "source": "meteotrentino-archivio"},
+    {"_key": 620.0, "wind_kn": 12.3, "gust_kn": None, "dir_deg": 2.0,
+     "source": "meteotrentino-realtime"},
+])
+ok(conf == [], "359 e 2 gradi distano 3 gradi, non 357")
+
+# 5) il conflitto finisce nel registro degli eventi
+shutil.rmtree("/tmp/gwqc", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwqc"
+store.close()
+store.init()
+b3 = dt.datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+tsq = [iso_utc(b3 + dt.timedelta(minutes=10 * i)) for i in range(6)]
+store.save_samples("QC", [(t, 12.3, None, 200.0) for t in tsq], "meteotrentino-archivio")
+store.save_samples("QC", [(t, 14.1, 17.8, 200.0) for t in tsq], "meteotrentino-realtime")
+aggregate.aggregate_station("QC")
+eventi = [e for e in store.recent_events(20) if (e["scope"] or "").startswith("qc/")]
+ok(eventi and "conflitti fra fonti" in (eventi[0]["message"] or ""),
+   "l'aggregazione registra il conflitto: %s"
+   % (eventi[0]["message"][:60] if eventi else "nessun evento"))
+rq = store.obs_hours("QC")[0]
+ok(abs(rq["wind_mean"] - 12.3) < 1e-9,
+   "e l'ora usa il valore dell'archivio, non la media dei due (%.2f)"
+   % rq["wind_mean"])

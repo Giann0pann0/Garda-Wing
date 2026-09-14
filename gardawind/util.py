@@ -943,3 +943,90 @@ def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=None,
         if pts[j][0] - pts[i][0] + cadence_min >= persist_min - 1e-9:
             return pts[i][0] - cadence_min / 2.0
     return None
+
+
+# --------------------------------------------------------------------------
+# Unione dei campioni che descrivono lo stesso istante
+# --------------------------------------------------------------------------
+# La chiave di obs_sample e' (stazione, istante, FONTE). Il realtime non deve
+# creare una SECONDA osservazione dello stesso istante: deve arricchire quella
+# storica con la raffica, che l'archivio non ha. Questa e' la semantica giusta
+# del dato, e trattarli come due righe indipendenti falsava cadenza (un
+# intervallo di zero minuti), copertura, durate e il numero di campioni con cui
+# il modello decide se un'ora e' una media o rumore.
+#
+# Dove i due sono d'accordo si uniscono. Dove due valori VALIDI dello stesso
+# campo differiscono davvero, non si sceglie in silenzio: si registra un
+# conflitto e si applica una regola dichiarata.
+
+# L'archivio Hydstra e' la serie validata; il realtime e' istantaneo e non
+# controllato. A parita' di istante, per i campi che entrambi hanno, vince
+# l'archivio. La raffica esiste solo nel realtime, quindi arriva da li'.
+# Le fonti non elencate vengono dopo, in ordine alfabetico: deterministico.
+PRIORITA_SORGENTI = (
+    "meteotrentino-archivio",
+    "meteoproject-intraday",
+    "meteotrentino-realtime",
+    "meteoproject-live",
+)
+
+# Due fonti che misurano lo stesso istante possono differire per arrotondamento
+# (l'archivio arriva in m/s e viene convertito in nodi). Sotto questa
+# tolleranza non e' un conflitto, e' la stessa misura scritta due volte.
+TOLLERANZA_KN = 0.6
+TOLLERANZA_DEG = 12.0
+
+
+def _rango(source):
+    try:
+        return (0, PRIORITA_SORGENTI.index(source or ""))
+    except ValueError:
+        return (1, source or "")
+
+
+def merge_by_instant(samples, tol_kn=TOLLERANZA_KN, tol_deg=TOLLERANZA_DEG):
+    """Unisce i campioni per istante. Ritorna (per_istante, conflitti).
+
+    samples: iterabile di dict con ts/wind_kn/gust_kn/dir_deg/source, dove ts
+    e' gia' un datetime oppure una chiave ordinabile.
+
+    per_istante: {chiave: {"wind","gust","dir"}} con i campi uniti.
+    conflitti: lista di dict con istante, campo, i due valori e le due fonti.
+    Non vengono nascosti: chi chiama li conta e li dichiara.
+    """
+    grezzi = {}
+    for s in samples:
+        grezzi.setdefault(s["_key"], []).append(s)
+
+    per_istante, conflitti = {}, []
+    for key in grezzi:
+        righe = sorted(grezzi[key], key=lambda r: _rango(r.get("source")))
+        unito = {"wind": None, "gust": None, "dir": None}
+        fonte_di = {}
+        for r in righe:
+            for campo, colonna, tol in (("wind", "wind_kn", tol_kn),
+                                        ("gust", "gust_kn", tol_kn),
+                                        ("dir", "dir_deg", tol_deg)):
+                v = r.get(colonna)
+                if v is None:
+                    continue
+                if unito[campo] is None:
+                    unito[campo] = v
+                    fonte_di[campo] = r.get("source")
+                    continue
+                differenza = abs(v - unito[campo])
+                if campo == "dir":
+                    differenza = min(differenza, 360.0 - differenza)
+                if differenza > tol:
+                    # La regola e' dichiarata: vince la fonte di rango
+                    # migliore, che e' quella gia' dentro perche' le righe sono
+                    # ordinate. Ma il disaccordo viene registrato.
+                    conflitti.append({
+                        "istante": key, "campo": campo,
+                        "tenuto": unito[campo], "scartato": v,
+                        "fonte_tenuta": fonte_di.get(campo),
+                        "fonte_scartata": r.get("source"),
+                        "differenza": differenza,
+                    })
+        per_istante[key] = unito
+    return per_istante, conflitti

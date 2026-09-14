@@ -239,9 +239,9 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
     deduce dai dati, e la finestra della mediana mobile si adatta.
     """
     from gardawind.util import (FINESTRA_RICORRENTE_MIN, covered_minutes,
-                                gust_level, median, sampling_cadence,
-                                sustained_onset, time_above,
-                                window_estimable)
+                                gust_level, median, merge_by_instant,
+                                sampling_cadence, sustained_onset,
+                                time_above, window_estimable)
 
     spots = [spot_name] if spot_name else [
         n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
@@ -270,21 +270,42 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
               % (name, h0, h1 + 1, station))
         print("=" * 74)
 
-        per_giorno = {}
-        tempi = []
+        # La chiave dei campioni e' (stazione, istante, FONTE): lo stesso
+        # istante puo' arrivare due volte, dall'archivio storico e dal canale
+        # realtime, ed e' esattamente cio' che succede sulle giornate recenti -
+        # l'archivio senza raffica, il realtime con la raffica. I due vanno
+        # UNITI tenendo il valore presente, non accodati: due righe sullo
+        # stesso minuto falsano la cadenza (un intervallo di zero minuti), la
+        # copertura e le durate, e il campione senza raffica butterebbe via
+        # quello con la raffica.
+        pronti = []
+        etichetta = {}
         n_camp = n_gust = 0
         for s in store.samples_since(station, "0000"):
             dt_ = parse_dt_any(s["ts"])
-            if dt_ is None or s["wind_kn"] is None:
+            if dt_ is None:
                 continue
+            r = dict(s)
+            r["_key"] = dt_.timestamp()
+            pronti.append(r)
             loc = to_local(dt_)
-            minuti = loc.hour * 60.0 + loc.minute
-            per_giorno.setdefault(local_day(dt_), []).append(
-                (minuti, s["wind_kn"], s["gust_kn"]))
-            tempi.append(dt_.timestamp() / 60.0)
+            etichetta[r["_key"]] = (local_day(dt_),
+                                    loc.hour * 60.0 + loc.minute)
             n_camp += 1
             if s["gust_kn"] is not None:
                 n_gust += 1
+        per_istante, conflitti = merge_by_instant(pronti)
+
+        per_giorno = {}
+        tempi = []
+        for key, u in per_istante.items():
+            if u["wind"] is None:
+                continue
+            giorno, minuti = etichetta[key]
+            per_giorno.setdefault(giorno, []).append((minuti, u["wind"], u["gust"]))
+            tempi.append(key / 60.0)
+        tempi.sort()
+        n_unici = len(per_istante)
 
         if not per_giorno:
             print("  nessun campione per questa centralina.")
@@ -304,6 +325,21 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         print("")
         print("  archivio: %d campioni su %d giornate, cadenza tipica %g min"
               % (n_camp, len(per_giorno), cadenza))
+        if n_unici < n_camp:
+            print("  %d istanti distinti: %d campioni erano lo stesso istante da"
+                  % (n_unici, n_camp - n_unici))
+            print("  due fonti (archivio e realtime), uniti campo per campo")
+        if conflitti:
+            peggiore = max(conflitti, key=lambda c: c["differenza"])
+            print("  ATTENZIONE: %d conflitti fra fonti sullo stesso istante."
+                  % len(conflitti))
+            print("  Il maggiore: %s %.1f (%s) contro %.1f (%s). Tenuto il"
+                  % (peggiore["campo"], peggiore["tenuto"],
+                     peggiore["fonte_tenuta"], peggiore["scartato"],
+                     peggiore["fonte_scartata"]))
+            print("  primo per la regola dichiarata, non scelto a caso.")
+        elif n_unici < n_camp:
+            print("  nessun conflitto: le due fonti concordavano")
         print("  raffica presente su %d campioni (%.1f%%) e %d giornate"
               % (n_gust, 100.0 * n_gust / n_camp, gg_con_raffica))
         if stimabile30:
@@ -326,7 +362,11 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             durate_m[t] = []
         gg_validi = 0
         for day in sorted(per_giorno):
-            righe = sorted(per_giorno[day])
+            # Ordinare per tupla confronta anche la raffica quando minuto e
+            # vento coincidono, e None non si confronta con un numero: era
+            # il TypeError. Si ordina per TEMPO, che e' l'unica cosa che
+            # questo ordinamento deve significare.
+            righe = sorted(per_giorno[day], key=lambda r: r[0])
             sel = [(m, w, g) for m, w, g in righe if h0 * 60 <= m <= (h1 + 1) * 60]
             if covered_minutes([m for m, _w, _g in sel], cadenza) < MIN_COPERTURA_MIN:
                 continue
@@ -359,7 +399,7 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
         ingressi = {t: [] for t in soglie}
         gg_raffica = 0
         for day in sorted(per_giorno):
-            righe = sorted(per_giorno[day])
+            righe = sorted(per_giorno[day], key=lambda r: r[0])
             if not any(g is not None for _m, _w, g in righe):
                 continue
             serie_ric = gust_level([(m, g) for m, _w, g in righe],

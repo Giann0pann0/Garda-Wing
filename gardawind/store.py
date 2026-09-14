@@ -268,9 +268,16 @@ def save_day_obs(station, rows, source):
 
 
 def samples_since(station, since_iso):
+    """I campioni grezzi, CON la fonte.
+
+    La fonte serve: la chiave e' (stazione, istante, fonte), quindi lo stesso
+    istante puo' arrivare due volte - dall'archivio validato e dal canale
+    realtime - e chi unisce i due deve sapere quale sta guardando per poter
+    dichiarare un conflitto invece di scegliere in silenzio.
+    """
     return [dict(r) for r in connect().execute(
-        "SELECT ts, wind_kn, gust_kn, dir_deg FROM obs_sample "
-        "WHERE station=? AND ts>=? ORDER BY ts", (station, since_iso))]
+        "SELECT ts, wind_kn, gust_kn, dir_deg, source FROM obs_sample "
+        "WHERE station=? AND ts>=? ORDER BY ts, source", (station, since_iso))]
 
 
 def upsert_obs_hours(station, rows):
