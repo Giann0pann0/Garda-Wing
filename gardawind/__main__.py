@@ -1155,76 +1155,91 @@ def cmd_distribuzione(spot_name=None):
         # ------------------------------------------------------------------
         # Tabella 2: la griglia delle soglie. Nessuna e' "la" soglia.
         # ------------------------------------------------------------------
-        print("  QUANTE GIORNATE, E PER QUANTO, SOPRA OGNI SOGLIA CANDIDATA")
-        print("  quota delle giornate stimabili con media sostenuta %g' sopra"
-              % D["persist_min"])
-        print("  soglia, e sotto la durata mediana in minuti di quel periodo")
-        print("")
-        testa = "  %-5s" % "mese"
-        for t in soglie:
-            testa += "%8s" % ("%g kn" % t)
-        print(testa)
-        print("  " + "-" * (6 + 8 * len(soglie)))
-        for m in range(1, 13):
-            r = D["mesi"].get(m)
-            if not r:
-                continue
-            riga = "  %-5s" % MESI_BREVI[m - 1]
-            durate = "       "
-            for t in soglie:
-                c = r["soglie"].get(t) or {}
-                q = c.get("quota")
-                riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
-                d = c.get("durata_mediana")
-                durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
-            print(riga + ("" if r["sufficiente"] else " (pochi)"))
-            if durate.strip():
-                print(durate)
-        print("  " + "-" * (6 + 8 * len(soglie)))
-        riga = "  %-5s" % "anno"
-        durate = "       "
-        for t in soglie:
+        # La tabella e' TRASPOSTA: le soglie in riga e i mesi in colonna. Con
+        # la griglia fitta fra gli 8 e i 14 nodi - che e' dove sta davvero la
+        # distribuzione del Peler - una soglia per colonna non entrerebbe piu'
+        # nella larghezza di un terminale, e una tabella che va a capo e' una
+        # tabella che non si legge.
+        mesi_presenti = [m for m in range(1, 13) if D["mesi"].get(m)]
+        fragili = [m for m in mesi_presenti if not D["mesi"][m]["sufficiente"]]
+
+        def intestazione_mesi(titolo):
+            testa = "  %-6s" % titolo
+            for m in mesi_presenti:
+                testa += "%5s" % (MESI_BREVI[m - 1][:3]
+                                  + ("*" if m in fragili else ""))
+            return testa + "%7s" % "anno"
+
+        def riga_soglia(t, campo, formatta):
+            riga = "  %5s " % ("%g" % t)
+            for m in mesi_presenti:
+                c = D["mesi"][m]["soglie"].get(t) or {}
+                riga += "%4s " % formatta(c.get(campo))
             c = A["soglie"].get(t) or {}
-            q = c.get("quota")
-            riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
-            d = c.get("durata_mediana")
-            durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
-        print(riga)
-        if durate.strip():
-            print(durate)
-        print("  " + "-" * (6 + 8 * len(soglie)))
+            return riga + "%6s" % formatta(c.get(campo))
+
+        def come_quota(q):
+            return "-" if q is None else "%.0f%%" % (100.0 * q)
+
+        def come_durata(d):
+            return "-" if not d else "%d'" % int(round(d))
+
+        print("  QUANTE MATTINE SOPRA SOGLIA, MESE PER MESE")
+        print("  quota delle giornate stimabili in cui la media e' rimasta")
+        print("  sopra soglia per almeno %g minuti di fila" % D["persist_min"])
+        print("")
+        print(intestazione_mesi("kn"))
+        print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
+        for t in soglie:
+            print(riga_soglia(t, "quota", come_quota))
+        print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
+        print("")
+
+        print("  E QUANTO E' DURATA, QUANDO E' SUCCESSO")
+        print("  durata mediana in minuti del periodo sopra soglia, sulle sole")
+        print("  giornate che la soglia l'hanno superata")
+        print("")
+        print(intestazione_mesi("kn"))
+        print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
+        for t in soglie:
+            print(riga_soglia(t, "durata_mediana", come_durata))
+        print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
+        if fragili:
+            print("  * meno di %d giornate stimabili: numero fragile." % D["min_gg"])
+        print("  Le due tabelle si leggono insieme: la quota dice quanto spesso,")
+        print("  la durata dice per quanto. \"42% delle mattine sopra 10 kn, e")
+        print("  quando succede dura due ore\" e' una frase su cui si decide;")
+        print("  ognuna delle due da sola no.")
         print("")
 
         # ------------------------------------------------------------------
         # Tabella 3: le stagioni d'uso. Non si naviga dodici mesi l'anno.
         # ------------------------------------------------------------------
         if D.get("stagioni"):
-            print("  LE STESSE QUOTE, RAGGRUPPATE PER STAGIONE D'USO")
-            testa = "  %-12s  gg " % "stagione"
-            for t in soglie:
-                testa += "%8s" % ("%g kn" % t)
+            nomi = [n for n in D["ordine_stagioni"] if D["stagioni"].get(n)]
+            print("  LE STESSE DUE COSE, PER STAGIONE D'USO")
+            testa = "  %5s " % "kn"
+            for n in nomi:
+                testa += "%14s" % n
             print(testa)
-            print("  " + "-" * (18 + 8 * len(soglie)))
-            for nome in D["ordine_stagioni"]:
-                r = D["stagioni"].get(nome)
-                if not r:
-                    continue
-                mesi = r.get("mesi_inclusi") or ()
-                etich = "%s" % nome
-                riga = "  %-12s %4d " % (etich, r["n_stimabili"])
-                durate = "  %-12s      " % ""
-                for t in soglie:
-                    c = r["soglie"].get(t) or {}
-                    q = c.get("quota")
-                    riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
-                    d = c.get("durata_mediana")
-                    durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
+            print("  " + "-" * (7 + 14 * len(nomi)))
+            for t in soglie:
+                riga = "  %5s " % ("%g" % t)
+                for n in nomi:
+                    c = D["stagioni"][n]["soglie"].get(t) or {}
+                    riga += "%8s%6s" % (come_quota(c.get("quota")),
+                                        come_durata(c.get("durata_mediana")))
                 print(riga)
-                if durate.strip():
-                    print(durate)
-                print("  %-12s      mesi %s"
-                      % ("", ", ".join(MESI_BREVI[m - 1] for m in mesi)))
-            print("  " + "-" * (18 + 8 * len(soglie)))
+            print("  " + "-" * (7 + 14 * len(nomi)))
+            riga = "  %5s " % "gg"
+            for n in nomi:
+                riga += "%14d" % D["stagioni"][n]["n_stimabili"]
+            print(riga)
+            for n in nomi:
+                mesi = D["stagioni"][n].get("mesi_inclusi") or ()
+                print("  %-13s %s"
+                      % (n, ", ".join(MESI_BREVI[m - 1] for m in mesi)))
+            print("  " + "-" * (7 + 14 * len(nomi)))
             print("  La stagione PRIMARIA e' quella su cui si leggono le quote")
             print("  d'uso: e' quando si va in acqua. La DIAGNOSTICA (inverno)")
             print("  serve a vedere persistenza e struttura del regime, non a")
@@ -1246,6 +1261,30 @@ def cmd_distribuzione(spot_name=None):
         print("  piu' grande, stai sul foil. Da quello nasce la scheda del")
         print("  Peler, e solo da quello.")
         print("")
+        P = getattr(config, "PLANATA_DICHIARATA", None)
+        if P:
+            print("  LA TUA REGOLA, MESSA A VERBALE IL %s" % P["dichiarata_il"])
+            print("    sulla media da sola:  %g kn" % P["media_sola_kn"])
+            print("    con la ricorrente:    media %g kn se la ricorrente 30'"
+                  % P["coppia_media_kn"])
+            print("                          arriva a %g kn"
+                  % P["coppia_ricorrente_kn"])
+            print("    stato: %s" % ("validata" if P.get("validata")
+                                     else "DICHIARATA, non validata"))
+            if not P.get("validata"):
+                print("    La colonna da leggere in questa tabella e' quella")
+                print("    dei %g kn: e' la tua regola sulla sola media, ed e'"
+                      % P["media_sola_kn"])
+                print("    l'unica calcolabile su quattordici anni. La coppia")
+                print("    fa planare di piu' - con dieci di media e la spinta")
+                print("    che ripassa si sta sul foil - quindi la colonna dei")
+                print("    %g kn e' un LIMITE INFERIORE della tua planabilita'"
+                      % P["media_sola_kn"])
+                print("    vera, non la sua misura. La coppia si potra'")
+                print("    misurare a %d ore di raffica contemporanea."
+                      % P.get("gate_ore", 1000))
+            print("")
+
         print("  giornate in cui la raffica ricorrente 30' era stimabile: %d su %d"
               % (A["n_ric_stimabile"], A["n_stimabili"]))
         if A["n_stimabili"] and A["n_ric_stimabile"] < A["n_stimabili"]:

@@ -89,21 +89,23 @@ ok(aggrega_finestre(nove)["mesi"][1]["n_stimabili"] == 9,
 tutte = set(aggrega_finestre(finestre)["mesi"][1]["soglie"])
 ok(tutte == set(SOGLIE_CANDIDATE),
    "per difetto ci sono tutte e sole le soglie candidate: %s" % sorted(tutte))
-sola = aggrega_finestre(finestre, soglie=(13.0,))
-ok(set(sola["mesi"][1]["soglie"]) == {13.0},
+sola = aggrega_finestre(finestre, soglie=(11.5,))
+ok(set(sola["mesi"][1]["soglie"]) == {11.5},
    "passando una griglia diversa la tabella cambia, il calcolo no")
 # Ma una soglia che le giornate non hanno calcolato non diventa uno zero.
-ok(sola["mesi"][1]["soglie"][13.0]["non_calcolata"] is True
-   and sola["mesi"][1]["soglie"][13.0]["quota"] is None,
+ok(sola["mesi"][1]["soglie"][11.5]["non_calcolata"] is True
+   and sola["mesi"][1]["soglie"][11.5]["quota"] is None,
    "chiedere una soglia che le giornate non hanno calcolato da' 'non lo"
    " sappiamo', non 'mai': quota %s"
-   % sola["mesi"][1]["soglie"][13.0]["quota"])
-tredici = {g: giudica_finestra_utile(giornata([(15.0, None)] * 30), ASSE,
-                                     SETTORE, INIZIO, FINE, soglie=(13.0,))
-           for g in ("2020-01-%02d" % i for i in range(1, 11))}
-ok(abs(aggrega_finestre(tredici, soglie=(13.0,))["mesi"][1]["soglie"][13.0]["quota"]
+   % sola["mesi"][1]["soglie"][11.5]["quota"])
+fuori_griglia = {
+    g: giudica_finestra_utile(giornata([(15.0, None)] * 30), ASSE,
+                              SETTORE, INIZIO, FINE, soglie=(11.5,))
+    for g in ("2020-01-%02d" % i for i in range(1, 11))}
+ok(abs(aggrega_finestre(fuori_griglia,
+                        soglie=(11.5,))["mesi"][1]["soglie"][11.5]["quota"]
        - 1.0) < 1e-9,
-   "calcolata per davvero, una soglia mai vista prima (13 kn) funziona come"
+   "calcolata per davvero, una soglia fuori griglia (11,5 kn) funziona come"
    " le altre")
 
 # --------------------------------------------------------------------------
@@ -191,7 +193,7 @@ ok(S["stagioni"]["diagnostica"]["soglie"][18.0]["quota"] == 1.0,
    " scegliere la soglia")
 ok(S["anno"]["soglie"][18.0]["quota"] == 0.5,
    "la media annuale (50%) non descrive nessuna delle due stagioni")
-ok(S["stagioni"]["primaria"]["mesi_inclusi"] == (4, 5, 6, 7, 8, 9, 10),
+ok(S["stagioni"]["primaria"]["mesi_inclusi"] == config.STAGIONI_USO[0][1],
    "e ogni stagione dichiara quali mesi contiene: %s"
    % (S["stagioni"]["primaria"]["mesi_inclusi"],))
 
@@ -310,8 +312,16 @@ ok("LIMITE INFERIORE" in testo,
    " planabilita'")
 ok("COPERTURA DEL DATO" in testo,
    "la copertura sta in testa all'analisi, non in fondo")
+# Trasposta: le soglie sono RIGHE, non colonne. Ognuna deve avere la sua.
+righe_soglia = [r for r in testo.splitlines()
+                if r[:8].strip().replace(".", "").isdigit()]
+etichette = set(r[:8].strip() for r in righe_soglia)
 for t in SOGLIE_CANDIDATE:
-    ok(("%g kn" % t) in testo, "la colonna della soglia %g kn c'e'" % t)
+    ok(("%g" % t) in etichette,
+       "la riga della soglia %g kn c'e'" % t)
+ok(len(etichette) == len(SOGLIE_CANDIDATE),
+   "e non ce ne sono altre: %d righe per %d soglie"
+   % (len(etichette), len(SOGLIE_CANDIDATE)))
 ok("dic" in testo and "giu" in testo,
    "i mesi con dato compaiono col loro nome")
 # Le colonne del totale devono cadere dove cadono quelle dei mesi. Scritte a
@@ -325,21 +335,70 @@ ok(bool(mese_r) and bool(anno_r)
    "la riga del totale e quelle dei mesi hanno le colonne allineate (%s vs %s)"
    % (mese_r[0].index(":") if mese_r else None,
       anno_r[0].index(":") if anno_r else None))
-perc_m = [r for r in righe_t if r.startswith("  giu ") and "%" in r]
-perc_a = [r for r in righe_t if r.startswith("  anno") and "%" in r]
-ok(bool(perc_m) and bool(perc_a)
-   and perc_m[0].index("%") == perc_a[0].index("%"),
-   "e lo stesso vale nella tabella delle soglie")
+perc = [r for r in righe_t
+        if r[:8].strip().replace(".", "").isdigit() and "%" in r]
+ok(len(perc) >= 2
+   and len(set(r.index("%") for r in perc[:len(SOGLIE_CANDIDATE)])) == 1,
+   "e nella tabella trasposta tutte le righe-soglia hanno la prima colonna"
+   " nella stessa posizione")
 
 ok("forte" not in testo and "debole" not in testo,
    "e nessuna etichetta di giudizio: la scelta non e' del codice")
-ok("STAGIONE D'USO" in testo and "primaria" in testo
+ok("PER STAGIONE D'USO" in testo and "primaria" in testo
    and "diagnostica" in testo,
    "la tabella per stagione d'uso viene stampata")
 ok("non la usi" in testo,
    "e spiega perche' l'inverno non tara il prodotto")
 ok("tua ala, non del mese" in testo,
    "dicendo anche che la soglia non la sceglie la stagione ma l'attrezzatura")
+# --------------------------------------------------------------------------
+# 9. La regola dichiarata: a verbale si', a decidere no
+# --------------------------------------------------------------------------
+# Lui ha detto due cose, non una: 14 kn sulla media da sola, e la coppia
+# "media 10 con la ricorrente a 15-16". La coppia e' la sua esperienza, non un
+# coefficiente inventato - ma non e' validata, e finche' non lo e' non deve
+# decidere niente. Questo controllo e' la serratura: se un giorno qualcuno la
+# collega a un calcolo, diventa rosso.
+P = config.PLANATA_DICHIARATA
+ok(P["media_sola_kn"] == 14.0 and P["coppia_media_kn"] == 10.0
+   and P["coppia_ricorrente_kn"] == 15.0,
+   "la regola e' a verbale con i suoi tre numeri: %g / %g+%g"
+   % (P["media_sola_kn"], P["coppia_media_kn"], P["coppia_ricorrente_kn"]))
+ok(P["validata"] is False,
+   "ed e' marcata NON validata: la coppia non e' ancora stata misurata")
+ok(P["media_sola_kn"] in SOGLIE_CANDIDATE
+   and P["coppia_media_kn"] in SOGLIE_CANDIDATE
+   and P["coppia_ricorrente_kn"] in SOGLIE_CANDIDATE,
+   "e tutti e tre i numeri sono nella griglia, quindi calcolabili")
+
+import glob
+sorgenti = [f for f in glob.glob(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "gardawind", "**",
+    "*.py"), recursive=True)]
+lettori = []
+for f in sorgenti:
+    testo_f = open(f, encoding="utf-8").read()
+    # Il commento che la spiega non conta: conta chi la LEGGE.
+    for riga in testo_f.splitlines():
+        nuda = riga.strip()
+        if nuda.startswith("#") or "PLANATA_DICHIARATA" not in nuda:
+            continue
+        if nuda.startswith("PLANATA_DICHIARATA"):
+            continue          # la definizione in config
+        lettori.append((os.path.basename(f), nuda[:60]))
+ok([f for f, _r in lettori] == ["__main__.py"],
+   "la regola dichiarata la legge SOLO il rendering, nessun calcolo: %s"
+   % ([f for f, _r in lettori] or "nessuno"))
+ok(P["coppia_ricorrente_kn"] / P["coppia_media_kn"] < 2.0,
+   "e il fattore di raffica implicito (%.2f) sta nel range fisico, non nel"
+   " 2,3-2,6 del ponte SportAddicted"
+   % (P["coppia_ricorrente_kn"] / P["coppia_media_kn"]))
+
+ok("MESSA A VERBALE" in testo and "non validata" in testo,
+   "il report stampa la regola e il suo stato")
+ok("LIMITE INFERIORE della tua planabilita" in testo,
+   "e dice che la colonna dei 14 e' un limite inferiore, non la misura")
+
 ok("ricorrente 30' era stimabile: 0 su 24" in testo,
    "in fondo dice quante giornate hanno la ricorrente: %s"
    % ("trovato" if "era stimabile: 0 su 24" in testo else "NON trovato"))

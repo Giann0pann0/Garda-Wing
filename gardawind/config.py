@@ -97,10 +97,56 @@ MARGINE_TRAMONTO_MIN = 30.0
 # Una cosa che questa divisione NON fa: non scegliere la soglia di planata.
 # Quanti nodi servono per stare sul foil e' una proprieta' dell'ala e di chi la
 # usa, non del mese. La stagione decide quali quote si leggono, non il numero.
+# La planata come l'ha detta lui, il 15 settembre 2026:
+#
+#   "un wing plana gia' dai 10 nodi, soprattutto se rafficano a 15-16.
+#    direi che il threshold e' 14"
+#
+# Sono DUE affermazioni diverse, e appiattirle su un numero solo perderebbe la
+# cosa che questo progetto ha passato giorni a tenere separata:
+#
+#   sulla MEDIA da sola la soglia e' 14 kn. Con quattordici nodi di fondo si
+#   plana senza bisogno che la raffica aiuti - ed e' l'unica soglia
+#   calcolabile sullo storico lungo, dove la raffica non c'e';
+#   con la RAFFICA RICORRENTE disponibile la regola e' una COPPIA: media da
+#   10 kn, se la ricorrente a 30' arriva a 15-16.
+#
+# La coppia non e' un coefficiente inventato: e' la sua esperienza, messa a
+# verbale con la data. Ma non e' nemmeno validata, e la differenza fra le due
+# cose e' tutta - le giornate che soddisfano la coppia sono PIU' di quelle che
+# passano i 14 di media, quindi ogni numero calcolato sulla sola media resta
+# un limite inferiore della planabilita' vera.
+#
+# Per questo la coppia sta qui come DATO DICHIARATO e non entra in nessun
+# calcolo: si misurera' quando il dataset con la raffica sara' abbastanza
+# grande (il gate e' mille ore contemporanee; oggi sono 211). Un controllo in
+# test/t_distribuzione.py verifica che nessun modulo la legga, cosi' non puo'
+# cominciare a decidere la planabilita' di nascosto prima di allora.
+#
+# Una nota di passaggio, ma non irrilevante: media 10 con ricorrente 15-16 e'
+# un fattore di raffica fra 1,5 e 1,6. E' il range fisico, e NON e' il 2,3-2,6
+# che dava il ponte mavg->mmax di SportAddicted: un'altra conferma che quel
+# rapporto era gonfiato dal bias di mavg.
+PLANATA_DICHIARATA = {
+    "media_sola_kn": 14.0,
+    "coppia_media_kn": 10.0,
+    "coppia_ricorrente_kn": 15.0,
+    "dichiarata_il": "2026-09-15",
+    "fonte": "esperienza diretta, wing",
+    "validata": False,
+    "gate_ore": 1000,
+}
+
+# I mesi vengono dai dati veri, non dal calendario. Sul Peler in finestra
+# pratica, maggio-settembre e' la stagione in cui si naviga; aprile e ottobre
+# sono di passaggio - ottobre ha una coda alta (il 90esimo percentile arriva a
+# circa 14,5 kn) ma la finestra utile e' gia' corta per la luce; da novembre a
+# marzo il Peler e' al suo massimo e non si va in acqua, quindi quei mesi
+# servono come banco e non devono tirare a se' una soglia che si usa a maggio.
 STAGIONI_USO = (
-    ("primaria", (4, 5, 6, 7, 8, 9, 10)),
-    ("transizione", (3, 11)),
-    ("diagnostica", (12, 1, 2)),
+    ("primaria", (5, 6, 7, 8, 9)),
+    ("transizione", (4, 10)),
+    ("diagnostica", (11, 12, 1, 2, 3)),
 )
 
 # window: ore LOCALI incluse (start <= h <= end) in cui il regime puo' soffiare
@@ -123,14 +169,14 @@ SPOTS = {
                         min_kn=11.0, planing_kn=14.0, target="hourly"),
     "Torbole-Peler": dict(TORBOLE, place="Torbole", label="Torbole · Pelèr",
                           regime="PELER", axis=LAKE_AXIS_PELER, window=(4, 10),
-                          min_kn=10.0, planing_kn=13.0, target="hourly",
+                          min_kn=10.0, planing_kn=14.0, target="hourly",
                           ora_pratica=6.0),
     "Malcesine-Ora": dict(MALCESINE, place="Malcesine", label="Malcesine · Ora",
                           regime="ORA", axis=LAKE_AXIS_ORA, window=(12, 19),
                           min_kn=11.0, planing_kn=14.0, target="hourly"),
     "Malcesine-Peler": dict(MALCESINE, place="Malcesine", label="Malcesine · Pelèr",
                             regime="PELER", axis=LAKE_AXIS_PELER, window=(5, 11),
-                            min_kn=10.0, planing_kn=13.0, target="hourly",
+                            min_kn=10.0, planing_kn=14.0, target="hourly",
                             ora_pratica=6.0),
     # L'archivio pubblico di Malcesine e' giornaliero: da' la raffica massima
     # del giorno senza dire a che ora. E' comunque un bersaglio allenabile su

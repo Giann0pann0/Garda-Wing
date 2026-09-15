@@ -962,7 +962,19 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
 # della finestra resta sopra X" e' disponibile per qualunque X si decidera',
 # senza che nessun X sia cotto dentro.
 
-SOGLIE_CANDIDATE = (10.0, 12.0, 14.0, 16.0, 18.0, 20.0)
+# La griglia e' FITTA dove sta la distribuzione e larga dove non ci sta
+# nessuno. Sul Peler in stagione calda la mediana del vento medio nella
+# finestra pratica e' 8,4 kn e il 90esimo percentile 12,4: fra gli 8 e i 14
+# nodi si decide tutto, e un passo di due nodi la' dentro salta esattamente le
+# soglie che contano. Sopra i 16 il passo torna largo, perche' sono giornate
+# rare e un nodo in piu' o in meno non cambia nessuna decisione.
+#
+# I 15 nodi ci sono per un motivo in piu': lui ha nominato "15-16" come la
+# ricorrente che fa planare con dieci di media, e senza quel valore nella
+# griglia la sua regola non sarebbe calcolabile il giorno in cui ci saranno
+# le raffiche.
+SOGLIE_CANDIDATE = (8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+                    18.0, 20.0)
 
 # Sotto questa media il rapporto raffica/media non descrive la raffica: con 2
 # nodi di media un rapporto 3 vuol dire 6 nodi, e non e' una giornata
