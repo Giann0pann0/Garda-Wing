@@ -118,10 +118,26 @@ header{padding-block:20px 6px}
 .place{box-shadow:var(--shadow),0 0 0 1px var(--pc-glow)}
 .pgrid{display:grid;grid-template-columns:1fr;gap:16px}
 @media (min-width:1000px){
-  .pgrid{grid-template-columns:250px minmax(0,1fr) 300px;gap:20px;align-items:start}
+  /* Il grafico e' il contenuto principale; dati e giudizio gli stanno accanto. */
+  .pgrid{grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
 }
 
-/* --- colonna 1: adesso --- */
+/* --- condizioni attuali: un solo riquadro in cima, solo per oggi --- */
+.current{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
+  box-shadow:var(--shadow);border:1px solid var(--line)}
+.current-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  flex-wrap:wrap;margin-bottom:12px}
+.current-head h2{margin:0;font-size:21px}
+.current-grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media (min-width:760px){.current-grid{grid-template-columns:1fr 1fr}}
+.current-place{border-radius:15px;padding:14px 15px;background:var(--card-2);
+  border:1px solid var(--line);position:relative;overflow:hidden}
+.current-place::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--pc)}
+.current-place.p1{--pc:var(--s1);--pc-soft:var(--s1-soft);--pc-glow:var(--s1-glow)}
+.current-place.p2{--pc:var(--s2);--pc-soft:var(--s2-soft);--pc-glow:var(--s2-glow)}
+.placehead{margin-bottom:12px}
+
+/* --- adesso --- */
 .pname{display:flex;align-items:center;gap:10px;margin-bottom:2px}
 .pname h2{margin:0;font-size:26px;line-height:1}
 .pname .mark{width:30px;height:30px;border-radius:9px;flex:none;
@@ -192,6 +208,10 @@ details.tbl .scroller{overflow-x:auto}
   font-family:"Avenir Next",system-ui,sans-serif}
 .half .kn small{font-size:12px;color:var(--ink-2);font-weight:600}
 .half .win{font-size:12px;color:var(--ink-3);margin-top:3px}
+.useful{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;
+  padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+.useful span{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.useful b{color:var(--ink);font-variant-numeric:tabular-nums}
 .q-go i{background:var(--good)}.q-go{color:var(--good)}
 .q-meh i{background:var(--warn)}.q-meh{color:var(--warn)}
 .q-no i{background:var(--crit)}.q-no{color:var(--crit)}
@@ -553,6 +573,65 @@ def now_observed_html(live):
            ("ultimo dato %s" % hhmm_txt) if hhmm_txt else ""))
 
 
+def place_head(place):
+    """Nome del luogo e regimi: identita' della scheda, non dato live."""
+    spots = place_spots(place)
+    regimi = " · ".join(
+        "%s (%s)" % (lab, when) for key, lab, when in META_REGIME if key in spots)
+    return (
+        '<div class="pname"><span class="mark">%s</span>'
+        '<h2 class="display">%s</h2></div>'
+        '<p class="pregimi">%s</p>'
+        % ('<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
+           '<path d="M2 11 L8 3 L14 11 Z" fill="var(--pc)"/></svg>',
+           E(place), E(regimi)))
+
+
+def current_conditions_panel(entry):
+    """Vento attuale e meteo in alto. Esiste solo per il giorno di oggi."""
+    cards = []
+    for index, place in enumerate(config.PLACES):
+        pl = entry["places"].get(place) or {}
+        cards.append(
+            '<div class="current-place p%d">%s</div>'
+            % (index + 1, now_column(place, index, pl.get("live"), pl.get("profile") or [])))
+    return (
+        '<section class="current" id="current-panel">'
+        '<div class="current-head"><h2 class="display">Vento adesso</h2></div>'
+        '<div class="current-grid">%s</div></section>' % "".join(cards))
+
+
+def peler_useful_line(place, profile, sessions):
+    """Durata prevista sopra 8/10/12 kn nella finestra pratica 06-11.
+
+    E' una descrizione della media prevista, non un nuovo giudizio di planata.
+    La durata deriva dagli slot orari presenti: nessun campione viene inventato.
+    """
+    name = place_spots(place).get("PELER")
+    if not name or name not in sessions:
+        return ""
+    vals = sorted((int(r["hour"]), float(r["wind"])) for r in profile
+                  if r.get("hour") is not None and r.get("wind") is not None
+                  and 6 <= int(r["hour"]) <= 10)
+    if not vals:
+        return ""
+    def longest(threshold):
+        best = run = 0
+        prev = None
+        for hour, wind in vals:
+            if wind >= threshold:
+                run = run + 1 if prev is not None and hour == prev + 1 else 1
+                best = max(best, run)
+                prev = hour
+            else:
+                run = 0
+                prev = None
+        return best
+    return ('<div class="useful"><span>Pelèr utile</span>'
+            '<b>≥8: %dh</b><b>≥10: %dh</b><b>≥12: %dh</b></div>'
+            % (longest(8), longest(10), longest(12)))
+
+
 def now_column(place, index, live, profile):
     """Colonna di sinistra: quanto tira ADESSO, con l'ora del dato.
 
@@ -566,16 +645,7 @@ def now_column(place, index, live, profile):
     ogni dieci minuti: tenerli insieme voleva dire far invecchiare l'"adesso"
     alla velocita' della previsione.
     """
-    spots = place_spots(place)
-    regimi = " \u00b7 ".join(
-        "%s (%s)" % (lab, when) for key, lab, when in META_REGIME if key in spots)
-    head = ('<div class="pname"><span class="mark">%s</span>'
-            '<h2 class="display">%s</h2></div>'
-            '<p class="pregimi">%s</p>'
-            % ('<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
-               '<path d="M2 11 L8 3 L14 11 Z" fill="var(--pc)"/></svg>',
-               E(place), E(regimi)))
-
+    head = place_head(place)
     cond = sky_words(profile)
     bits = []
     if cond.get("tmax") is not None:
@@ -1023,17 +1093,17 @@ def place_section(place, index, entry, visible):
          if n in sessions])
     return (
         '<section class="place p%d" data-day="%d" data-place="%s"%s>'
+        '<div class="placehead">%s</div>'
         '<div class="pgrid">'
-        '<div class="pnow">%s</div>'
         '<div class="pchart"><p class="lbl">Previsione vento</p>'
         '<h3>%s</h3>%s</div>'
         '<div class="pjudge">'
         '<div class="ringrow">%s<div><p class="lbl">Affidabilit\u00e0</p>'
         '<div class="rword" style="color:%s">%s</div>'
         '<div class="rtxt">%s</div></div></div>%s'
-        '%s%s%s</div></div></section>'
+        '%s%s%s%s</div></div></section>'
         % (index + 1, entry["_i"], E(place), "" if visible else " hidden",
-           now_column(place, index, pl.get("live"), pl.get("profile") or []),
+           place_head(place),
            E(day_title(entry["day"], entry["lead"])[1]),
            place_chart(place, pl.get("profile") or [], regime_bands(place),
                        "c%d%d" % (entry["_i"], index),
@@ -1046,6 +1116,7 @@ def place_section(place, index, entry, visible):
            source_note(place, sessions),
            best_callout(place, sessions),
            half_cards(place, sessions),
+           peler_useful_line(place, pl.get("profile") or [], sessions),
            timing_line(place, sessions)))
 
 
@@ -1310,7 +1381,7 @@ def page_home():
             place_section(place, pi, entry, visible=(entry["_i"] == 0))
             for entry in days
             for pi, place in enumerate(config.PLACES))
-        body = sezioni + week_strip(days)
+        body = current_conditions_panel(days[0]) + sezioni + week_strip(days)
 
     valori = {
         "title": "Garda Wind",
@@ -1622,7 +1693,9 @@ document.addEventListener('click',function(ev){
   var secs=document.querySelectorAll('.place');
   for(var s=0;s<secs.length;s++)
     secs[s].hidden = (secs[s].getAttribute('data-day')!==i);
-  var first=document.querySelector('.place:not([hidden])');
+  var current=document.getElementById('current-panel');
+  if(current) current.hidden = (i!=='0');
+  var first=(i==='0' && current) ? current : document.querySelector('.place:not([hidden])');
   if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
 });
 /* ----------------------------------------------------------------------

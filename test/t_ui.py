@@ -86,6 +86,21 @@ ok(H.count('class="place p') == 10, "cinque giorni per due luoghi (%d sezioni)"
    % H.count('class="place p'))
 ok(H.count("hidden") >= 8, "solo il giorno scelto e' visibile")
 
+# ---- nuova gerarchia home: adesso in alto, poi Torbole/Malcesine previsione ----
+ok(H.count('id="current-panel"') == 1, "un solo riquadro vento attuale in alto")
+first_current = H.index('id="current-panel"')
+first_place = H.index('class="place p1"')
+ok(first_current < first_place, "il vento attuale viene prima delle previsioni")
+current = H[first_current:first_place]
+ok("Torbole" in current and "Malcesine" in current,
+   "il riquadro attuale contiene entrambe le localita'")
+ok('grid-template-columns:minmax(0,1fr) 320px' in H,
+   "nelle previsioni il grafico ha la colonna principale")
+ok("Pelèr utile" in H and "≥8:" in H and "≥10:" in H and "≥12:" in H,
+   "la scheda Peler mostra durata compatta sopra 8/10/12 kn")
+ok("current.hidden = (i!=='0')" in H,
+   "scegliendo un altro giorno il riquadro attuale scompare")
+
 # ---- i grafici prima delle card descrittive ----
 for place in config.PLACES:
     i_place = H.index(">%s</h2>" % place)
