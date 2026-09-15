@@ -12,6 +12,7 @@
     python3 -m gardawind --orari         quando entra il vento: regime e planata
     python3 -m gardawind --poll-once     legge le centraline una volta ed esce
     python3 -m gardawind --live-json F   legge le centraline e scrive F (solo osservato)
+    python3 -m gardawind --addicted [N]  legge addicted-sports (N giorni indietro)
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
 
@@ -937,6 +938,68 @@ def cmd_orari(spot_name=None):
         sys.stdout.flush()
 
 
+def cmd_addicted(giorni=1):
+    """Legge addicted-sports e racconta cosa ha letto, con la provenienza.
+
+    E' una fonte che si LEGGE: non c'e' un contratto, c'e' una pagina. Quindi
+    il comando stampa tre cose che di solito non si stampano - l'impronta
+    della struttura, la versione del parser, e l'accordo fra i due canali -
+    perche' sono quelle che diranno, il giorno che il sito cambia, se i numeri
+    sono ancora quelli giusti.
+    """
+    from gardawind.sources import addicted as A
+
+    print("")
+    print("=" * 74)
+    print("  ADDICTED-SPORTS  -  Torbole")
+    print("  stazione %s  -  fonte %s  -  parser %s"
+          % (A.STATION, A.SOURCE, A.PARSER_VERSION))
+    print("=" * 74)
+    s = A.raccogli(giorni=giorni)
+    for g in s["giorni"]:
+        m = g["meta"]
+        print("")
+        print("  %s: %d ore misurate, %d salvate"
+              % (g["giorno"], g["n_righe"], g["n_salvate"]))
+        print("    letto il %s  -  %s byte" % (m["fetched_at"], m["bytes"]))
+        print("    struttura %s%s"
+              % ((m["struct_sha256"] or "?")[:16],
+                 "  CAMBIATA" if m["struttura_cambiata"] else ""))
+        if m.get("ultima"):
+            print("    ultima ora %s (provvisoria: e' in corso)" % m["ultima"])
+        if m.get("mae_dichiarato") is not None:
+            print("    errore medio dichiarato dal sito: %s" % m["mae_dichiarato"])
+    if s.get("html"):
+        ts, w, g_, _d = s["html"]["campione"]
+        print("")
+        print("  riquadro \"misurato ora\": %s  vento %s kn  raffica %s kn"
+              % (ts, w, "-" if g_ is None else g_))
+        c = s.get("confronto")
+        if not c:
+            print("  nessun confronto possibile fra i due canali")
+        elif c.get("accordo") is None:
+            print("  %s" % c.get("nota"))
+        elif c["accordo"]:
+            print("  i due canali concordano (scarti %s)"
+                  % ", ".join("%s %.1f" % (k, v) for k, v in sorted(c["scarti"].items())))
+        else:
+            print("  ATTENZIONE: i due canali NON concordano: %s" % c["fuori"])
+            print("  uno dei due parser sta leggendo il posto sbagliato.")
+    for e in s["errori"]:
+        print("  errore: %s" % e)
+    print("")
+    print("  La DIREZIONE non viene salvata: questa fonte pubblica la direzione")
+    print("  PREVISTA, non quella misurata. Usarla come osservazione vorrebbe")
+    print("  dire alimentare il filtro di settore - quello che distingue l'Ora")
+    print("  dal Peler - con una previsione.")
+    print("")
+    print("  I campioni stanno in obs_sample sotto la stazione %s, e NON sono"
+          % A.STATION)
+    print("  ancora collegati a nessuno spot: unire due centraline che misurano")
+    print("  lo stesso vento e' una decisione di modello, non di raccolta.")
+    sys.stdout.flush()
+
+
 def cmd_direzioni(spot_name=None, bin_deg=10):
     """Da dove viene davvero il vento. Nessuno scaricamento: legge l'archivio.
 
@@ -1209,6 +1272,10 @@ def main(argv=None):
     ap.add_argument("--poll-once", action="store_true",
                     help="interroga le centraline una volta sola ed esce "
                          "(usato dall'agente di raccolta in background)")
+    ap.add_argument("--addicted", nargs="?", const=1, type=int, metavar="GIORNI",
+                    help="legge la pagina di addicted-sports per Torbole e "
+                         "salva la serie oraria misurata (GIORNI indietro, "
+                         "compreso oggi; per difetto 1)")
     ap.add_argument("--live-json", metavar="FILE",
                     help="legge le centraline e scrive SOLO il dato osservato "
                          "in FILE: nessun modello, nessuna previsione. E' il "
@@ -1251,6 +1318,10 @@ def main(argv=None):
     if args.poll_once:
         for line in engine.update_stations():
             print(line)
+        return 0
+
+    if args.addicted:
+        cmd_addicted(args.addicted)
         return 0
 
     if args.live_json:

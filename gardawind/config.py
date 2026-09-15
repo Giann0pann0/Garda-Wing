@@ -274,6 +274,17 @@ METEOTRENTINO_UTC_OFFSET_HOURS = 1
 # index.php e' l'unica pagina con i valori etichettati
 # ("Velocita' attuale: X kts DIR", "Media: Y kts"). dati.php li mette in
 # una tabella senza etichette e il parser non aveva appigli.
+# addicted-sports: una pagina, non un'API. I numeri sono nel corpo servito dal
+# server (verificato scaricando il corpo grezzo), e la pagina stessa usa
+# "?json=wind&from=YYYY-MM-DD" per il suo grafico: quella risposta contiene la
+# serie ORARIA misurata (mavg, mmax) con i decimali. La direzione pubblicata e'
+# quella PREVISTA, non misurata, e non va usata come osservazione.
+URL_ADDICTED_TORBOLE = "https://it.addicted-sports.com/forecast/gardasee/torbole/"
+URL_ADDICTED_WEBCAM = "https://it.addicted-sports.com/webcam/gardasee/torbole/"
+# Le inquadrature orarie archiviate: .../YYYY/MM/DD/HHMM_lm.jpg. Non misurano
+# il vento; provano che a quell'ora il sito stava registrando.
+URL_ADDICTED_WEBCAM_FRAMES = "https://it.addicted-sports.com/fileadmin/webcam/torbole/"
+
 URL_MALCESINE_LIVE = "https://stazioni.meteoproject.it/dati/malcesine/index.php"
 URL_MALCESINE_NOAA_CSV = "https://stazioni.meteoproject.it/dati/malcesine/csvnoaa.php"
 MALCESINE_ARCHIVE_START = (2024, 8)   # primo mese del report NOAA giornaliero

@@ -131,6 +131,40 @@ CREATE TABLE IF NOT EXISTS events(
 CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts);
 
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+
+-- Provenienza di ogni lettura da una fonte che si LEGGE invece di essere
+-- interrogata: le pagine web. Un parser su HTML e' vero finche' il markup non
+-- cambia, e quando cambia non da' errore: da' silenzio, o peggio un numero
+-- preso dal posto sbagliato. Perche' quel momento sia riconoscibile serve
+-- tenere traccia di cosa si e' letto, quando, e con quale versione del parser.
+--
+--   sha256        impronta del corpo INTERO. Su una pagina che contiene
+--                 numeri vivi cambia a ogni lettura: serve all'audit, non
+--                 come sentinella.
+--   struct_sha256 impronta della sola STRUTTURA (i tag, senza i valori). Non
+--                 cambia mentre il vento cambia: cambia quando il sito viene
+--                 rifatto. E' questa la sentinella.
+--   body          il corpo grezzo, tenuto SOLO quando serve davvero: quando
+--                 il parser ha fallito, o quando la struttura e' cambiata.
+--                 Tenerlo sempre vorrebbe dire scrivere qualche decina di
+--                 megabyte al giorno per riletture identiche.
+CREATE TABLE IF NOT EXISTS raw_fetch(
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  source        TEXT NOT NULL,
+  station       TEXT,
+  channel       TEXT,                -- "json", "html", ...
+  url           TEXT NOT NULL,
+  fetched_at    TEXT NOT NULL,       -- UTC
+  ok            INTEGER,
+  bytes         INTEGER,
+  sha256        TEXT,
+  struct_sha256 TEXT,
+  parser_version TEXT,
+  n_rows        INTEGER,
+  note          TEXT,
+  body          TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_raw_fetch ON raw_fetch(source, channel, fetched_at);
 """
 
 FC_COLS = ["t2m", "rh", "dew", "precip", "cloud", "cloud_low", "mslp", "rad",
@@ -252,6 +286,77 @@ def save_samples(station, rows, source):
         "VALUES(?,?,?,?,?,?)", payload)
     c.commit()
     return len(payload)
+
+
+# Quanti corpi grezzi tenere per ogni (fonte, canale). Servono a capire un
+# guasto, non a fare un archivio del sito: i piu' vecchi si buttano.
+MAX_CORPI_GREZZI = 12
+
+
+def log_raw_fetch(source, url, fetched_at, channel=None, station=None,
+                  ok=True, body=None, sha256=None, struct_sha256=None,
+                  parser_version=None, n_rows=None, note=None,
+                  tieni_corpo=None):
+    """Registra una lettura grezza. Ritorna (id, struttura_cambiata).
+
+    tieni_corpo: None = decidi qui (si tiene se il parser ha fallito o se la
+    struttura e' cambiata rispetto all'ultima lettura buona); True/False per
+    forzare.
+
+    "struttura_cambiata" e' l'informazione che vale: dice che il sito e' stato
+    rifatto, ed e' il momento in cui un parser su HTML va guardato - prima che
+    cominci a restituire numeri sbagliati invece di errori.
+    """
+    c = connect()
+    prec = c.execute(
+        "SELECT struct_sha256 FROM raw_fetch WHERE source=? AND channel=? "
+        "AND struct_sha256 IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (source, channel)).fetchone()
+    cambiata = bool(prec and struct_sha256 and prec["struct_sha256"] != struct_sha256)
+    if tieni_corpo is None:
+        tieni_corpo = (not ok) or cambiata or prec is None
+    cur = c.execute(
+        "INSERT INTO raw_fetch(source, station, channel, url, fetched_at, ok, "
+        "bytes, sha256, struct_sha256, parser_version, n_rows, note, body) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (source, station, channel, url, fetched_at, 1 if ok else 0,
+         len(body) if body is not None else None, sha256, struct_sha256,
+         parser_version, n_rows, note, body if tieni_corpo else None))
+    # Si tengono gli ultimi MAX_CORPI_GREZZI corpi per fonte e canale; delle
+    # letture piu' vecchie resta la riga (impronta, esito, versione), che e'
+    # cio' che serve per ricostruire una storia.
+    c.execute(
+        "UPDATE raw_fetch SET body=NULL WHERE body IS NOT NULL AND source=? "
+        "AND channel=? AND id NOT IN (SELECT id FROM raw_fetch WHERE "
+        "body IS NOT NULL AND source=? AND channel=? ORDER BY id DESC LIMIT ?)",
+        (source, channel, source, channel, MAX_CORPI_GREZZI))
+    c.commit()
+    return cur.lastrowid, cambiata
+
+
+def raw_fetches(source=None, channel=None, limit=20):
+    """Le ultime letture grezze registrate, dalla piu' recente."""
+    q = ("SELECT id, source, station, channel, url, fetched_at, ok, bytes, "
+         "sha256, struct_sha256, parser_version, n_rows, note, "
+         "(body IS NOT NULL) AS ha_corpo FROM raw_fetch")
+    dove, par = [], []
+    if source:
+        dove.append("source=?")
+        par.append(source)
+    if channel:
+        dove.append("channel=?")
+        par.append(channel)
+    if dove:
+        q += " WHERE " + " AND ".join(dove)
+    q += " ORDER BY id DESC LIMIT ?"
+    par.append(int(limit))
+    return [dict(r) for r in connect().execute(q, par)]
+
+
+def raw_body(raw_id):
+    r = connect().execute("SELECT body FROM raw_fetch WHERE id=?",
+                          (raw_id,)).fetchone()
+    return r["body"] if r else None
 
 
 def save_day_obs(station, rows, source):
