@@ -1244,6 +1244,55 @@ def live_reading(station):
     }
 
 
+def day_observed(place, day):
+    """Cosa e' DAVVERO successo oggi, ora per ora, sullo stesso asse della previsione.
+
+    Ritorna {"righe": [...], "raffica_fonte": ..., "ultima_ora": ...} dove ogni
+    riga e' {"hour": ora locale, "wind": media oraria, "gust": raffica, "n":
+    campioni}. Solo le ore che esistono: nessun buco riempito, nessuna ora
+    futura inventata - il punto di questa serie e' proprio il confronto con la
+    previsione, e una previsione confrontata con un dato interpolato non dice
+    piu' niente.
+
+    Sulla raffica c'e' una scelta da dichiarare, non da nascondere: si preferisce
+    la RAFFICA RICORRENTE (mediana mobile a 30 minuti, la grandezza su cui si
+    decide se si plana) e si ripiega sul massimo dell'ora solo dove la
+    ricorrente non e' stimabile. Le due non sono la stessa cosa - il massimo e'
+    sempre maggiore - quindi quale delle due si sta guardando viene detto.
+    """
+    station = next((config.SPOTS[s]["station"] for s in config.SPOTS
+                    if config.SPOTS[s]["place"] == place), None)
+    if not station:
+        return {"righe": [], "raffica_fonte": None, "ultima_ora": None}
+
+    righe = []
+    for row in store.obs_hours(station, day_shift(day, -1) + "T00",
+                               day_shift(day, 1) + "T23"):
+        dt = parse_dt_any(row["hour"])
+        if dt is None or local_day(dt) != day:
+            continue
+        if row["wind_mean"] is None and row["gust_rec"] is None \
+                and row["gust_max"] is None:
+            continue
+        righe.append({"hour": local_hour(dt), "wind": row["wind_mean"],
+                      "gust_rec": row["gust_rec"], "gust_max": row["gust_max"],
+                      "n": row["n_samples"] or 0})
+    righe.sort(key=lambda r: r["hour"])
+
+    # Quale raffica: la ricorrente se c'e' su almeno meta' delle ore, altrimenti
+    # il massimo dell'ora. Una serie che cambia definizione a meta' strada
+    # sarebbe illeggibile, quindi la scelta e' unica per tutta la giornata.
+    con_ric = sum(1 for r in righe if r["gust_rec"] is not None)
+    usa_ric = righe and con_ric * 2 >= len(righe)
+    for r in righe:
+        r["gust"] = r["gust_rec"] if usa_ric else r["gust_max"]
+    fonte = None
+    if righe:
+        fonte = "ricorrente 30'" if usa_ric else "massimo dell'ora"
+    return {"righe": righe, "raffica_fonte": fonte,
+            "ultima_ora": righe[-1]["hour"] if righe else None}
+
+
 def day_profile(place, day, sessions):
     """Andamento orario dell'intera giornata per un luogo, gia' corretto.
 
@@ -1364,6 +1413,12 @@ def by_day(product=None):
         places = {}
         for place in config.PLACES:
             places[place] = {"profile": day_profile(place, day, sessions),
+                             # L'osservato serve solo per la giornata di oggi:
+                             # nei giorni futuri non esiste, e nei passati la
+                             # pagina non li mostra.
+                             "osservato": (day_observed(place, day)
+                                           if day == local_day(utc_now())
+                                           else None),
                              "live": live_reading(
                                  next(config.SPOTS[s]["station"]
                                       for s in config.SPOTS

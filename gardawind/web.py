@@ -154,6 +154,10 @@ svg.chart{display:block;width:100%;height:auto}
   background:var(--card-3);border:1px solid var(--line);border-radius:10px;padding:7px 10px;
   font-size:12px;box-shadow:var(--shadow);white-space:nowrap;z-index:3;color:var(--ink)}
 .legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-top:8px}
+/* La riga dello scarto: sta fra il grafico e la legenda perche' e' la
+   lettura del grafico, non una didascalia. */
+.scarto{margin:10px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+.scarto b{color:var(--ink-1)}
 .legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;
   margin-right:6px;vertical-align:middle}
 .legend i.dash{border-top-style:dashed}
@@ -592,7 +596,54 @@ def now_column(place, index, live, profile):
            ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits)) if bits else ""))
 
 
-def place_chart(place, profile, bands, chart_id, oggi=False):
+def scarto_line(profile, osservato):
+    """Quanto la realta' sta seguendo la previsione, in una riga.
+
+    Confronta l'ultima ora MISURATA con la previsione della stessa ora - non
+    con la previsione del picco, non con la media del giorno: la stessa ora,
+    altrimenti si confrontano due cose diverse e lo scarto non vuol dire
+    niente.
+
+    Dice due cose e si ferma: di quanti nodi si discosta, e se l'osservato
+    sta salendo o scendendo. NON dice "in ritardo di quaranta minuti": un
+    ritardo e' una stima di timing, e il timing su questo lago ha appena
+    mostrato una semiampiezza di sessanta minuti fuori campione. Quel numero
+    va guadagnato con le stesse porte, non scritto perche' suona bene.
+    """
+    righe = (osservato or {}).get("righe") or []
+    if not righe:
+        return None
+    ultimo = righe[-1]
+    if ultimo.get("wind") is None:
+        return None
+    prev = next((r for r in profile if r.get("hour") == ultimo["hour"]
+                 and r.get("wind") is not None), None)
+    if prev is None:
+        return None
+    diff = ultimo["wind"] - prev["wind"]
+    tendenza = None
+    if len(righe) >= 2 and righe[-2].get("wind") is not None:
+        d = ultimo["wind"] - righe[-2]["wind"]
+        tendenza = "sale" if d >= 1.0 else ("scende" if d <= -1.0 else "stabile")
+    return {"hour": ultimo["hour"], "previsto": prev["wind"],
+            "misurato": ultimo["wind"], "scarto": diff, "tendenza": tendenza,
+            "raffica_fonte": (osservato or {}).get("raffica_fonte")}
+
+
+def scarto_words(sc):
+    """La riga dello scarto, in italiano. Solo traduzione."""
+    if not sc:
+        return ""
+    verso = ("in linea con la previsione" if abs(sc["scarto"]) < 1.5
+             else "%.0f kn %s previsione" % (abs(sc["scarto"]),
+                                             "sopra" if sc["scarto"] > 0 else "sotto"))
+    coda = {"sale": ", e sta salendo", "scende": ", e sta scendendo",
+            "stabile": ", stabile"}.get(sc["tendenza"] or "", "")
+    return ("alle %02d:00 previsti <b>%.0f kn</b>, misurati <b>%.0f kn</b>: %s%s"
+            % (sc["hour"], sc["previsto"], sc["misurato"], verso, coda))
+
+
+def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     """La giornata di un luogo: vento medio e raffica.
 
     oggi: se e' la giornata di oggi, il grafico porta anche una riga verticale
@@ -621,7 +672,15 @@ def place_chart(place, profile, bands, chart_id, oggi=False):
     W, H = 440.0, 280.0
     # pr tiene la parola "raffica" dentro la tela: a 50 usciva dal bordo.
     pl, pr, pt, pb = 28.0, 58.0, 26.0, 50.0
-    peak = max([r["gust"] for r in rows] + [12.0])
+    # L'osservato entra nella scala insieme alla previsione: una raffica
+    # misurata piu' alta del previsto deve stare DENTRO il disegno, altrimenti
+    # la curva che conta di piu' e' quella che esce dal grafico.
+    oss_righe = [r for r in ((osservato or {}).get("righe") or [])
+                 if rows[0]["hour"] <= r["hour"] <= rows[-1]["hour"]]
+    peak = max([r["gust"] for r in rows]
+               + [r[k] for r in oss_righe for k in ("wind", "gust")
+                  if r.get(k) is not None]
+               + [12.0])
     top = max(15.0, 5 * math.ceil(peak / 5.0))
     step = 5 if top <= 30 else 10
 
@@ -669,22 +728,55 @@ def place_chart(place, profile, bands, chart_id, oggi=False):
                  'fill="var(--ink-3)">%d</text>' % (pl - 7, yy + 4, v))
 
     area = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["wind"])) for r in rows)
-    p.append('<polygon points="%.1f,%.1f %s %.1f,%.1f" fill="url(#%s-g)"/>'
-             % (x(hours[0]), H - pb, area, x(hours[-1]), H - pb, chart_id))
+    p.append('<polygon points="%.1f,%.1f %s %.1f,%.1f" fill="url(#%s-g)"%s/>'
+             % (x(hours[0]), H - pb, area, x(hours[-1]), H - pb, chart_id,
+                ' opacity=".45"' if oss_righe else ""))
 
+    # Con l'osservato in scena la previsione si fa piu' tenue: le due linee
+    # dicono cose diverse - una e' un'ipotesi, l'altra e' una misura - e la
+    # misura deve essere quella che si legge per prima.
+    tenue = ' opacity=".5"' if oss_righe else ""
     gust = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["gust"])) for r in rows)
     p.append('<polyline points="%s" fill="none" stroke="var(--gust)" stroke-width="2" '
-             'stroke-dasharray="7 5" stroke-linecap="round"/>' % gust)
+             'stroke-dasharray="7 5" stroke-linecap="round"%s/>' % (gust, tenue))
     p.append('<polyline points="%s" fill="none" stroke="var(--pc)" stroke-width="2.8" '
-             'stroke-linejoin="round" stroke-linecap="round"/>' % area)
+             'stroke-linejoin="round" stroke-linecap="round"%s/>' % (area, tenue))
+
+    # L'OSSERVATO: piu' marcato, e si ferma dove finisce il dato. Non viene
+    # prolungato fino a "adesso" ne' interpolato sui buchi: il senso di questa
+    # curva e' il confronto, e un confronto con un dato inventato non e' un
+    # confronto.
+    if oss_righe:
+        w_oss = [(r["hour"], r["wind"]) for r in oss_righe if r.get("wind") is not None]
+        g_oss = [(r["hour"], r["gust"]) for r in oss_righe if r.get("gust") is not None]
+        if len(g_oss) >= 2:
+            p.append('<polyline points="%s" fill="none" stroke="var(--gust)" '
+                     'stroke-width="2.6" stroke-dasharray="3 3" '
+                     'stroke-linecap="round"/>'
+                     % " ".join("%.1f,%.1f" % (x(h), y(v)) for h, v in g_oss))
+        if len(w_oss) >= 2:
+            p.append('<polyline points="%s" fill="none" stroke="var(--pc)" '
+                     'stroke-width="3.6" stroke-linejoin="round" '
+                     'stroke-linecap="round"/>'
+                     % " ".join("%.1f,%.1f" % (x(h), y(v)) for h, v in w_oss))
+        # Un punto pieno sull'ultima misura: e' il "fin qui" della realta'.
+        if w_oss:
+            hh, vv = w_oss[-1]
+            p.append('<circle cx="%.1f" cy="%.1f" r="3.6" fill="var(--pc)" '
+                     'stroke="var(--card)" stroke-width="2"/>' % (x(hh), y(vv)))
+            p.append('<text x="%.1f" y="%.1f" font-size="10.5" font-weight="800" '
+                     'fill="var(--pc)" text-anchor="%s">misurato</text>'
+                     % (x(hh) + (7 if hh < hours[-1] - 2 else -7), y(vv) + 16,
+                        "start" if hh < hours[-1] - 2 else "end"))
 
     hi = max(rows, key=lambda r: r["wind"])
+    op_picco = ' opacity=".55"' if oss_righe else ""
     p.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="var(--pc)" '
-             'stroke="var(--card)" stroke-width="2.5"/>'
-             % (x(hi["hour"]), y(hi["wind"])))
+             'stroke="var(--card)" stroke-width="2.5"%s/>'
+             % (x(hi["hour"]), y(hi["wind"]), op_picco))
     p.append('<text x="%.1f" y="%.1f" font-size="12.5" font-weight="800" '
-             'fill="var(--pc)">%.0f kn</text>'
-             % (x(hi["hour"]) + 8, y(hi["wind"]) - 8, hi["wind"]))
+             'fill="var(--pc)"%s>%.0f kn</text>'
+             % (x(hi["hour"]) + 8, y(hi["wind"]) - 8, op_picco, hi["wind"]))
     # Etichette dirette a fine linea. A fine giornata medio e raffica possono
     # arrivare quasi allo stesso valore: le due scritte si sovrapponevano e
     # diventavano illeggibili. Se sono piu' vicine di una riga di testo le
@@ -731,6 +823,8 @@ def place_chart(place, profile, bands, chart_id, oggi=False):
                  'fill="var(--ink-2)" opacity="0">ADESSO</text>'
                  % (chart_id, H - pb + 36))
 
+    _sc = scarto_line(rows, osservato) if oss_righe else None
+    _fonte = (osservato or {}).get("raffica_fonte") or "massimo dell'ora"
     payload = [{"h": r["hour"],
                 place: [round(r["wind"], 1), round(r["gust"], 1),
                         compass(r.get("dir"))]} for r in rows]
@@ -747,12 +841,13 @@ def place_chart(place, profile, bands, chart_id, oggi=False):
         'data-h0="%g" data-h1="%g" '
         'aria-label="Vento previsto a %s, ora per ora">%s</svg>'
         '<div class="tip" id="%s-tip"></div></div>'
+        '%s'
         '<div class="legend">'
         '<span style="color:var(--pc)"><i></i>vento medio</span>'
         '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
         '<span style="color:var(--ink-3)"><i class="box" '
         'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
-        '<span>frecce: da dove viene</span></div>'
+        '<span>frecce: da dove viene</span>%s</div>'
         '<details class="tbl"><summary>i numeri, ora per ora</summary>'
         '<div class="scroller"><table><tr><th>Ora</th><th class="num">Medio</th>'
         '<th class="num">Raffica</th><th class="num">Da</th></tr>%s</table></div>'
@@ -764,7 +859,11 @@ def place_chart(place, profile, bands, chart_id, oggi=False):
         # ha mai funzionato. La coda viene svuotata quando la funzione esiste.
         '<script>(window.gwq=window.gwq||[]).push([%s,%s,%g,%g,%g,%g,%g]);</script>'
         % (chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
-           E(place), "".join(p), chart_id, body,
+           E(place), "".join(p), chart_id,
+           ('<p class="scarto">%s</p>' % scarto_words(_sc)) if _sc else "",
+           ('<span>linea piena spessa: misurato (raffica: %s) &middot; '
+            'linea tenue: previsto</span>' % E(_fonte)) if oss_righe else "",
+           body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
 
 
@@ -938,7 +1037,8 @@ def place_section(place, index, entry, visible):
            E(day_title(entry["day"], entry["lead"])[1]),
            place_chart(place, pl.get("profile") or [], regime_bands(place),
                        "c%d%d" % (entry["_i"], index),
-                       oggi=(entry.get("day") == local_day(utc_now()))),
+                       oggi=(entry.get("day") == local_day(utc_now())),
+                       osservato=pl.get("osservato")),
            reliability_ring(conf),
            RING_COLOR[int((conf or {}).get("livello") or 0)],
            E(RING_WORD[int((conf or {}).get("livello") or 0)]),
