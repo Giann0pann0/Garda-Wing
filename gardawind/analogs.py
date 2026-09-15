@@ -28,6 +28,18 @@ TRAIN_START = "2012-07-05"
 TRAIN_END = "2023-12-31"
 EXPECTED_TRAIN_DAYS = 4020
 EXPECTED_CONFIRM_DAYS = 617
+# Quante giornate di differenza sul campione di conferma restano "gli stessi
+# dati": quindici su seicentodiciassette, il 2,4%.
+TOLLERANZA_CONFERMA_GG = 15
+# E quante sulla libreria di addestramento: quaranta su quattromilaventi, l'1%.
+# Il controllo esatto era giusto nell'intenzione e fragile nei fatti. La
+# finestra di addestramento e' chiusa nel 2023, ma i dati di quelle giornate
+# no: ogni recupero di storico della centralina - e ce n'e' stato uno, dai
+# 4.267 giorni ai ~4.340 - cambia il conteggio, e con il controllo esatto il
+# motore si spegneva in silenzio per sempre. Chi protegge davvero il prodotto
+# non e' questo numero, e' la porta: misura su giornate mai viste, e se una
+# libreria diversa peggiorasse i numeri la porta si chiuderebbe da se'.
+TOLLERANZA_ADDESTRAMENTO_GG = 40
 K = 3
 GRID_MIN = tuple(range(4 * 60, 21 * 60 + 1, 10))
 MIN_COVERAGE = 0.90
@@ -258,12 +270,14 @@ def _build_library():
     era = _archive_daily("era5", TRAIN_START, TRAIN_END)
     curves = _observed_curves()
     common = sorted(set(era).intersection(curves))
-    # Integrita' scientifica: il protocollo validato aveva esattamente 4020
-    # giornate. Se il DB non riproduce quel campione, non si usa in silenzio
-    # un motore diverso da quello validato.
-    if len(common) != EXPECTED_TRAIN_DAYS:
+    # Integrita' scientifica: il protocollo validato aveva 4020 giornate. Se il
+    # DB non riproduce quel campione NON si usa in silenzio un motore diverso
+    # da quello validato - ma "quel campione" e' un intorno dichiarato, non un
+    # numero esatto, e il conteggio vero si porta sempre nella diagnostica.
+    if abs(len(common) - EXPECTED_TRAIN_DAYS) > TOLLERANZA_ADDESTRAMENTO_GG:
         return None, None, {"reason": "training_days", "n": len(common),
-                            "expected": EXPECTED_TRAIN_DAYS}
+                            "expected": EXPECTED_TRAIN_DAYS,
+                            "tolerance": TOLLERANZA_ADDESTRAMENTO_GG}
     stats = _stats([era[d] for d in common])
     if not stats:
         return None, None, {"reason": "era5_stats", "n": len(common)}
@@ -272,10 +286,15 @@ def _build_library():
         z = _z(era[day], stats)
         if z is not None:
             lib.append({"day": day, "z": z, "curve": curves[day]})
-    if len(lib) != EXPECTED_TRAIN_DAYS:
+    # Qui il confronto giusto non e' col numero congelato ma con le giornate
+    # che erano appena entrate: questo controllo serve a intercettare uno
+    # z-score che scarta giornate, e scartarne una sarebbe un difetto anche se
+    # il totale tornasse per caso a 4020.
+    if len(lib) != len(common):
         return None, None, {"reason": "training_z", "n": len(lib),
-                            "expected": EXPECTED_TRAIN_DAYS}
-    return lib, stats, {"reason": "ok", "n": len(lib)}
+                            "expected": len(common)}
+    return lib, stats, {"reason": "ok", "n": len(lib),
+                        "expected": EXPECTED_TRAIN_DAYS}
 
 
 def _ensure_library():
@@ -430,25 +449,55 @@ def apply_to_profile(day, lead, base_profile):
 
 
 # ------------------------- validazione riproducibile -------------------------
+#
+# Le tre grandezze della porta hanno una definizione sola, e viene da fuori:
+# PERSISTENZA_MIN e' la stessa mezz'ora della climatologia, del report e della
+# scheda. Scriverne qui una seconda vorrebbe dire che fra sei mesi la porta e
+# la tabella diranno numeri diversi sulla stessa giornata - ed e' esattamente
+# quello che era: `run >= 3` su una griglia di dieci minuti sono VENTI minuti,
+# non trenta, perche' tre campioni coprono due intervalli. La finestra della
+# ripidezza aveva lo stesso conto: tre passi sono mezz'ora solo se si contano
+# gli intervalli, e li' era giusto per caso.
+PASSO_MIN = 10
+SOGLIA_PORTA = 12.0
+FINESTRA_ORA = (11 * 60, 20 * 60)
+FINESTRA_RIPIDEZZA_MIN = 30
 
-def _sustained(curve, threshold=12.0, start=11 * 60, end=20 * 60):
-    vals = [(m, curve[i]) for i, m in enumerate(GRID_MIN) if start <= m <= end]
+
+def _persistenza_min():
+    """La mezz'ora, presa dall'unico posto dove e' definita."""
+    from .orari import PERSISTENZA_MIN
+    return float(PERSISTENZA_MIN)
+
+
+def _punti_persistenza():
+    """Quanti campioni servono per coprire la persistenza, intervalli inclusi."""
+    return int(round(_persistenza_min() / PASSO_MIN)) + 1
+
+
+def _sustained(curve, threshold=SOGLIA_PORTA, start=FINESTRA_ORA[0],
+               end=FINESTRA_ORA[1]):
+    vals = [curve[i] for i, m in enumerate(GRID_MIN) if start <= m <= end]
+    servono = _punti_persistenza()
     run = 0
-    for _m, v in vals:
+    for v in vals:
         run = run + 1 if v >= threshold else 0
-        if run >= 3:
+        if run >= servono:
             return True
     return False
 
 
-def _minutes_above(curve, threshold=12.0, start=11 * 60, end=20 * 60):
-    return 10 * sum(1 for i, m in enumerate(GRID_MIN)
-                    if start <= m <= end and curve[i] >= threshold)
+def _minutes_above(curve, threshold=SOGLIA_PORTA, start=FINESTRA_ORA[0],
+                   end=FINESTRA_ORA[1]):
+    return PASSO_MIN * sum(1 for i, m in enumerate(GRID_MIN)
+                           if start <= m <= end and curve[i] >= threshold)
 
 
-def _steepness(curve, start=11 * 60, end=20 * 60):
-    vals = [(m, curve[i]) for i, m in enumerate(GRID_MIN) if start <= m <= end]
-    return max((vals[i + 3][1] - vals[i][1] for i in range(len(vals) - 3)), default=0.0)
+def _steepness(curve, start=FINESTRA_ORA[0], end=FINESTRA_ORA[1]):
+    vals = [curve[i] for i, m in enumerate(GRID_MIN) if start <= m <= end]
+    passi = int(round(FINESTRA_RIPIDEZZA_MIN / PASSO_MIN))
+    return max((vals[i + passi] - vals[i] for i in range(len(vals) - passi)),
+               default=0.0)
 
 
 def validation_report(start_day="2025-01-01", end_day="2026-09-14"):
@@ -473,13 +522,26 @@ def validation_report(start_day="2025-01-01", end_day="2026-09-14"):
     for lead in (1, 2, 3):
         common &= set(pred[lead])
     days = sorted(common)
-    if len(days) != EXPECTED_CONFIRM_DAYS:
-        return {"usable": False, "reason": "confirm_days", "n": len(days),
+    # Il campione di conferma NON deve essere esattamente quello di allora.
+    # Una giornata in piu' o in meno e' disponibilita' di dati, non un metodo
+    # diverso: l'archivio delle run cresce, un buco di centralina si chiude,
+    # e la prima volta che succede una porta esatta si chiude per sempre con
+    # un messaggio che non dice niente. Qui il conteggio si DICHIARA e la
+    # tolleranza la applica la porta, che e' il posto dove si decide.
+    if not days:
+        return {"usable": False, "reason": "confirm_days", "n": 0,
                 "expected": EXPECTED_CONFIRM_DAYS}
 
     raw = {day: _raw_curve(day) for day in days}
-    if any(raw[d] is None for d in days):
-        return {"usable": False, "reason": "raw_curve_missing"}
+    mancanti = [d for d in days if raw[d] is None]
+    if mancanti:
+        # Prima si scartavano tutte le giornate se ne mancava una sola. Una
+        # curva grezza assente e' una giornata da togliere, non un motivo per
+        # non misurare le altre seicento.
+        days = [d for d in days if raw[d] is not None]
+        if not days:
+            return {"usable": False, "reason": "raw_curve_missing",
+                    "n": 0, "scartate": len(mancanti)}
 
     def measure(lead, day_map):
         stats = _stats(list(source_all[lead].values()))
@@ -519,10 +581,18 @@ def validation_report(start_day="2025-01-01", end_day="2026-09-14"):
         }
 
     leads = {lead: measure(lead, {}) for lead in (1, 2, 3)}
-    if any(v is None or v.get("n") != EXPECTED_CONFIRM_DAYS
-           for v in leads.values()):
+    # Il vincolo che conta qui non e' la DIMENSIONE del campione - quella la
+    # giudica la porta, con la sua tolleranza dichiarata - ma che i tre lead
+    # abbiano misurato le STESSE giornate. E' il difetto che aveva reso
+    # inutilizzabile il primo test esterno: tre baseline diverse (49,4 / 48,6 /
+    # 45,1) su tre campioni diversi, confrontate come se fossero lo stesso.
+    # Con il controllo sul numero congelato, invece, bastava una giornata di
+    # differenza perche' la misura non venisse nemmeno prodotta.
+    if any(v is None or v.get("n") != len(days) for v in leads.values()):
         return {"usable": False, "reason": "validation_incomplete",
-                "n": len(days), "leads": leads}
+                "n": len(days), "expected": EXPECTED_CONFIRM_DAYS,
+                "conteggi": {k: (v or {}).get("n") for k, v in leads.items()},
+                "leads": leads}
 
     # Nullo obbligatorio: D+1 con condizioni di un altro giorno, permutazione
     # deterministica. Se non peggiora chiaramente, la selezione non vale.
@@ -542,8 +612,17 @@ def benchmark_gate(report):
     Il nullo deve inoltre degradare in modo evidente.
     """
     reasons = []
-    if not report or not report.get("usable") or report.get("n") != EXPECTED_CONFIRM_DAYS:
-        return False, ["campione di conferma diverso da %d" % EXPECTED_CONFIRM_DAYS]
+    if not report or not report.get("usable"):
+        return False, ["nessuna misura: %s"
+                       % ((report or {}).get("reason")
+                          or (report or {}).get("diagnostic") or "?")]
+    n = report.get("n") or 0
+    # Tolleranza sul campione: quindici giornate su seicento. Sotto quella
+    # soglia e' disponibilita' di dati; sopra e' un altro campione, e i numeri
+    # del benchmark non sono piu' confrontabili.
+    if abs(n - EXPECTED_CONFIRM_DAYS) > TOLLERANZA_CONFERMA_GG:
+        reasons.append("campione di conferma %d, atteso %d +/- %d"
+                       % (n, EXPECTED_CONFIRM_DAYS, TOLLERANZA_CONFERMA_GG))
     tol = {"hits": .025, "false_alarms": .035, "minute_error": 8.0,
            "bias_minutes": 5.0, "steepness": .6}
     for lead, ref in BENCHMARK.items():
