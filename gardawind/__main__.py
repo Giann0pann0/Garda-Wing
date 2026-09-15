@@ -634,28 +634,49 @@ def cmd_addicted_audit(stazioni=None, giorni_extra=()):
                      if r["json"] else (r["errore"] or "")[:60]))
             sys.stdout.flush()
 
-        ris, oriz = A.trova_orizzonte(slug, su_progresso=progresso)
+        ris, esito_oriz = A.trova_orizzonte(slug, su_progresso=progresso)
         for g in giorni_extra:
             ris[g] = A.audit_giorno(slug, g)
-        riassunti[slug] = (A.riassumi(ris), oriz)
+        riassunti[slug] = (A.riassumi(ris), esito_oriz)
         print("")
 
     print("  " + "=" * 74)
     print("  RIASSUNTO")
     print("  " + "=" * 74)
-    print("  %-14s %7s %6s %6s %7s %8s %6s  %s"
-          % ("stazione", "provati", "serie", "ignor.", "cadenza", "slot/gg",
-             "buchi", "orizzonte"))
-    print("  " + "-" * 74)
+    print("  %-14s %7s %6s %6s %7s %9s %6s  %s"
+          % ("stazione", "provati", "serie", "ignor.", "cadenza",
+             "slot/risp.", "buchi", "primo giorno con dati"))
+    print("  " + "-" * 78)
     for slug in slugs:
-        R, oriz = riassunti[slug]
-        print("  %-14s %7d %6d %6d %7s %8s %6s  %s"
+        R, E = riassunti[slug]
+        oriz = E["orizzonte"] if isinstance(E, dict) else E
+        fondo = isinstance(E, dict) and E.get("fondo_non_raggiunto")
+        print("  %-14s %7d %6d %6d %7s %9s %6s  %s%s"
               % (slug, R["n_provati"], R["n_con_serie"], R["n_from_ignorato"],
                  ("%g min" % R["cadenza_mediana"]) if R["cadenza_mediana"] else "-",
                  ("%g" % R["slot_per_giorno"]) if R["slot_per_giorno"] else "-",
                  ("%g" % R["buchi_mediani"]) if R["buchi_mediani"] is not None else "-",
-                 oriz or "nessun archivio"))
-    print("  " + "-" * 74)
+                 ">= " if fondo else "", oriz or "nessun archivio"))
+    print("  " + "-" * 78)
+    for slug in slugs:
+        R, _E = riassunti[slug]
+        if R["slot_per_giorno"] and R["cadenza_mediana"]:
+            ore = R["slot_per_giorno"] * R["cadenza_mediana"] / 60.0
+            print("  %-14s slot per risposta: %g   cadenza: %g min   "
+                  "orizzonte risposta: ~%g h"
+                  % (slug, R["slot_per_giorno"], R["cadenza_mediana"], ore))
+    print("")
+    print("  Quei 72 slot NON sono 72 misure in una giornata: sono 72 ORE, cioe'")
+    print("  una finestra di tre giorni a cadenza oraria. E' anche il motivo per")
+    print("  cui la giornata di ieri ne ha solo 34 piene: il resto della finestra")
+    print("  e' futuro. Letto male, farebbe credere che la stazione campioni ogni")
+    print("  venti minuti.")
+    if any(isinstance(E, dict) and E.get("fondo_non_raggiunto")
+           for _R, E in riassunti.values()):
+        print("")
+        print("  \">=\" vuol dire che la sonda ha esaurito la sua scala senza")
+        print("  trovare una giornata vuota: quel giorno NON e' l'inizio")
+        print("  dell'archivio, e' il punto piu' profondo che ha guardato.")
 
     for slug in slugs:
         R, oriz = riassunti[slug]
@@ -694,6 +715,94 @@ def cmd_addicted_audit(stazioni=None, giorni_extra=()):
     print("")
     print("  Nessuna osservazione e' stata scritta nel database: questo comando")
     print("  guarda. L'ingestione e' un'altra decisione, e viene dopo.")
+    sys.stdout.flush()
+
+
+def cmd_addicted_censimento(stazioni=None, massimo=None):
+    """Quante giornate COMPLETE si riesce davvero a scaricare, per stazione.
+
+    "Una data del 2016 risponde" non e' "l'archivio e' scaricabile". Questo
+    cammina l'archivio dall'inizio dichiarato a oggi e conta, poi mette il
+    totale accanto a quello che il sito DICHIARA.
+    """
+    from gardawind.sources import addicted_audit as A
+
+    slugs = list(stazioni) if stazioni else list(A.SLUG_STAZIONI)
+    print("")
+    print("=" * 78)
+    print("  ADDICTED-SPORTS  -  CENSIMENTO DELLE GIORNATE SCARICABILI")
+    print("  un passo ogni %d giorni (una risposta copre %d ore)"
+          % (A.PASSO_GIORNI, A.ORE_PER_RISPOSTA))
+    print("  ripartibile: una giornata gia' salvata non viene richiesta di nuovo")
+    print("  completa = almeno %d%% delle 24 ore con una media misurata"
+          % round(100 * A.QUOTA_COMPLETA))
+    print("=" * 78)
+
+    esiti = {}
+    for slug in slugs:
+        d = A.DICHIARATO.get(slug, {})
+        print("")
+        print("  -- %s (%s)  dichiarate %s giornate misurate dal %s"
+              % (slug, d.get("nome", "?"), d.get("giorni_misurati", "?"),
+                 d.get("dal", "?")))
+        sys.stdout.flush()
+
+        def progresso(i, n, giorno, r, _slug=slug):
+            if i % 50 == 0 or r["errore"]:
+                print("     %5d/%-5d  %s  %s"
+                      % (i + 1, n, giorno,
+                         (r["errore"] or "")[:50] if r["errore"]
+                         else "%d slot, %d medie" % (r["n_slot"], r["n_mavg"])))
+                sys.stdout.flush()
+
+        per_giorno, R = A.censimento(slug, massimo=massimo,
+                                     su_progresso=progresso)
+        esiti[slug] = R
+        print("     richieste %d, dalla cache %d, errori %d"
+              % (R["n_richieste"], R["n_dalla_cache"], R["n_errori"]))
+
+    print("")
+    print("  " + "=" * 74)
+    print("  %-14s %8s %8s %8s %9s %9s  %s"
+          % ("stazione", "con dato", "complete", "con mmax", "dichiarate",
+             "quota", "periodo"))
+    print("  " + "-" * 78)
+    for slug in slugs:
+        R = esiti[slug]
+        print("  %-14s %8d %8d %8d %9s %8s  %s -> %s"
+              % (slug, R["n_con_dato"], R["n_complete"], R["n_con_mmax"],
+                 R["dichiarato"] if R["dichiarato"] is not None else "-",
+                 ("%.0f%%" % (100 * R["quota_del_dichiarato"]))
+                 if R["quota_del_dichiarato"] is not None else "-",
+                 R["primo"] or "-", R["ultimo"] or "-"))
+    print("  " + "-" * 78)
+    print("  \"quota\" e' quanto abbiamo scaricato rispetto a cio' che il sito")
+    print("  dichiara. Se e' molto sotto il 100%, non abbiamo l'archivio: ne")
+    print("  abbiamo una parte, e la differenza va spiegata prima di usarlo.")
+
+    for slug in slugs:
+        R = esiti[slug]
+        if not R["per_anno"]:
+            continue
+        print("")
+        print("  %s, per anno:" % slug)
+        print("    anno   con dato  complete  con mmax")
+        for a in sorted(R["per_anno"]):
+            v = R["per_anno"][a]
+            print("    %-6s %8d %9d %9d"
+                  % (a, v["con_dato"], v["complete"], v["con_mmax"]))
+        if R["mmax_oltre_record"]:
+            print("    ATTENZIONE: il mmax piu' alto letto e' %.1f kn, ma la"
+                  % R["mmax_visto"])
+            print("    pagina storica dichiara come record %.1f kn. Uno dei due"
+                  % R["record_dichiarato"])
+            print("    numeri non e' quello che dice il suo nome, e va chiarito")
+            print("    prima di ingerire.")
+
+    print("")
+    print("  Nessuna osservazione scritta nel database. Le tre Malcesine")
+    print("  (storica 2014, serie 2023, feed corrente) restano tre entita'")
+    print("  separate finche' non sono identificate bene.")
     sys.stdout.flush()
 
 
@@ -1422,6 +1531,12 @@ def main(argv=None):
                     help="sonda l'archivio addicted-sports stazione per "
                          "stazione: periodo, cadenza, buchi, unita', semantica "
                          "di mavg/mmax. Salva il grezzo e non ingerisce niente")
+    ap.add_argument("--addicted-censimento", action="store_true",
+                    help="cammina l'archivio addicted e conta quante giornate "
+                         "complete si riesce davvero a scaricare, per stazione")
+    ap.add_argument("--massimo", type=int, metavar="N",
+                    help="limita il censimento alle ultime N richieste "
+                         "(per provare senza scaricare dodici anni)")
     ap.add_argument("--stazione", action="append", metavar="SLUG",
                     help="limita l'audit a queste stazioni (ripetibile)")
     ap.add_argument("--live-json", metavar="FILE",
@@ -1470,6 +1585,10 @@ def main(argv=None):
 
     if args.addicted:
         cmd_addicted(args.addicted)
+        return 0
+
+    if args.addicted_censimento:
+        cmd_addicted_censimento(stazioni=args.stazione, massimo=args.massimo)
         return 0
 
     if args.addicted_audit:
