@@ -1270,6 +1270,21 @@ def cmd_addicted_validazione():
                  f.get("corr") or 0.0, f.get("mae_fit") or 0.0))
     print("    * rapporto calcolato solo con mavg >= 3 kn")
 
+    print("\n  mmax Addicted contro media oraria VERA T0193, solo ore QC-ok")
+    pt = r.get("ponte_mmax_t0193", {})
+    for key, label in (("peler_06_11", "Peler 06-11"), ("ora_11_20", "Ora 11-20")):
+        x = pt.get("gruppi", {}).get(key, {})
+        if not x.get("n"):
+            continue
+        f = x.get("fit", {})
+        print("    %-12s n=%6d  ratio med*=%4.2f  spread med=%4.1f kn"
+              % (label, x["n"], x.get("ratio_mediana_tmean_ge3") or 0.0,
+                 x.get("spread_mediana") or 0.0))
+        print("      mmax ~= %4.1f + %4.2f*T0193   r=%4.2f  MAE fit=%4.2f kn"
+              % (f.get("intercetta") or 0.0, f.get("pendenza") or 0.0,
+                 f.get("corr") or 0.0, f.get("mae_fit") or 0.0))
+    print("    * rapporto calcolato solo con T0193 >= 3 kn")
+
     cal = r.get("calibrazione_media_mensile", {})
     print("\n  stabilita' mavg Addicted vs T0193 per mese")
     print("    mese       Peler 06-11: n / bias / MAE        Ora 11-20: n / bias / MAE")
@@ -1626,11 +1641,21 @@ def cmd_nowcast_validazione():
             print("    nessun fold valutabile; stato CHIUSO (%s)" % r["reason"])
             continue
         for f in r["folds"]:
-            print("    %d  n=%4d  alpha=%.2f  MAE %.2f -> %.2f (guadagno %.2f kn)  "
-                  "RMSE %.2f -> %.2f (guadagno %.2f kn)"
-                  % (f["year"], f["n"], f["alpha"], f["mae_base"],
-                     f["mae_nowcast"], f["gain_mae"], f["rmse_base"],
-                     f["rmse_nowcast"], f["gain_rmse"]))
+            m = f["metrics"]
+            lo, hi = f["gain_mae_ci95"]
+            print("    %d  n=%4d  alpha=%.2f" % (f["year"], f["n"], f["alpha"]))
+            print("      MAE: raw %.2f  pers %.2f  bias %.2f  now %.2f"
+                  % (m["base"]["mae"], m["persistence"]["mae"],
+                     m["static_bias"]["mae"], m["corrected"]["mae"]))
+            print("      best=%s  guadagno MAE %.2f kn  CI95 [%.2f, %.2f]  guadagno RMSE %.2f kn"
+                  % (f["best_baseline"], f["gain_mae"], lo, hi, f["gain_rmse"]))
+            sr, sn = f["split"]["regime"], f["split"]["no_regime"]
+            print("      giorni-regime: n=%d MAE now %.2f / pers %.2f / bias %.2f"
+                  % (sr["n"], sr["mae_nowcast"] or 0.0, sr["mae_persistence"] or 0.0,
+                     sr["mae_static_bias"] or 0.0))
+            print("      senza-regime:  n=%d MAE now %.2f / pers %.2f / bias %.2f"
+                  % (sn["n"], sn["mae_nowcast"] or 0.0, sn["mae_persistence"] or 0.0,
+                     sn["mae_static_bias"] or 0.0))
         print("    gate concettuale: %s (%s)" % (r["state"].upper(), r["reason"]))
     p = rep["production"]
     print("\n  gate prodotto realmente mostrato")

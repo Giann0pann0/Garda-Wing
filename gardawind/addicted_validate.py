@@ -348,6 +348,50 @@ def stabilita_ponte_storico(conn=None, station="torbole", min_n_mese=200):
         }
     return out
 
+
+def ponte_mmax_su_t0193(conn=None, station="torbole"):
+    """Fit descrittivo mmax Addicted contro la media oraria VERA T0193.
+
+    Serve a separare il bias interno mavg di Addicted dalla relazione fisica
+    fra vento medio osservato e massimo orario. Usa lo stesso QC storico di
+    mmax; non promuove alcuna formula nel modello.
+    """
+    c = conn or store.connect()
+    qc = qc_massimi_storici(c).get(station, {})
+    sospetti = {round(float(x["value"]), 3)
+                for x in qc.get("plateau_sospetti", [])}
+    rows = c.execute(
+        "SELECT o.hour,o.wind_mean,a.wind_mean_kn,a.hourly_max_kn "
+        "FROM obs_hour o JOIN addicted_hour a ON a.hour=o.hour "
+        "WHERE o.station='T0193' AND a.station=? "
+        "AND o.wind_mean IS NOT NULL AND a.hourly_max_kn IS NOT NULL "
+        "ORDER BY o.hour", (station,)
+    ).fetchall()
+    gruppi = defaultdict(list)
+    esclusi = 0
+    for hour, tmean, mavg, mmax in rows:
+        if not (_finite(tmean) and _finite(mmax)):
+            continue
+        tmean=float(tmean); mmax=float(mmax)
+        if round(mmax,3) in sospetti:
+            esclusi += 1; continue
+        if _finite(mavg) and mmax + 0.2 < float(mavg):
+            esclusi += 1; continue
+        if _finite(mavg) and mmax == 0.0 and float(mavg) > 0.2:
+            esclusi += 1; continue
+        gruppi[_periodo(_local_hour(hour))].append((tmean,mmax))
+
+    def riassunto(pts):
+        if not pts: return {"n":0}
+        ratios=[y/x for x,y in pts if x>=3.0]
+        spreads=[y-x for x,y in pts]
+        return {"n":len(pts),
+                "ratio_mediana_tmean_ge3": statistics.median(ratios) if ratios else None,
+                "spread_mediana": statistics.median(spreads),
+                "fit": _fit_lineare(pts)}
+    return {"station":station,"ore_escluse_qc":esclusi,
+            "gruppi":{k:riassunto(v) for k,v in gruppi.items()}}
+
 def rapporto_completo(conn=None):
     return {
         "media": confronto_media(conn),
@@ -359,6 +403,7 @@ def rapporto_completo(conn=None):
         "profilo_rafficosita": profilo_rafficosita_storica(conn),
         "calibrazione_media_mensile": calibrazione_media_mensile(conn),
         "stabilita_ponte": stabilita_ponte_storico(conn),
+        "ponte_mmax_t0193": ponte_mmax_su_t0193(conn),
         "gate_proxy_gust_rec": gate_proxy_gust_rec(conn),
     }
 
