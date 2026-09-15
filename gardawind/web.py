@@ -965,6 +965,7 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
          '<stop offset="100%%" stop-color="var(--pc)" stop-opacity="0"/>'
          '</linearGradient></defs>' % chart_id]
 
+    disegnata_utile = False
     for band in bands:
         a, b = max(band["from"], hours[0]), min(band["to"], hours[-1])
         if b <= a:
@@ -983,6 +984,39 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         p.append('<text x="%.1f" y="%g" font-size="10" fill="var(--ink-3)">'
                  '%02d\u2013%02d</text>'
                  % (x(a) + 7, pt + 14, band["from"], band["to"]))
+        # Dentro la banda del regime, la fetta in cui si puo' davvero uscire.
+        # Non sostituisce il regime - sapere quando quel vento PUO' soffiare e'
+        # un'informazione - ma e' quella su cui si decide, quindi e' la piu'
+        # chiara delle due e porta l'orario scritto.
+        utile = band.get("utile")
+        if utile:
+            ua = max(utile[0] / 60.0, hours[0])
+            ub = min(utile[1] / 60.0, hours[-1])
+            if ub > ua:
+                disegnata_utile = True
+                p.append('<rect x="%.1f" y="%g" width="%.1f" height="%.1f" '
+                         'fill="#ffffff" opacity=".045" rx="4"/>'
+                         % (x(ua), pt + 2, x(ub) - x(ua), H - pb - pt - 4))
+                p.append('<line x1="%.1f" y1="%g" x2="%.1f" y2="%g" '
+                         'stroke="var(--ink-3)" stroke-width="1" '
+                         'stroke-dasharray="2 3" opacity=".55"/>'
+                         % (x(ua), pt + 2, x(ua), H - pb - 2))
+                # L'etichetta si accorcia invece di sbordare sulla banda
+                # accanto: "utile 07:10-11:00" sotto la banda del Peler
+                # finiva addosso a quella dell'Ora, e due scritte sovrapposte
+                # non dicono nessuna delle due.
+                largo = x(ub) - x(ua)
+                testo = None
+                if largo >= 92:
+                    testo = "utile %s\u2013%s" % (hhmm(utile[0]), hhmm(utile[1]))
+                elif largo >= 52:
+                    testo = "utile da %s" % hhmm(utile[0])
+                elif largo >= 34:
+                    testo = hhmm(utile[0])
+                if testo:
+                    p.append('<text x="%.1f" y="%g" font-size="9.5" '
+                             'fill="var(--ink-3)">%s</text>'
+                             % (x(ua) + 5, pt + 27, E(testo)))
 
     for v in range(0, int(top) + 1, step):
         yy = y(v)
@@ -1098,11 +1132,17 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     payload = [{"h": r["hour"],
                 place: [round(r["wind"], 1), round(r["gust"], 1),
                         compass(r.get("dir"))]} for r in rows]
+    # L'ora non e' piu' per forza intera: con la forma analogica il profilo ha
+    # un punto ogni dieci minuti, e "%02d:00" troncava - sei righe di fila che
+    # dicevano tutte 13:00 con quattro numeri diversi. Si scrive l'ora vera.
     body = "".join(
-        "<tr><td>%02d:00</td><td class='num'>%.0f</td><td class='num'>%.0f</td>"
+        "<tr><td>%s</td><td class='num'>%.0f</td><td class='num'>%.0f</td>"
         "<td class='num'>%s</td></tr>"
-        % (r["hour"], r["wind"], r["gust"], E(compass(r.get("dir")) or "\u2014"))
+        % (hhmm(float(r["hour"]) * 60.0), r["wind"], r["gust"],
+           E(compass(r.get("dir")) or "\u2014"))
         for r in rows)
+    passo_fine = any(abs(float(r["hour"]) - round(float(r["hour"]))) > 1e-9
+                     for r in rows)
 
     return (
         '<div class="chartwrap">'
@@ -1117,8 +1157,9 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
         '<span style="color:var(--ink-3)"><i class="box" '
         'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
+        '%s'
         '<span>frecce: da dove viene</span>%s</div>'
-        '<details class="tbl"><summary>i numeri, ora per ora</summary>'
+        '<details class="tbl"><summary>i numeri, %s</summary>'
         '<div class="scroller"><table><tr><th>Ora</th><th class="num">Medio</th>'
         '<th class="num">Raffica</th><th class="num">Da</th></tr>%s</table></div>'
         '</details>'
@@ -1131,8 +1172,19 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         % (chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
            E(place), "".join(p), chart_id,
            ('<p class="scarto">%s</p>' % scarto_words(_sc)) if _sc else "",
+           # La voce della finestra utile compare solo quando la fetta chiara
+           # e' davvero disegnata: una legenda che spiega un segno assente
+           # fa cercare una cosa che non c'e'.
+           # Il quadretto va SCHIARITO, non decorato: nel grafico la fetta
+           # utile e' la stessa banda piu' chiara, e in legenda due grigi a
+           # meta' opacita' si leggono identici. Un bordo tratteggiato su un
+           # quadretto di nove pixel non si vede - provato.
+           ('<span style="color:var(--ink-3)"><i class="box" '
+            'style="background:currentColor;opacity:1"></i>finestra utile'
+            '</span>') if disegnata_utile else "",
            ('<span>linea piena spessa: misurato (raffica: %s) &middot; '
             'linea tenue: previsto</span>' % E(_fonte)) if oss_righe else "",
+           "passo per passo" if passo_fine else "ora per ora",
            body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
 
@@ -1282,8 +1334,18 @@ def timing_line(place, sessions):
             'vale la fascia, non un\u2019ora precisa</span></div>')
 
 
-def regime_bands(place):
-    """Le finestre dei due regimi, senza sovrapposizioni."""
+def regime_bands(place, giorno=None):
+    """Le finestre dei due regimi, senza sovrapposizioni.
+
+    Con un giorno, ogni banda porta anche la sua finestra UTILE: quella in cui
+    si puo' davvero essere in acqua, cioe' il regime stretto dall'ora pratica
+    e dalla luce. Le due cose non sono la stessa e la differenza non e' piccola:
+    al Peler il regime comincia alle 04:00 e a dicembre il sole si alza alle
+    07:50. Finche' il disegno mostrava solo il regime, diceva una cosa e la
+    scheda accanto ne diceva un'altra a dieci centimetri di distanza.
+    """
+    from . import orari as O
+
     spots = place_spots(place)
     fills = {"PELER": "#1a2635", "ORA": "#20303f"}
     out = []
@@ -1294,7 +1356,19 @@ def regime_bands(place):
         h0, h1 = config.SPOTS[name]["window"]
         if out and h0 < out[-1]["to"]:
             out[-1]["to"] = h0
-        out.append({"from": h0, "to": h1 + 1, "label": lab, "fill": fills[key]})
+        banda = {"from": h0, "to": h1 + 1, "label": lab, "fill": fills[key]}
+        if giorno:
+            try:
+                inizio, fine = O.finestra_utile_del_giorno(name, giorno)
+            except (KeyError, ValueError, TypeError):
+                inizio = fine = None
+            # La finestra utile si disegna solo se e' davvero piu' stretta:
+            # quando coincide col regime, un secondo riquadro identico sarebbe
+            # rumore.
+            if (inizio is not None and fine is not None and fine > inizio
+                    and (inizio > h0 * 60 + 1 or fine < (h1 + 1) * 60 - 1)):
+                banda["utile"] = (inizio, fine)
+        out.append(banda)
     return out
 
 
@@ -1324,7 +1398,8 @@ def place_section(place, index, entry, visible):
         % (index + 1, entry["_i"], E(place), "" if visible else " hidden",
            place_head(place),
            E(day_title(entry["day"], entry["lead"])[1]),
-           place_chart(place, pl.get("profile") or [], regime_bands(place),
+           place_chart(place, pl.get("profile") or [],
+                       regime_bands(place, entry.get("day")),
                        "c%d%d" % (entry["_i"], index),
                        oggi=today,
                        osservato=pl.get("osservato")),
@@ -1888,7 +1963,11 @@ function gwChart(id,data,W,pl,pr,h0,h1){
     data.forEach(function(d){var dd=Math.abs(xOf(d.h)-sx); if(dd<bd){bd=dd;best=d;}});
     cross.setAttribute('x1',xOf(best.h)); cross.setAttribute('x2',xOf(best.h));
     cross.setAttribute('opacity','.5');
-    var h='<b>'+(best.h<10?'0':'')+best.h+':00</b>';
+    /* L'ora del campione non e' piu' intera: sulla griglia analogica da
+       dieci minuti best.h vale 13.166666..., e stampata come prima diceva
+       "13.166666666666666:00". Si formatta dai minuti. */
+    var tm=Math.round(best.h*60), hh=Math.floor(tm/60), mm=tm-hh*60;
+    var h='<b>'+(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm+'</b>';
     keys.forEach(function(k){ if(best[k]) h+='<br>medio <b>'+best[k][0]+' kn</b>'+
       ' <span style="opacity:.65">raffica '+best[k][1]+' &middot; '+best[k][2]+'</span>';});
     tip.innerHTML=h; tip.style.opacity='1';
