@@ -68,3 +68,22 @@ ok(prof["gruppi"]["ora_11_20"]["n"] >= 1, "profilo conserva la fascia Ora QC-ok"
 gate = V.gate_proxy_gust_rec(c, min_ore=10, min_giorni=2, min_mesi=2)
 ok(gate["pronto"] is False and gate["min_ore"] == 10,
    "gate proxy esplicito e chiuso senza copertura sufficiente")
+
+# Calibrazione mensile: le due fasce devono restare separate e usare mese locale.
+cal = V.calibrazione_media_mensile(c)
+ok(cal["fascia_mensile"][("peler_06_11", 7)]["n"] == 1,
+   "calibrazione mensile conserva Peler e mese locale")
+ok(cal["fascia_mensile"][("ora_11_20", 7)]["n"] == 1,
+   "calibrazione mensile conserva Ora e mese locale")
+
+# Stabilita' ponte: servono almeno due punti per stimare una pendenza.
+c.execute("INSERT INTO addicted_hour VALUES('torbole','2026-07-02T04:00:00Z',9,19)")
+c.commit()
+stab = V.stabilita_ponte_storico(c, min_n_mese=2)
+ok(stab["peler_06_11"]["mesi_validi"] >= 1,
+   "stabilita' ponte dichiara i mesi con copertura sufficiente")
+
+# Il progresso del gate e' esplicito e limitato a 100% per ogni dimensione.
+gate2 = V.gate_proxy_gust_rec(c, min_ore=10, min_giorni=2, min_mesi=2)
+ok("progresso" in gate2 and 0.0 <= gate2["progresso_gate"] <= 1.0,
+   "gate espone avanzamento normalizzato")

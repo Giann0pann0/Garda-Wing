@@ -265,6 +265,89 @@ def identita_shiftata_campione_brenzone(conn=None, giorni=7):
             "quota": ug / n if n else None}
 
 
+
+def calibrazione_media_mensile(conn=None, station="torbole"):
+    """Stabilita' di mavg contro T0193 per mese e fascia pratica.
+
+    E' solo diagnostica: nessun coefficiente viene promosso nel modello. Le
+    fasce sono le stesse del resto del report e l'ora e' sempre convertita in
+    Europe/Rome prima del raggruppamento.
+    """
+    c = conn or store.connect()
+    rows = c.execute(
+        "SELECT o.hour,o.wind_mean,a.wind_mean_kn "
+        "FROM obs_hour o JOIN addicted_hour a ON a.hour=o.hour "
+        "WHERE o.station='T0193' AND a.station=? "
+        "AND o.wind_mean IS NOT NULL AND a.wind_mean_kn IS NOT NULL "
+        "ORDER BY o.hour", (station,)
+    ).fetchall()
+    per_mese = defaultdict(list)
+    per_fascia_mese = defaultdict(list)
+    for hour, ref, cand in rows:
+        d = datetime.fromisoformat(hour.replace("Z", "+00:00")).astimezone(ROME)
+        pair = (ref, cand)
+        per_mese[d.month].append(pair)
+        fascia = _periodo(d.hour)
+        if fascia in ("peler_06_11", "ora_11_20"):
+            per_fascia_mese[(fascia, d.month)].append(pair)
+    return {
+        "mensile": {m: metriche(v) for m, v in sorted(per_mese.items())},
+        "fascia_mensile": {k: metriche(v) for k, v in sorted(per_fascia_mese.items())},
+    }
+
+
+def _quantile(vals, p):
+    vals = sorted(float(x) for x in vals if _finite(x))
+    if not vals:
+        return None
+    pos = (len(vals) - 1) * float(p)
+    lo = int(math.floor(pos)); hi = int(math.ceil(pos))
+    if lo == hi:
+        return vals[lo]
+    return vals[lo] + (vals[hi] - vals[lo]) * (pos - lo)
+
+
+def stabilita_ponte_storico(conn=None, station="torbole", min_n_mese=200):
+    """Quanto cambiano nel calendario i fit descrittivi mavg -> mmax QC-ok.
+
+    Non e' un test di planabilita'. Riassume i coefficienti mensili solo se
+    ogni cella ha una numerosita' minima esplicita, cosi' un mese povero non
+    pesa quanto migliaia di ore.
+    """
+    prof = profilo_rafficosita_storica(conn, station=station)
+    out = {}
+    for fascia in ("peler_06_11", "ora_11_20"):
+        mesi = []
+        for mese in range(1, 13):
+            x = prof.get("mensile", {}).get((fascia, mese), {})
+            f = x.get("fit", {}) if x else {}
+            if x.get("n", 0) < int(min_n_mese) or not _finite(f.get("pendenza")):
+                continue
+            mesi.append({
+                "mese": mese, "n": int(x["n"]),
+                "pendenza": float(f["pendenza"]),
+                "intercetta": float(f["intercetta"]),
+                "corr": float(f["corr"]) if _finite(f.get("corr")) else None,
+                "mae_fit": float(f["mae_fit"]) if _finite(f.get("mae_fit")) else None,
+                "spread_mediana": float(x["spread_mediana"]),
+            })
+        slopes = [x["pendenza"] for x in mesi]
+        maes = [x["mae_fit"] for x in mesi if _finite(x["mae_fit"])]
+        spreads = [x["spread_mediana"] for x in mesi]
+        out[fascia] = {
+            "min_n_mese": int(min_n_mese),
+            "mesi_validi": len(mesi),
+            "mesi": mesi,
+            "pendenza_mediana": statistics.median(slopes) if slopes else None,
+            "pendenza_p10": _quantile(slopes, 0.10),
+            "pendenza_p90": _quantile(slopes, 0.90),
+            "mae_mediana": statistics.median(maes) if maes else None,
+            "spread_mediana_dei_mesi": statistics.median(spreads) if spreads else None,
+            "spread_p10": _quantile(spreads, 0.10),
+            "spread_p90": _quantile(spreads, 0.90),
+        }
+    return out
+
 def rapporto_completo(conn=None):
     return {
         "media": confronto_media(conn),
@@ -274,6 +357,8 @@ def rapporto_completo(conn=None):
         "campione_brenzone_shift7": identita_shiftata_campione_brenzone(conn, 7),
         "qc_massimi": qc_massimi_storici(conn),
         "profilo_rafficosita": profilo_rafficosita_storica(conn),
+        "calibrazione_media_mensile": calibrazione_media_mensile(conn),
+        "stabilita_ponte": stabilita_ponte_storico(conn),
         "gate_proxy_gust_rec": gate_proxy_gust_rec(conn),
     }
 
@@ -377,7 +462,9 @@ def gate_proxy_gust_rec(conn=None, min_ore=1000, min_giorni=90, min_mesi=6):
     ).fetchall()
     if not rows:
         return {"ore": 0, "giorni": 0, "mesi": 0, "pronto": False,
-                "min_ore": min_ore, "min_giorni": min_giorni, "min_mesi": min_mesi}
+                "min_ore": min_ore, "min_giorni": min_giorni, "min_mesi": min_mesi,
+                "progresso": {"ore": 0.0, "giorni": 0.0, "mesi": 0.0},
+                "progresso_gate": 0.0}
     ore = set(); giorni = set(); mesi = set()
     for ts, _ in rows:
         h = ts[:13] + ":00:00Z"
@@ -391,6 +478,12 @@ def gate_proxy_gust_rec(conn=None, min_ore=1000, min_giorni=90, min_mesi=6):
         giorni.add(d.date().isoformat())
         mesi.add("%04d-%02d" % (d.year, d.month))
     pronto = len(ore) >= min_ore and len(giorni) >= min_giorni and len(mesi) >= min_mesi
+    progressi = {
+        "ore": min(1.0, len(ore) / float(min_ore)) if min_ore else 1.0,
+        "giorni": min(1.0, len(giorni) / float(min_giorni)) if min_giorni else 1.0,
+        "mesi": min(1.0, len(mesi) / float(min_mesi)) if min_mesi else 1.0,
+    }
     return {"ore": len(ore), "giorni": len(giorni), "mesi": len(mesi),
             "pronto": pronto, "min_ore": int(min_ore),
-            "min_giorni": int(min_giorni), "min_mesi": int(min_mesi)}
+            "min_giorni": int(min_giorni), "min_mesi": int(min_mesi),
+            "progresso": progressi, "progresso_gate": min(progressi.values())}

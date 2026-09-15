@@ -1269,11 +1269,40 @@ def cmd_addicted_validazione():
                  f.get("corr") or 0.0, f.get("mae_fit") or 0.0))
     print("    * rapporto calcolato solo con mavg >= 3 kn")
 
+    cal = r.get("calibrazione_media_mensile", {})
+    print("\n  stabilita' mavg Addicted vs T0193 per mese")
+    print("    mese       Peler 06-11: n / bias / MAE        Ora 11-20: n / bias / MAE")
+    for mese in range(1, 13):
+        p = cal.get("fascia_mensile", {}).get(("peler_06_11", mese), {})
+        o = cal.get("fascia_mensile", {}).get(("ora_11_20", mese), {})
+        def cell(x):
+            if not x.get("n"):
+                return "      - /    - /    -"
+            return "%5d / %+4.1f / %4.1f" % (x["n"], x["bias"], x["mae"])
+        print("    %02d         %s          %s" % (mese, cell(p), cell(o)))
+
+    stab = r.get("stabilita_ponte", {})
+    print("\n  stabilita' temporale del ponte mavg -> mmax QC-ok")
+    for key, label in (("peler_06_11", "Peler 06-11"), ("ora_11_20", "Ora 11-20")):
+        x = stab.get(key, {})
+        if not x.get("mesi_validi"):
+            print("    %-12s nessun mese con copertura sufficiente" % label)
+            continue
+        print("    %-12s %2d mesi: slope med=%4.2f [p10 %4.2f, p90 %4.2f], MAE med=%4.2f kn"
+              % (label, x["mesi_validi"], x["pendenza_mediana"],
+                 x["pendenza_p10"], x["pendenza_p90"], x["mae_mediana"]))
+        print("      spread mensile med=%4.1f kn [p10 %4.1f, p90 %4.1f]"
+              % (x["spread_mediana_dei_mesi"], x["spread_p10"], x["spread_p90"]))
+
     gate = r.get("gate_proxy_gust_rec", {})
     print("\n  gate copertura per futura calibrazione mmax -> gust_rec 30'")
     print("    disponibili: %d ore, %d giorni, %d mesi; richiesti: >=%d ore, >=%d giorni, >=%d mesi"
           % (gate.get("ore", 0), gate.get("giorni", 0), gate.get("mesi", 0),
              gate.get("min_ore", 0), gate.get("min_giorni", 0), gate.get("min_mesi", 0)))
+    prog = gate.get("progresso", {})
+    print("    avanzamento: ore %5.1f%%  giorni %5.1f%%  mesi %5.1f%%  gate complessivo %5.1f%%"
+          % (100.0 * prog.get("ore", 0.0), 100.0 * prog.get("giorni", 0.0),
+             100.0 * prog.get("mesi", 0.0), 100.0 * gate.get("progresso_gate", 0.0)))
     print("    stato: %s" % ("APERTO" if gate.get("pronto") else "CHIUSO"))
 
     print("\n  VERDETTO")
