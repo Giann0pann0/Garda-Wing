@@ -96,8 +96,26 @@ ok("Torbole" in current and "Malcesine" in current,
    "il riquadro attuale contiene entrambe le localita'")
 ok('grid-template-columns:minmax(0,1fr) 320px' in H,
    "nelle previsioni il grafico ha la colonna principale")
-ok("Pelèr utile" in H and "≥8:" in H and "≥10:" in H and "≥12:" in H,
-   "la scheda Peler mostra durata compatta sopra 8/10/12 kn")
+ok(H.count('class="peler-card"') == 10,
+   "una scheda Peler per luogo e per giorno (%d)" % H.count('class="peler-card"'))
+ok("Finestra utile" in H and "Intensità" in H
+   and "Sopra 10 kn" in H and "Sopra 12 kn" in H,
+   "la scheda mostra finestra utile, intensita' e le due soglie che contano")
+ok("Continuità" in H and "Affidabilità" in H,
+   "e in fondo continuita' e affidabilita'")
+ok("Pelèr utile" not in H and "≥8:" not in H,
+   "via la vecchia riga e via gli 8 kn dalla vista: qualificavano troppo")
+# La finestra della scheda e' la finestra UTILE, non quella del regime: al
+# Peler il regime comincia alle 04:00 e nessuno naviga al buio. Il controllo
+# guarda l'ora stampata, non la funzione che la calcola.
+import re as _re2
+finestre = _re2.findall(r"<span>Finestra utile</span><b>(\d\d):(\d\d)", H)
+ok(bool(finestre), "la finestra utile viene stampata (%d schede)" % len(finestre))
+ok(all(int(h) * 60 + int(m) >= 6 * 60 for h, m in finestre),
+   "e non comincia mai prima delle 06:00, che e' l'ora pratica: %s"
+   % sorted(set("%s:%s" % f for f in finestre)))
+ok("04:00–" not in H.split('class="peler-card"')[1][:400],
+   "in particolare non e' la finestra del regime che parte alle 04:00")
 ok("current.hidden = (i!=='0')" in H,
    "scegliendo un altro giorno il riquadro attuale scompare")
 
@@ -107,9 +125,12 @@ for place in config.PLACES:
     resto = H[i_place:]
     i_chart = resto.index('<svg class="chart"')
     i_call = resto.index('class="callout')
+    i_peler = resto.index('class="peler-card"')
     i_half = resto.index('class="half"')
-    ok(i_chart < i_call and i_chart < i_half,
-       "%s: il grafico viene prima di callout e mezze giornate" % place)
+    ok(i_chart < i_call and i_chart < i_peler and i_chart < i_half,
+       "%s: il grafico resta il primo elemento, prima di commento, Peler e Ora"
+       % place)
+    ok(i_peler < i_half, "%s: e il Peler viene prima dell'Ora" % place)
 
 # ---- nessun dettaglio tecnico in home ----
 ok("Da dove arriva la previsione" not in H, "il pannello delle fonti non e' in home")
@@ -123,36 +144,91 @@ ok("pesi verificato" not in H and "modelli disponibili a questa scadenza" not in
 # ---- timing: nessun intervallo di errore mostrato all'utente ----
 ok(not re.search(r"Timing:.{0,40}±", H), "nessun '±NN min' come intervallo utente")
 ok("83 min" not in H, "l'errore medio del picco non compare in home")
-ok("incerto" in H, "quando la finestra non e' misurata, l'orario si dichiara incerto")
+# La riga "orario incerto" e' uscita dalla home: diceva sempre la stessa cosa,
+# perche' nessuno spot passa la porta dei 45 minuti. Il gate NON e' stato
+# tolto - vive in orari.py e nel report - ma la home non lo ripete piu'.
+ok("Orario <b>incerto</b>" not in H,
+   "via il messaggio 'orario incerto', che era costante e quindi muto")
+ok(not re.search(r"Ingresso pi\u00f9 probabile", H),
+   "e via anche l'ora di ingresso, che quella porta non l'ha mai aperta")
 
-# con una finestra di ingresso misurata, invece, i minuti compaiono con la copertura
-G2 = [dict(g) for g in GIORNI]
-s = dict(G2[0]["sessions"])
-t = dict(s["Torbole-Ora"])
-t["ingresso"] = {"min": 12 * 60 + 40, "half_min": 35.0, "coverage": 0.68}
-s["Torbole-Ora"] = t
-G2[0] = dict(G2[0], sessions=s)
-engine.by_day = lambda product=None: G2
-H2 = web.page_home()
-ok("Ingresso più probabile" in H2 and "12:40" in H2, "finestra di ingresso mostrata")
-ok("12:05" in H2 and "13:15" in H2, "la finestra ha i suoi estremi in orologio")
-ok("affidabilità timing" in H2 and "moderata" in H2,
-   "la qualita' del timing e' una parola")
-ok("68" not in H2.split("Ingresso")[1][:220] and "±" not in H2,
-   "niente percentuale di copertura ne' ± in home")
+# ---- oggi: il dato misurato prevale sul giudizio emesso stanotte ----
+# Non e' un nowcast: non sposta la curva futura, che e' il banco chiuso.
+# Serve a non dire "discreto" mentre l'anemometro misura diciassette nodi.
+live_ora = {"wind": 17.0, "gust": 22.0,
+            "dir": config.SPOTS["Torbole-Ora"]["axis_obs"],
+            "ts": GIORNI[0]["day"] + "T13:00:00Z", "age_min": 5.0,
+            "stale": False}
+st = web.live_regime_state(live_ora, config.SPOTS["Torbole-Ora"], today=True)
+ok(st and st["cls"] == "go", "17 kn di Ora osservata diventano Buono")
+cls_l, word_l = web.quality(GIORNI[0]["sessions"]["Torbole-Ora"],
+                            config.SPOTS["Torbole-Ora"], live_ora, True)
+ok(cls_l == "go" and word_l == "Buono",
+   "il giudizio di oggi segue il dato fresco (%s / %s)" % (cls_l, word_l))
+ok(web.live_regime_state(live_ora, config.SPOTS["Torbole-Ora"],
+                         today=False) is None,
+   "ma un giorno futuro non lo tocca: la previsione resta quella")
+vecchio = dict(live_ora, age_min=90.0)
+ok(web.live_regime_state(vecchio, config.SPOTS["Torbole-Ora"], today=True) is None,
+   "un campione stantio non decide niente")
+# Diciassette nodi da nord NON sono Ora buona: il settore e' una condizione.
+da_nord = dict(live_ora, dir=(config.SPOTS["Torbole-Ora"]["axis_obs"] + 180.0) % 360)
+ok(web.live_regime_state(da_nord, config.SPOTS["Torbole-Ora"], today=True) is None,
+   "e fuori dal settore non e' quel regime, per forte che sia")
+# Fuori dalla finestra del regime, nemmeno: l'Ora alle 6 del mattino non c'e'.
+presto = dict(live_ora, ts=GIORNI[0]["day"] + "T04:00:00Z")
+ok(web.live_regime_state(presto, config.SPOTS["Torbole-Ora"], today=True) is None,
+   "e fuori dall'orario del regime non e' quel regime")
 
-# oltre la soglia operativa dei 45 minuti non si mostra nessuna ora
-G3 = [dict(g) for g in GIORNI]
-s3 = dict(G3[0]["sessions"])
-t3 = dict(s3["Torbole-Ora"])
-t3["ingresso"] = {"min": 12 * 60 + 40, "half_min": 70.0, "coverage": 0.68}
-s3["Torbole-Ora"] = t3
-G3[0] = dict(G3[0], sessions=s3)
-engine.by_day = lambda product=None: G3
-H3 = web.page_home()
-ok("Ingresso più probabile" not in H3 and "incerto" in H3,
-   "sopra i 45 minuti si torna a dichiarare l'orario incerto")
-engine.by_day = lambda product=None: G2
+# ---- la scheda parla di UNA finestra sola ----
+# Il caso che questo controllo difende e' reale ed era il primo difetto della
+# scheda: il picco della sessione e' quello della finestra del REGIME, che al
+# Peler comincia alle 04:00. Con un Peler forte alle cinque del mattino e
+# debole dalle sette in poi, la card scriveva "Intensita' 10-14 kn" accanto a
+# "Sopra 10 kn: -" nello stesso riquadro. Due finestre in una scheda.
+def _profilo(valori):
+    """valori: {ora: vento}. lo/hi stretti attorno, come fa l'ensemble."""
+    return [{"hour": h, "wind": w, "gust": w * 1.4, "lo": w - 1.0, "hi": w + 1.0}
+            for h, w in sorted(valori.items())]
+
+
+_sess = {"Torbole-Peler": dict(GIORNI[0]["sessions"]["Torbole-Peler"],
+                               speed=14.0, lo=12.0, hi=16.0, prob=0.8)}
+_oggi = GIORNI[0]["day"]
+# Forte alle 5 (fuori finestra), debole dalle 7: la scheda deve dire debole.
+buio = web.peler_card("Torbole", _profilo({4: 15.0, 5: 15.0, 6: 9.0, 7: 6.0,
+                                           8: 6.0, 9: 6.0, 10: 6.0, 11: 5.0}),
+                      _sess, _oggi)
+ok("q-no" in buio or "q-meh" in buio,
+   "vento forte solo prima dell'alba: la scheda non dice Buono")
+ok("15" not in buio.split("Intensit")[1][:60],
+   "e l'intensita' non e' quella dei quindici nodi al buio: %s"
+   % buio.split("Intensit")[1][:60].replace("\u00e0", ""))
+ok("Sopra 10 kn</span><b>\u2014</b>" in buio
+   or "Sopra 10 kn</span><b>&mdash;</b>" in buio,
+   "e sopra i 10 non c'e' niente, perche' dentro la finestra non ci arriva")
+
+# Lo specchio: forte per tutta la finestra utile. Qui la durata TOCCA i bordi,
+# quindi e' un limite inferiore e la scheda deve scriverlo.
+pieno = web.peler_card("Torbole", _profilo({h: 14.0 for h in range(4, 13)}),
+                       _sess, _oggi)
+ok("q-go" in pieno, "vento forte per tutta la finestra: Buono")
+ok("&ge;" in pieno,
+   "e la durata e' marcata come limite, perche' tocca i bordi della finestra")
+ok("Continuit\u00e0 <b>100%</b>" in pieno
+   or "Continuità <b>100%</b>" in pieno,
+   "con vento sempre sopra soglia la continuita' e' cento per cento")
+
+# Un giorno d'inverno: la finestra utile comincia dopo, e la scheda lo dice.
+inverno = web.peler_card("Torbole", _profilo({h: 12.0 for h in range(4, 13)}),
+                         _sess, "2026-12-21")
+ok("<b>08:" in inverno,
+   "al solstizio d'inverno la finestra utile comincia dopo le otto: %s"
+   % (re.search(r"Finestra utile</span><b>([^<]+)", inverno) or ["?"])[0][-14:])
+estate = web.peler_card("Torbole", _profilo({h: 12.0 for h in range(4, 13)}),
+                        _sess, "2026-06-21")
+ok("<b>06:00" in estate,
+   "e al solstizio d'estate dall'ora pratica, le sei")
 
 # ---- raffica: la parola per esteso, e la curva nel grafico ----
 ok("raffica" in H, "la parola raffica e' scritta per esteso")
@@ -176,8 +252,16 @@ ok("Torbole" not in head and "Malcesine" not in head,
 ok("prefers-color-scheme" not in H, "nessun secondo tema mezzo curato")
 ok('content="dark"' in H, "il tema scuro e' dichiarato al browser")
 
-# ---- affidabilita': niente percentuali inventate ----
-ok(not re.search(r"Affidabilità[^<]*</p>\s*<div[^>]*>\s*\d+\s*%", H),
-   "nessuna percentuale di affidabilita' inventata")
-ok("Tendenza" in H or "Buona" in H or "Alta" in H or "Outlook" in H,
-   "l'affidabilita' e' una parola, non un numero")
+# ---- affidabilita': una parola; percentuale solo dove esiste ----
+# La distinzione regge ancora, ed e' la ragione per cui l'anello non e' stato
+# buttato via ma spostato dentro la scheda: l'affidabilita' alla scadenza
+# ("quanto sappiamo a tre giorni") e la probabilita' del regime ("quanto e'
+# probabile che il Peler ci sia") sono due grandezze diverse. La prima non ha
+# una percentuale perche' non la misuriamo; la seconda si', ed e' del modello.
+ok(not re.search(r"Affidabilità\s*<b>\s*\d+\s*%", H),
+   "l'affidabilita' non diventa mai una percentuale")
+ok(re.search(r"Affidabilità\s*<b>(alta|buona|tendenza|outlook)</b>", H)
+   is not None,
+   "resta una parola, dentro la scheda Peler")
+ok(re.search(r"Probabilità\s*<b>\d+%</b>", H) is not None,
+   "e la percentuale che si mostra e' la probabilita' del regime, che esiste")

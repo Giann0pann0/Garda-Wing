@@ -20,7 +20,9 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import config, confidence, engine, store, verify
-from .util import clamp, local_day, parse_dt_any, to_local, utc_now
+from .util import (angle_diff, clamp, local_day, parse_dt_any,
+                   sampling_cadence, sustained_onset, time_above,
+                   to_local, utc_now)
 
 E = html.escape
 
@@ -208,10 +210,27 @@ details.tbl .scroller{overflow-x:auto}
   font-family:"Avenir Next",system-ui,sans-serif}
 .half .kn small{font-size:12px;color:var(--ink-2);font-weight:600}
 .half .win{font-size:12px;color:var(--ink-3);margin-top:3px}
-.useful{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0 0;
-  padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
-.useful span{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
-.useful b{color:var(--ink);font-variant-numeric:tabular-nums}
+.halves.single{grid-template-columns:1fr}
+.probline{font-size:12px;color:var(--ink-3);margin-top:6px}
+.probline b{color:var(--ink);font-variant-numeric:tabular-nums}
+.peler-card{border-radius:14px;padding:13px 14px;background:var(--card-2);
+  border:1px solid var(--line);margin:0 0 12px}
+.peler-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.peler-head .title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:700}
+.peler-head .q{margin-top:0}
+.peler-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
+.peler-metric{min-width:0;border-radius:10px;padding:9px 10px;background:var(--card-3);
+  border:1px solid var(--line)}
+.peler-metric span{display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--ink-3);line-height:1.25}
+.peler-metric b{display:block;margin-top:4px;color:var(--ink);font-size:15px;
+  line-height:1.2;font-variant-numeric:tabular-nums}
+.peler-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--ink-2)}
+.peler-foot b{color:var(--ink);font-variant-numeric:tabular-nums}
+.peler-note{margin:8px 0 0;font-size:11px;color:var(--ink-3);line-height:1.35}
 .q-go i{background:var(--good)}.q-go{color:var(--good)}
 .q-meh i{background:var(--warn)}.q-meh{color:var(--warn)}
 .q-no i{background:var(--crit)}.q-no{color:var(--crit)}
@@ -433,7 +452,49 @@ def place_spots(place):
 META_REGIME = [("PELER", "Pel\u00e8r", "mattina"), ("ORA", "Ora", "pomeriggio")]
 
 
-def quality(data, spot):
+def live_regime_state(live, spot, today=False):
+    """Stato OSSERVATO del regime attivo, solo se il campione e' fresco.
+
+    Non e' un nowcast e non sposta la curva futura - quel banco e' chiuso, il
+    guadagno contro la persistenza non passa la porta. Serve soltanto a
+    evitare una contraddizione di prodotto: se alle 16:40 la centralina misura
+    17 kn di Ora, la card di oggi non puo' continuare a dire "discreto"
+    perche' la previsione emessa stanotte era piu' bassa.
+
+    Per attribuire il campione a un regime servono TUTTE le condizioni:
+    giorno odierno, dato fresco, ora dentro la finestra di quel regime, e
+    direzione dentro il settore osservato. Diciassette nodi da nord non
+    diventano "Ora buona" - sarebbero un'altra cosa con lo stesso numero.
+    """
+    if not today or not live or live.get("wind") is None:
+        return None
+    age = live.get("age_min")
+    if age is not None and age > ETA_STANTIA_MIN:
+        return None
+    dt = parse_dt_any(live.get("ts") or "")
+    if dt is None:
+        return None
+    loc = to_local(dt)
+    ora = loc.hour + loc.minute / 60.0
+    h0, h1 = spot["window"]
+    if ora < h0 or ora >= h1 + 1:
+        return None
+    direzione = live.get("dir")
+    if direzione is None:
+        return None
+    if angle_diff(float(direzione), float(spot["axis_obs"])) > config.REGIME_SECTOR_DEG:
+        return None
+    vento = float(live["wind"])
+    if vento >= spot["planing_kn"]:
+        cls, word = "go", "Buono"
+    elif vento >= spot["min_kn"]:
+        cls, word = "meh", "Discreto"
+    else:
+        cls, word = "no", "Scarso"
+    return {"wind": vento, "cls": cls, "word": word, "hour": ora}
+
+
+def quality(data, spot, live=None, today=False):
     """Tre livelli, una parola ciascuno, piu' il colore.
 
     La soglia non e' estetica: "Scarso" vuol dire che il vento non arriva a
@@ -441,7 +502,13 @@ def quality(data, spot):
     e' cosi' bassa che l'intensita' e' condizionata a un evento che non capita.
     "Buono" richiede DUE cose insieme: sopra la soglia di planata e una
     probabilita' che regga. Fra i due c'e' tutto il resto, che e' "Discreto".
+
+    Oggi, e solo oggi, il dato misurato ha la precedenza: una previsione
+    emessa stanotte non puo' smentire un anemometro che sta misurando adesso.
     """
+    misurato = live_regime_state(live, spot, today)
+    if misurato:
+        return misurato["cls"], misurato["word"]
     if not data:
         return "off", "\u2014"
     prob, speed = data.get("prob") or 0.0, data.get("speed") or 0.0
@@ -601,35 +668,168 @@ def current_conditions_panel(entry):
         '<div class="current-grid">%s</div></section>' % "".join(cards))
 
 
-def peler_useful_line(place, profile, sessions):
-    """Durata prevista sopra 8/10/12 kn nella finestra pratica 06-11.
+# La finestra utile non e' la finestra del regime, e non e' la finestra del
+# vento migliore previsto: e' quella in cui si puo' davvero essere in acqua.
+# Tre vincoli, il piu' stretto vince - finestra del regime, ora pratica, luce -
+# e la calcola orari.finestra_utile_del_giorno(), che e' l'unico posto dove
+# quella definizione vive. Al Peler di dicembre la differenza non e' un
+# dettaglio: la finestra del regime comincia alle 04:00 e il sole si alza alle
+# 07:50. Una card che promettesse vento dalle 04:00 prometterebbe di navigare
+# al buio.
+PASSO_CARD_MIN = 10.0
 
-    E' una descrizione della media prevista, non un nuovo giudizio di planata.
-    La durata deriva dagli slot orari presenti: nessun campione viene inventato.
+
+def _serie_finestra(profile, inizio, fine, passo=PASSO_CARD_MIN):
+    """La curva prevista dentro la finestra, su griglia di dieci minuti.
+
+    Qui si interpola, e va detto: il profilo ha un punto per ora. Non e'
+    inventare un campione osservato - la curva del modello e' un campo
+    continuo campionato ogni ora, ed e' esattamente come la disegna il
+    grafico sopra - ma serve perche' la finestra utile ha estremi al minuto
+    (08:30, non le 08) e senza griglia fine quegli estremi non esisterebbero.
     """
+    punti = sorted((float(r["hour"]) * 60.0, float(r["wind"])) for r in profile
+                   if r.get("hour") is not None and r.get("wind") is not None)
+    if len(punti) < 2 or fine <= inizio:
+        return []
+
+    def a_minuto(m):
+        if m < punti[0][0] or m > punti[-1][0]:
+            return None
+        for i in range(len(punti) - 1):
+            xa, ya = punti[i]
+            xb, yb = punti[i + 1]
+            if xa <= m <= xb:
+                if xb == xa:
+                    return ya
+                return ya + (m - xa) / (xb - xa) * (yb - ya)
+        return punti[-1][1]
+
+    out = []
+    m = float(inizio)
+    while m <= fine + 1e-9:
+        v = a_minuto(m)
+        if v is not None:
+            out.append((m, v))
+        m += passo
+    return out
+
+
+def _durata_soglia(serie, soglia, passo=PASSO_CARD_MIN):
+    """Minuti sopra soglia, e se quel numero e' un limite inferiore.
+
+    Le due funzioni sono quelle di util, le stesse che usano il report e la
+    climatologia: sostenuta vuol dire che la soglia regge per almeno mezz'ora
+    consecutiva (sustained_onset), i minuti sono il tempo sopra soglia
+    (time_above). Una terza implementazione delle stesse due idee dentro la
+    pagina vorrebbe dire che fra sei mesi la card e la tabella diranno numeri
+    diversi sulla stessa giornata.
+
+    Il limite e' la censura della finestra: se il vento e' gia' sopra soglia
+    al primo punto, o ancora sopra all'ultimo, il periodo comincia prima o
+    continua dopo e i minuti dentro la finestra sono un ">=".
+    """
+    if not serie:
+        return None, False
+    if sustained_onset(serie, float(soglia), persist_min=PERSISTENZA_CARD_MIN,
+                       cadence_min=passo) is None:
+        return None, False
+    minuti = time_above(serie, float(soglia), passo)
+    limite = serie[0][1] >= soglia or serie[-1][1] >= soglia
+    return minuti, limite
+
+
+PERSISTENZA_CARD_MIN = 30.0
+
+
+def _durata_parole(minuti, limite=False):
+    if not minuti:
+        return "—"
+    pre = "&ge;" if limite else ""
+    h, m = divmod(int(round(minuti)), 60)
+    if h and m:
+        return "%s%dh %02d" % (pre, h, m)
+    if h:
+        return "%s%dh" % (pre, h)
+    return "%s%d min" % (pre, m)
+
+
+def peler_card(place, profile, sessions, giorno=None, live=None, today=False):
+    """La sessione utile del Peler: sostituisce la vecchia card mattina.
+
+    Cinque numeri, e sono quelli che decidono se alzarsi: quando si puo'
+    essere in acqua, quanto vento ci sara' dentro quella finestra, per quanto
+    tempo sopra le due soglie che contano, quanto e' continuo, e quanto ci si
+    puo' fidare della previsione a questa scadenza.
+
+    Gli 8 kn restano nel calcolo del report ma non qui: qualificano due
+    giornate su tre e non discriminano niente. La soglia che separa e' 10; i
+    12 dicono se il Peler e' di quelli consistenti.
+    """
+    from . import orari as O
+
     name = place_spots(place).get("PELER")
     if not name or name not in sessions:
         return ""
-    vals = sorted((int(r["hour"]), float(r["wind"])) for r in profile
-                  if r.get("hour") is not None and r.get("wind") is not None
-                  and 6 <= int(r["hour"]) <= 10)
-    if not vals:
+    data = sessions[name]
+    spot = config.SPOTS[name]
+    giorno = giorno or local_day(utc_now())
+    inizio, fine = O.finestra_utile_del_giorno(name, giorno)
+    if fine <= inizio:
         return ""
-    def longest(threshold):
-        best = run = 0
-        prev = None
-        for hour, wind in vals:
-            if wind >= threshold:
-                run = run + 1 if prev is not None and hour == prev + 1 else 1
-                best = max(best, run)
-                prev = hour
-            else:
-                run = 0
-                prev = None
-        return best
-    return ('<div class="useful"><span>Pelèr utile</span>'
-            '<b>≥8: %dh</b><b>≥10: %dh</b><b>≥12: %dh</b></div>'
-            % (longest(8), longest(10), longest(12)))
+    serie = _serie_finestra(profile, inizio, fine)
+    if not serie:
+        return ""
+
+    d10, lim10 = _durata_soglia(serie, 10.0)
+    d12, lim12 = _durata_soglia(serie, 12.0)
+    ampiezza = max(1.0, fine - inizio)
+    # La continuita' e' una QUOTA della finestra, e per questo non e'
+    # censurata: la finestra e' il denominatore, non un taglio. E' l'unico
+    # modo di dire "quanto a lungo" che si puo' confrontare fra dicembre, che
+    # ha due ore e mezza di luce utile, e luglio, che ne ha cinque.
+    continuita = int(round(100.0 * min(time_above(serie, 10.0, PASSO_CARD_MIN),
+                                       ampiezza) / ampiezza))
+
+    # Tutto nella scheda deve venire dalla STESSA finestra, altrimenti dice
+    # due cose che si contraddicono nello stesso riquadro. Il picco della
+    # sessione che sta in `data` e' quello della finestra del REGIME, che al
+    # Peler comincia alle 04:00: con quello la scheda scriveva "Intensita'
+    # 10-14 kn" accanto a "Sopra 10 kn: -", perche' i dieci nodi c'erano alle
+    # cinque del mattino, al buio, fuori da dove si puo' navigare.
+    dentro = [r for r in profile
+              if r.get("hour") is not None and r.get("wind") is not None
+              and inizio <= float(r["hour"]) * 60.0 <= fine]
+    migliore = max(dentro, key=lambda r: float(r["wind"])) if dentro else None
+    picco = float(migliore["wind"]) if migliore else max(v for _m, v in serie)
+    # Anche il giudizio: le soglie restano quelle dello spot, ma la velocita'
+    # su cui si applicano e' quella della finestra utile.
+    cls, word = quality(dict(data, speed=picco), spot, live, today)
+    lo = (migliore or {}).get("lo")
+    hi = (migliore or {}).get("hi")
+    if lo is None or hi is None:
+        lo = hi = picco
+    intensita = "%.0f–%.0f kn" % (lo, hi)
+    conf = confidence.sintesi_giorno([data.get("affidabilita")])
+    liv = int((conf or {}).get("livello") or 0)
+    return (
+        '<div class="peler-card">'
+        '<div class="peler-head"><div class="title">Pelèr · mattina</div>'
+        '<div class="q q-%s"><i></i>%s</div></div>'
+        '<div class="peler-grid">'
+        '<div class="peler-metric"><span>Finestra utile</span><b>%s–%s</b></div>'
+        '<div class="peler-metric"><span>Intensità</span><b>%s</b></div>'
+        '<div class="peler-metric"><span>Sopra 10 kn</span><b>%s</b></div>'
+        '<div class="peler-metric"><span>Sopra 12 kn</span><b>%s</b></div>'
+        '</div>'
+        '<div class="peler-foot"><span>Continuità <b>%d%%</b></span>'
+        '<span>Affidabilità <b>%s</b></span></div>'
+        '<p class="peler-note">Valutazione sul vento medio: la raffica '
+        'ricorrente a 30′ è ancora in validazione, quindi con il wing '
+        'si plana anche sotto questi numeri.</p></div>'
+        % (cls, E(word), hhmm(inizio), hhmm(fine), E(intensita),
+           _durata_parole(d10, lim10), _durata_parole(d12, lim12),
+           continuita, E(RING_WORD[liv].lower())))
 
 
 def now_column(place, index, live, profile):
@@ -937,17 +1137,24 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
 
 
-def half_cards(place, sessions):
-    """Mattina contro pomeriggio, affiancate, con la stessa grammatica."""
+def half_cards(place, sessions, live=None, today=False):
+    """La card compatta dell'Ora. Il Peler ha la sua, sopra.
+
+    Non e' una scelta grafica: la vecchia card mattina diceva meno di quello
+    che sappiamo adesso sul Peler, e tenere entrambe sarebbe stato scrivere
+    due volte la stessa giornata con due livelli di dettaglio diversi.
+    """
     spots = place_spots(place)
     cards = []
     for key, lab, when in META_REGIME:
+        if key == "PELER":
+            continue
         name = spots.get(key)
         data = sessions.get(name) if name else None
         if not data:
             continue
         spot = config.SPOTS[name]
-        cls, word = quality(data, spot)
+        cls, word = quality(data, spot, live, today)
         h0, h1 = spot["window"]
         win = data.get("window")
         # I minuti compaiono SOLO se esiste una finestra di ingresso con
@@ -961,20 +1168,37 @@ def half_cards(place, sessions):
             wtxt = "meglio fra le %02d e le %02d" % (win["from"], win["to"])
         else:
             wtxt = "nessuna finestra"
+        prob = int(round(100.0 * clamp(data.get("prob") or 0.0, 0.0, 1.0)))
         cards.append(
             '<div class="half"><div class="h">%s \u00b7 %s</div>'
             '<div class="when">%02d:00 \u2013 %02d:00</div>'
             '<div class="q q-%s"><i></i>%s</div>'
             '<div class="kn">%.0f\u2013%.0f <small>kn</small></div>'
-            '<div class="win">%s</div></div>'
+            '<div class="win">%s</div>'
+            '<div class="probline">Probabilit\u00e0 <b>%d%%</b></div></div>'
             % (E(when.upper()), E(lab), h0, h1 + 1, cls, E(word),
-               data["lo"], data["hi"], E(wtxt)))
-    return '<div class="halves">%s</div>' % "".join(cards) if cards else ""
+               data["lo"], data["hi"], E(wtxt), prob))
+    return '<div class="halves single">%s</div>' % "".join(cards) if cards else ""
 
 
-def best_callout(place, sessions):
+def best_callout(place, sessions, live=None, today=False):
     """Una frase: dove sta la giornata. E se non c'e', lo dice."""
     spots = place_spots(place)
+
+    # Oggi la realta' ha la precedenza sul giudizio emesso stanotte. E' solo
+    # stato corrente: non corregge la curva futura, che sarebbe il nowcast -
+    # e quel banco e' chiuso, perche' contro la persistenza pura non guadagna.
+    for key, lab, _when in META_REGIME:
+        name = spots.get(key)
+        if not name or name not in sessions:
+            continue
+        misurato = live_regime_state(live, config.SPOTS[name], today)
+        if misurato:
+            return ('<div class="callout %s"><div class="big %s">'
+                    '%s adesso \u00b7 %.0f kn</div></div>'
+                    % (misurato["cls"], misurato["cls"], E(lab),
+                       misurato["wind"]))
+
     best = None
     for key, lab, when in META_REGIME:
         name = spots.get(key)
@@ -1088,36 +1312,33 @@ def place_section(place, index, entry, visible):
     """Una sezione per luogo: adesso, poi il grafico, poi il giudizio."""
     sessions = entry["sessions"]
     pl = entry["places"][place]
-    conf = confidence.sintesi_giorno(
-        [sessions[n].get("affidabilita") for n in place_spots(place).values()
-         if n in sessions])
+    today = (entry.get("day") == local_day(utc_now()))
+    live = pl.get("live")
     return (
         '<section class="place p%d" data-day="%d" data-place="%s"%s>'
         '<div class="placehead">%s</div>'
         '<div class="pgrid">'
         '<div class="pchart"><p class="lbl">Previsione vento</p>'
         '<h3>%s</h3>%s</div>'
-        '<div class="pjudge">'
-        '<div class="ringrow">%s<div><p class="lbl">Affidabilit\u00e0</p>'
-        '<div class="rword" style="color:%s">%s</div>'
-        '<div class="rtxt">%s</div></div></div>%s'
-        '%s%s%s%s</div></div></section>'
+        '<div class="pjudge">%s%s%s%s</div></div></section>'
         % (index + 1, entry["_i"], E(place), "" if visible else " hidden",
            place_head(place),
            E(day_title(entry["day"], entry["lead"])[1]),
            place_chart(place, pl.get("profile") or [], regime_bands(place),
                        "c%d%d" % (entry["_i"], index),
-                       oggi=(entry.get("day") == local_day(utc_now())),
+                       oggi=today,
                        osservato=pl.get("osservato")),
-           reliability_ring(conf),
-           RING_COLOR[int((conf or {}).get("livello") or 0)],
-           E(RING_WORD[int((conf or {}).get("livello") or 0)]),
-           E((conf or {}).get("motivo") or (conf or {}).get("uso") or ""),
+           # source_note NON e' prosa tecnica: in esercizio normale e' una
+           # stringa vuota, perche' parla solo quando la previsione NON e'
+           # calibrata su quella centralina - a macchina fredda, dove i
+           # numeri vengono da una stima fisica e non da un modello
+           # addestrato. Togliendola, il primo avvio mostrerebbe numeri
+           # senza dire che non sono ancora tarati.
            source_note(place, sessions),
-           best_callout(place, sessions),
-           half_cards(place, sessions),
-           peler_useful_line(place, pl.get("profile") or [], sessions),
-           timing_line(place, sessions)))
+           best_callout(place, sessions, live, today),
+           peler_card(place, pl.get("profile") or [], sessions,
+                      entry.get("day"), live, today),
+           half_cards(place, sessions, live, today)))
 
 
 def week_strip(days):
@@ -1152,14 +1373,19 @@ def week_strip(days):
                 bestxt = "nessuna finestra"
         else:
             kn, bestxt = "\u2014", ""
+        # Nella striscia va la probabilita' del regime, che e' un numero che
+        # esiste; l'affidabilita' alla scadenza resta una parola e sta dentro
+        # la scheda, dove si guarda dopo aver scelto il giorno. Sono due cose
+        # diverse e nessuna delle due e' una percentuale di "quanto ci
+        # azzecchiamo": quella non la misuriamo e non la scriviamo.
         confs = []
         for place in config.PLACES:
-            c = confidence.sintesi_giorno(
-                [sessions[n].get("affidabilita") for n in place_spots(place).values()
-                 if n in sessions])
-            liv = int((c or {}).get("livello") or 0)
-            confs.append('<div><i class="cfd-%d"></i>%s \u00b7 %s</div>'
-                         % (liv, E(place), E(RING_WORD[liv].lower())))
+            vals = [sessions[n].get("prob")
+                    for n in place_spots(place).values()
+                    if n in sessions and sessions[n].get("prob") is not None]
+            if vals:
+                pct = int(round(100.0 * clamp(max(vals), 0.0, 1.0)))
+                confs.append('<div>%s \u00b7 %d%%</div>' % (E(place), pct))
         cards.append(
             '<button class="dcard" type="button" data-goto="%d" aria-current="%s">'
             '<div class="dd">%s</div><div class="dl">%s</div>'
