@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS fc_hour(
 );
 CREATE INDEX IF NOT EXISTS ix_fc_valid ON fc_hour(point, valid);
 
+-- Curva oraria effettivamente emessa all'utente. Serve a validare in futuro
+-- il nowcast contro LA PREVISIONE MOSTRATA, non contro un surrogato storico.
+-- Una riga per run/luogo/ora valida; nessuna correzione nowcast e' applicata qui.
+CREATE TABLE IF NOT EXISTS issued_profile(
+  place       TEXT NOT NULL,
+  issued_at   TEXT NOT NULL,
+  valid_hour  TEXT NOT NULL,
+  wind_kn     REAL,
+  gust_kn     REAL,
+  PRIMARY KEY(place, issued_at, valid_hour)
+);
+CREATE INDEX IF NOT EXISTS ix_issued_profile_valid ON issued_profile(place, valid_hour);
+
 -- Archivio storico delle previsioni (historical-forecast-api, best_match):
 -- la sorgente dei predittori usati in addestramento.
 CREATE TABLE IF NOT EXISTS arch_hour(
@@ -508,6 +521,24 @@ def _insert_rows(table, fixed_cols, fixed_vals, rows):
 
 def save_forecast(point, model, run, rows):
     return _insert_rows("fc_hour", ["point", "model", "run"], [point, model, run], rows)
+
+
+def save_issued_profile(place, issued_at, rows):
+    """Archivia la curva effettivamente mostrata, idempotente per run.
+
+    rows: iterable di dict con `key` UTC, `wind`, `gust`. Il chiamante passa
+    l'identificatore del run: ricaricare la pagina non crea nuovi snapshot.
+    """
+    payload = [(place, issued_at, r.get("key"), r.get("wind"), r.get("gust"))
+               for r in rows if r.get("key") and r.get("wind") is not None]
+    if not payload or not issued_at:
+        return 0
+    c = connect()
+    c.executemany(
+        "INSERT OR REPLACE INTO issued_profile(place,issued_at,valid_hour,wind_kn,gust_kn) "
+        "VALUES(?,?,?,?,?)", payload)
+    c.commit()
+    return len(payload)
 
 
 def save_archive(point, rows):

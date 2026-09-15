@@ -1412,7 +1412,15 @@ def by_day(product=None):
         lead = min(e["lead"] for e in sessions.values())
         places = {}
         for place in config.PLACES:
-            places[place] = {"profile": day_profile(place, day, sessions),
+            profile = day_profile(place, day, sessions)
+            # Archiviamo la curva *prima* di qualunque futuro nowcast. La chiave
+            # e' il run delle previsioni, quindi un refresh della pagina e'
+            # idempotente. Questa storia prospettica e' il gate necessario per
+            # validare la correzione esattamente sul prodotto mostrato.
+            issued_at = store.meta_get("last_forecast_run")
+            if profile and issued_at:
+                store.save_issued_profile(place, issued_at, profile)
+            places[place] = {"profile": profile,
                              # L'osservato serve solo per la giornata di oggi:
                              # nei giorni futuri non esiste, e nei passati la
                              # pagina non li mostra.

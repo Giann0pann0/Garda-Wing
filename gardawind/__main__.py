@@ -13,6 +13,7 @@
     python3 -m gardawind --poll-once     legge le centraline una volta ed esce
     python3 -m gardawind --live-json F   legge le centraline e scrive F (solo osservato)
     python3 -m gardawind --addicted [N]  legge addicted-sports (N giorni indietro)
+    python3 -m gardawind --nowcast-validazione  valida persistenza intraday senza attivarla
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
 
@@ -1611,6 +1612,37 @@ def _open_browser(url):
         return False
 
 
+def cmd_nowcast_validazione():
+    from . import nowcast as N
+    rep = N.validation_report()
+    print("\n" + "=" * 78)
+    print("  NOWCAST INTRADAY - VALIDAZIONE, NON PRODUZIONE")
+    print("  banco storico: lead1; correzione all'ora h usa solo lo scarto di h-1")
+    print("=" * 78)
+    for spot_name in N.REGIMES:
+        r = rep["historical"][spot_name]
+        print("\n  %s" % spot_name)
+        if not r["folds"]:
+            print("    nessun fold valutabile; stato CHIUSO (%s)" % r["reason"])
+            continue
+        for f in r["folds"]:
+            print("    %d  n=%4d  alpha=%.2f  MAE %.2f -> %.2f (guadagno %.2f kn)  "
+                  "RMSE %.2f -> %.2f (guadagno %.2f kn)"
+                  % (f["year"], f["n"], f["alpha"], f["mae_base"],
+                     f["mae_nowcast"], f["gain_mae"], f["rmse_base"],
+                     f["rmse_nowcast"], f["gain_rmse"]))
+        print("    gate concettuale: %s (%s)" % (r["state"].upper(), r["reason"]))
+    p = rep["production"]
+    print("\n  gate prodotto realmente mostrato")
+    print("    archivio issued_profile: %d righe, %d giorni; richiesti >=%d righe, >=%d giorni"
+          % (p["n"], p["days"], N.PROD_MIN_TARGETS, N.PROD_MIN_DAYS))
+    print("    stato: %s (%s)" % (p["state"].upper(), p["reason"]))
+    print("\n  VERDETTO")
+    print("  - il gate storico dice se lo scarto intraday persiste fuori campione;")
+    print("  - il gate produttivo resta separato: finche' non apre, nessuna correzione")
+    print("    nowcast modifica la curva o la UI mostrata all'utente.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="gardawind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1663,6 +1695,8 @@ def main(argv=None):
     ap.add_argument("--addicted-validazione", action="store_true",
                     help="confronta Addicted con T0193 e segnala le parti sicure "
                          "e quelle che non devono ancora entrare nel modello")
+    ap.add_argument("--nowcast-validazione", action="store_true",
+                    help="valida persistenza intraday e gate del nowcast senza attivarlo")
     ap.add_argument("--massimo", type=int, metavar="N",
                     help="limita il censimento alle ultime N richieste "
                          "(per provare senza scaricare dodici anni)")
@@ -1722,6 +1756,10 @@ def main(argv=None):
 
     if args.addicted_importa:
         cmd_addicted_importa(stazioni=args.stazione)
+        return 0
+
+    if args.nowcast_validazione:
+        cmd_nowcast_validazione()
         return 0
 
     if args.addicted_validazione:
