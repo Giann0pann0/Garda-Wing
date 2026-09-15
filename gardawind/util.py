@@ -1128,3 +1128,80 @@ def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35,
     if len(xs) < min_n:
         return esito([centro(a)], None, "pochi_dati")
     return esito([centro(a), centro(b)], dip)
+
+
+# ==========================================================================
+# Luce del giorno
+# ==========================================================================
+#
+# Serve per una ragione pratica, non astronomica: sul Peler la finestra utile
+# non comincia quando nasce il vento, comincia quando si vede. Un'ora pratica
+# fissa alle 06:00 a dicembre e' prima dell'alba - si starebbe ottimizzando
+# un'ora in cui nessuno puo' essere in acqua - e a giugno butta via mezz'ora
+# buona. L'alba si muove di due ore fra dicembre e giugno, e il Peler e'
+# l'unico regime dei due in cui questo vincola davvero.
+#
+# La formula e' quella NOAA, in forma ridotta: niente rete, niente tabelle,
+# solo aritmetica, e quindi deterministica e verificabile. L'errore su
+# latitudini come quella del Garda e' dell'ordine del minuto - abbastanza per
+# decidere se si parte alle 6 o alle 8, che e' tutto quello che serve qui.
+
+ZENIT_ALBA_DEG = 90.833      # alba civile: bordo del sole piu' rifrazione
+
+
+def _giorno_giuliano(anno, mese, giorno):
+    if mese <= 2:
+        anno -= 1
+        mese += 12
+    a = anno // 100
+    b = 2 - a + a // 4
+    return (int(365.25 * (anno + 4716)) + int(30.6001 * (mese + 1))
+            + giorno + b - 1524.5)
+
+
+def alba_tramonto(data_iso, lat, lon, offset_ore, zenit=ZENIT_ALBA_DEG):
+    """(alba, tramonto) in minuti dalla mezzanotte LOCALE, o (None, None).
+
+    offset_ore e' l'offset del fuso in quel giorno (per l'Italia 1 d'inverno,
+    2 d'estate): l'alba dipende dal fuso civile, e passarlo esplicitamente
+    evita di dover indovinare l'ora legale dentro una formula astronomica.
+
+    Ritorna (None, None) oltre i circoli polari, dove il sole puo' non
+    sorgere: qui non capita, ma un None e' meglio di un numero inventato.
+    """
+    anno, mese, giorno = (int(x) for x in data_iso[:10].split("-"))
+    jd = _giorno_giuliano(anno, mese, giorno)
+    n = jd - 2451545.0 + 0.0008
+    # anomalia media, centro, longitudine eclittica
+    m = math.radians((357.5291 + 0.98560028 * n) % 360.0)
+    c = (1.9148 * math.sin(m) + 0.0200 * math.sin(2 * m)
+         + 0.0003 * math.sin(3 * m))
+    lam = math.radians((math.degrees(m) + c + 180.0 + 102.9372) % 360.0)
+    # declinazione e equazione del tempo (in minuti)
+    decl = math.asin(math.sin(lam) * math.sin(math.radians(23.4397)))
+    y = math.tan(math.radians(23.4397) / 2.0) ** 2
+    eqt = 4.0 * math.degrees(
+        y * math.sin(2.0 * math.radians((math.degrees(lam) - 102.9372) % 360.0))
+        - 2.0 * 0.0167 * math.sin(m)
+        + 4.0 * 0.0167 * y * math.sin(m)
+        * math.cos(2.0 * math.radians((math.degrees(lam) - 102.9372) % 360.0)))
+    phi = math.radians(lat)
+    cos_h = ((math.cos(math.radians(zenit)) - math.sin(phi) * math.sin(decl))
+             / (math.cos(phi) * math.cos(decl)))
+    if cos_h > 1.0 or cos_h < -1.0:
+        return None, None
+    h = math.degrees(math.acos(cos_h))
+    # mezzogiorno solare locale, in minuti dalla mezzanotte civile
+    mezzogiorno = 720.0 - 4.0 * lon - eqt + offset_ore * 60.0
+    return mezzogiorno - 4.0 * h, mezzogiorno + 4.0 * h
+
+
+def offset_locale_ore(data_iso):
+    """Offset del fuso italiano in quel giorno, in ore: 1 o 2.
+
+    Si appoggia alla stessa conversione usata da tutto il resto del
+    programma, invece di rifare le regole dell'ora legale qui.
+    """
+    dt = parse_iso_utc(data_iso[:10] + "T12:00:00Z")
+    loc = to_local(dt)
+    return (loc.utcoffset().total_seconds() / 3600.0) if loc.utcoffset() else 1.0

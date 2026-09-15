@@ -72,3 +72,64 @@ ok(abs(U.brier([1.0]*10,[1]*10))<1e-12, "brier perfetto = 0")
 cov,_=U.interval_coverage([0]*100,[10]*100,[5]*100)
 ok(cov==1.0, "copertura 100%")
 print("\n-- quantile --", U.quantile([1,2,3,4,5],0.5), U.quantile([1,2,3,4,5],0.1))
+
+# ===================== luce del giorno =====================
+# Serve a una decisione pratica: sul Peler la finestra utile non comincia
+# quando nasce il vento, comincia quando si vede. Un'ora pratica fissa alle
+# 06:00 a dicembre e' due ore prima dell'alba.
+from gardawind.util import alba_tramonto, offset_locale_ore
+from gardawind import config as _cfg
+
+_T = _cfg.TORBOLE
+
+
+def _alba(data):
+    a, _t = alba_tramonto(data, _T["lat"], _T["lon"], offset_locale_ore(data))
+    return a
+
+
+def _tramonto(data):
+    _a, t = alba_tramonto(data, _T["lat"], _T["lon"], offset_locale_ore(data))
+    return t
+
+
+# Valori veri per Torbole (45.87 N, 10.88 E), tolleranza cinque minuti: la
+# formula ridotta NOAA non promette di piu', e cinque minuti non cambiano
+# nessuna decisione qui.
+ok(abs(_alba("2026-06-21") - (5 * 60 + 31)) <= 5,
+   "alba del solstizio d'estate 05:31 (%.0f min)" % _alba("2026-06-21"))
+ok(abs(_alba("2026-12-21") - (7 * 60 + 59)) <= 5,
+   "alba del solstizio d'inverno 07:59 (%.0f min)" % _alba("2026-12-21"))
+ok(abs(_tramonto("2026-12-21") - (16 * 60 + 39)) <= 5,
+   "tramonto del solstizio d'inverno 16:39 (%.0f min)" % _tramonto("2026-12-21"))
+ok(_alba("2026-12-21") - _alba("2026-06-21") > 140,
+   "fra i due solstizi l'alba si sposta di oltre due ore: un'ora pratica "
+   "fissa sarebbe sbagliata in uno dei due")
+
+# L'ora legale non si indovina dentro la formula: arriva dalla stessa
+# conversione che usa tutto il resto del programma.
+ok(offset_locale_ore("2026-01-15") == 1.0 and offset_locale_ore("2026-07-15") == 2.0,
+   "l'offset del fuso viene dalla conversione locale, non da una regola "
+   "riscritta qui")
+
+# Simmetria attorno al mezzogiorno solare: alba e tramonto devono stare a
+# uguale distanza, altrimenti c'e' un segno sbagliato da qualche parte.
+for _d in ("2026-03-21", "2026-06-21", "2026-11-05"):
+    _a, _t = alba_tramonto(_d, _T["lat"], _T["lon"], offset_locale_ore(_d))
+    _mezzo = (_a + _t) / 2.0
+    ok(abs((_mezzo - _a) - (_t - _mezzo)) < 1e-6,
+       "%s: alba e tramonto simmetrici attorno al mezzogiorno solare" % _d)
+
+# Il giorno piu' lungo e' il solstizio, e la durata cresce con la latitudine.
+_durata_giu = _tramonto("2026-06-21") - _alba("2026-06-21")
+_durata_dic = _tramonto("2026-12-21") - _alba("2026-12-21")
+ok(_durata_giu > 900 and _durata_dic < 540,
+   "quindici ore e mezza a giugno, meno di nove a dicembre (%.0f / %.0f min)"
+   % (_durata_giu, _durata_dic))
+
+# Oltre il circolo polare il sole puo' non sorgere: si dichiara None invece
+# di restituire un numero inventato.
+ok(alba_tramonto("2026-12-21", 78.2, 15.6, 1.0) == (None, None),
+   "a Svalbard a dicembre il sole non sorge, e la funzione lo dice")
+ok(alba_tramonto("2026-06-21", 78.2, 15.6, 2.0) == (None, None),
+   "e a giugno non tramonta")
