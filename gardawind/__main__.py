@@ -1170,19 +1170,46 @@ def cmd_distribuzione(spot_name=None):
                                   + ("*" if m in fragili else ""))
             return testa + "%7s" % "anno"
 
-        def riga_soglia(t, campo, formatta):
+        def riga_soglia(t, cella):
             riga = "  %5s " % ("%g" % t)
             for m in mesi_presenti:
-                c = D["mesi"][m]["soglie"].get(t) or {}
-                riga += "%4s " % formatta(c.get(campo))
-            c = A["soglie"].get(t) or {}
-            return riga + "%6s" % formatta(c.get(campo))
+                riga += "%4s " % cella(D["mesi"][m]["soglie"].get(t) or {})
+            return riga + "%6s" % cella(A["soglie"].get(t) or {})
 
-        def come_quota(q):
+        def come_quota(c):
+            q = c.get("quota")
             return "-" if q is None else "%.0f%%" % (100.0 * q)
 
-        def come_durata(d):
-            return "-" if not d else "%d'" % int(round(d))
+        def come_continuita(c):
+            """Quanta parte della finestra utile, non quanti minuti.
+
+            I minuti dentro la finestra sono quasi sempre un limite inferiore,
+            perche' la finestra utile del Peler e' una fetta ritagliata in
+            mezzo a un evento piu' lungo: alle 06:00 il vento spesso c'e' gia'
+            e alle 11:00 spesso c'e' ancora. La quota della finestra invece
+            non e' censurata da niente - la finestra e' il denominatore, non
+            un taglio - ed e' la continuita' che serve alla scheda. I minuti
+            si ricavano moltiplicandola per la durata della finestra, che sta
+            nella prima tabella; restano nel dato, col loro limite, per chi li
+            vuole.
+            """
+            q = c.get("quota_finestra_mediana")
+            return "-" if q is None else "%.0f%%" % (100.0 * q)
+
+        def come_durata(c):
+            """Il '+' non e' decorazione: dice che il numero e' un limite.
+
+            Il tempo sopra soglia lo taglia la finestra. Se il vento era gia'
+            sopra al primo campione, o era ancora sopra all'ultimo, quel
+            periodo cominciava prima o continuava dopo, e la durata misurata
+            e' un limite inferiore. A dicembre la finestra utile del Peler e'
+            lunga 150 minuti: leggere "150" come una durata invece di "almeno
+            150" sarebbe confondere il vento con l'orario del tramonto.
+            """
+            d = c.get("durata_mediana")
+            if not d:
+                return "-"
+            return "%d%s" % (int(round(d)), "+" if c.get("durata_e_limite") else "")
 
         print("  QUANTE MATTINE SOPRA SOGLIA, MESE PER MESE")
         print("  quota delle giornate stimabili in cui la media e' rimasta")
@@ -1191,7 +1218,7 @@ def cmd_distribuzione(spot_name=None):
         print(intestazione_mesi("kn"))
         print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
         for t in soglie:
-            print(riga_soglia(t, "quota", come_quota))
+            print(riga_soglia(t, come_quota))
         print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
         print("")
 
@@ -1202,14 +1229,59 @@ def cmd_distribuzione(spot_name=None):
         print(intestazione_mesi("kn"))
         print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
         for t in soglie:
-            print(riga_soglia(t, "durata_mediana", come_durata))
+            print(riga_soglia(t, come_durata))
         print("  " + "-" * (7 + 5 * len(mesi_presenti) + 6))
         if fragili:
             print("  * meno di %d giornate stimabili: numero fragile." % D["min_gg"])
-        print("  Le due tabelle si leggono insieme: la quota dice quanto spesso,")
-        print("  la durata dice per quanto. \"42% delle mattine sopra 10 kn, e")
-        print("  quando succede dura due ore\" e' una frase su cui si decide;")
-        print("  ognuna delle due da sola no.")
+        print("  Il + vuol dire ALMENO, e non e' un dettaglio: su meta' o piu'")
+        print("  di quelle giornate il vento era gia' sopra soglia al primo")
+        print("  campione della finestra utile, o ancora sopra all'ultimo. Quel")
+        print("  periodo cominciava prima o continuava dopo, e quanto sia durato")
+        print("  davvero non lo sappiamo - lo taglia la finestra, non il vento.")
+        # Anche il mese di esempio si cerca nei dati: qual e' quello con la
+        # finestra piu' corta. Scriverlo a mano ("a dicembre...") vale per il
+        # Peler di Torbole e per nessun altro spot.
+        con_finestra = [(D["mesi"][m]["durata_mediana"], m) for m in mesi_presenti
+                        if D["mesi"][m].get("durata_mediana")]
+        if con_finestra:
+            corto, m_corto = min(con_finestra)
+            lungo, m_lungo = max(con_finestra)
+            print("  La finestra piu' corta e' quella di %s, %d minuti: se la"
+                  % (MESI_BREVI[m_corto - 1], int(round(corto))))
+            print("  cella di %s dice %d+ vuol dire \"almeno tutta\", e non si"
+                  % (MESI_BREVI[m_corto - 1], int(round(corto))))
+            print("  confronta con i minuti di %s, che stanno dentro %d."
+                  % (MESI_BREVI[m_lungo - 1], int(round(lungo))))
+        print("  (Si scrive col + e non con >= solo per larghezza: dodici mesi")
+        print("  di \">=150'\" non entrano in una riga di terminale.)")
+        print("  E la durata puo' CRESCERE salendo di soglia: non e' un errore,")
+        print("  sono giornate diverse. Le poche che passano i 16 sono giornate")
+        print("  forti, e il loro tempo sopra i 16 puo' superare il tempo tipico")
+        print("  sopra i 14 di tutte le altre.")
+        # L'esempio si CALCOLA. Una frase di legenda con un numero scritto
+        # a mano e' un numero che prima o poi sara' sbagliato, e qui lo era
+        # gia': diceva "42% delle mattine sopra 10 kn" mentre il 42% e' la
+        # riga dei 14 a dicembre - cioe' induceva esattamente l'equivoco che
+        # tutta questa tabella esiste per togliere.
+        print("  Le due tabelle si leggono insieme: la prima dice quanto")
+        print("  spesso, la seconda per quanto. Da questa tabella, per esempio:")
+        rif = 10.0 if 10.0 in soglie else soglie[0]
+        c10 = A["soglie"].get(rif) or {}
+        if c10.get("quota") is not None and c10.get("durata_mediana"):
+            print("    sul totale dell'archivio, nel %.0f%% delle mattine"
+                  % (100.0 * c10["quota"]))
+            print("    stimabili la media e' rimasta sopra i %g kn per almeno" % rif)
+            print("    mezz'ora di fila, e quando e' successo e' durata %s minuti."
+                  % come_durata(c10))
+            mese_top = max(
+                (m for m in mesi_presenti
+                 if (D["mesi"][m]["soglie"].get(rif) or {}).get("quota") is not None),
+                key=lambda m: D["mesi"][m]["soglie"][rif]["quota"], default=None)
+            if mese_top:
+                print("    Il mese piu' generoso a %g kn e' %s, con il %.0f%%."
+                      % (rif, MESI_BREVI[mese_top - 1],
+                         100.0 * D["mesi"][mese_top]["soglie"][rif]["quota"]))
+        print("  Ognuna delle due meta' da sola non basta per decidere.")
         print("")
 
         # ------------------------------------------------------------------
@@ -1227,8 +1299,7 @@ def cmd_distribuzione(spot_name=None):
                 riga = "  %5s " % ("%g" % t)
                 for n in nomi:
                     c = D["stagioni"][n]["soglie"].get(t) or {}
-                    riga += "%8s%6s" % (come_quota(c.get("quota")),
-                                        come_durata(c.get("durata_mediana")))
+                    riga += "%8s%6s" % (come_quota(c), come_durata(c))
                 print(riga)
             print("  " + "-" * (7 + 14 * len(nomi)))
             riga = "  %5s " % "gg"

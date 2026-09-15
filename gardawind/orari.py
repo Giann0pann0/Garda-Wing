@@ -1007,6 +1007,7 @@ def giudica_finestra_utile(righe, asse, settore, inizio, fine,
         "rapporto_ric_media": None, "rapporto_max_media": None,
         "rapporto_disp": None,
         "minuti_sopra_media": {}, "minuti_sopra_ric": {},
+        "sopra_censurato_media": {}, "sopra_censurato_ric": {},
         "planata_sostenuta_media": None, "planata_sostenuta_ric": None,
         "dir_unknown_frac": None,
     }
@@ -1087,12 +1088,31 @@ def giudica_finestra_utile(righe, asse, settore, inizio, fine,
     base["planata_sostenuta_media"] = {
         t: sustained_onset(serie_media, float(t), persist_min=persist_min,
                            cadence_min=cad) is not None for t in soglie}
+    # Il tempo sopra soglia e' CENSURATO dalla finestra, e la censura si vede
+    # con la stessa regola dell'ingresso: se il primo campione della finestra
+    # e' gia' sopra, il periodo era cominciato prima; se l'ultimo e' ancora
+    # sopra, continuava dopo. In entrambi i casi il numero non e' una durata,
+    # e' un limite inferiore.
+    #
+    # A dicembre la finestra utile del Peler e' lunga 150 minuti e il tempo
+    # sopra i 10 nodi risultava 150: non vuol dire "due ore e mezza e poi e'
+    # calato", vuol dire "tutta la finestra e non sappiamo quanto ancora".
+    # Stamparlo accanto ai 160 minuti di luglio, che sono una durata vera
+    # dentro una finestra di cinque ore, e' un confronto fra due cose diverse.
+    primo, ultimo = serie_media[0][1], serie_media[-1][1]
+    base["sopra_censurato_media"] = {
+        t: (primo is not None and primo >= float(t))
+           or (ultimo is not None and ultimo >= float(t))
+        for t in soglie}
     if serie_ric:
         base["minuti_sopra_ric"] = {
             t: time_above(serie_ric, float(t), cad_raffica) for t in soglie}
         base["planata_sostenuta_ric"] = {
             t: sustained_onset(serie_ric, float(t), persist_min=persist_min,
                                cadence_min=cad_raffica) is not None
+            for t in soglie}
+        base["sopra_censurato_ric"] = {
+            t: (serie_ric[0][1] >= float(t)) or (serie_ric[-1][1] >= float(t))
             for t in soglie}
     return base
 
@@ -1309,14 +1329,40 @@ def aggrega_finestre(finestre, soglie=SOGLIE_CANDIDATE, min_gg=MIN_GG_MESE,
                      if e["planata_sostenuta_media"].get(t)]
             durate = sorted([(e.get("minuti_sopra_media") or {}).get(t) or 0.0
                              for e in sopra])
+            # Se meta' o piu' delle giornate sostenute sono censurate, la
+            # mediana della durata e' un LIMITE INFERIORE, non una durata. E'
+            # la stessa regola della mediana dell'ingresso: quando la censura
+            # e' la maggioranza, il numero cambia nome invece di restare
+            # uguale e sbagliato.
+            censurate = [e for e in sopra
+                         if (e.get("sopra_censurato_media") or {}).get(t)]
+            # La QUOTA DELLA FINESTRA sopra soglia non e' censurata da niente:
+            # la finestra e' il denominatore, non un taglio. E' la grandezza
+            # giusta per la continuita' - "sopra i 10 per tre quarti della
+            # mattina utile" si puo' dire, "sopra i 10 per 150 minuti" quando
+            # la finestra e' lunga 150 no.
+            quote_finestra = []
+            for e in sopra:
+                larghezza = (e.get("fine") or 0) - (e.get("inizio") or 0)
+                minuti = (e.get("minuti_sopra_media") or {}).get(t)
+                if larghezza > 0 and minuti is not None:
+                    quote_finestra.append(min(1.0, minuti / float(larghezza)))
             out["soglie"][t] = {
                 "n_calcolate": len(calcolate),
                 "non_calcolata": len(calcolate) == 0,
                 "n_sostenute": len(sopra),
+                "n_censurate": len(censurate),
+                "quota_censurate": ((len(censurate) / float(len(sopra)))
+                                    if sopra else None),
+                "durata_e_limite": bool(sopra) and len(censurate) * 2 >= len(sopra),
                 "quota": ((len(sopra) / float(len(calcolate)))
                           if calcolate else None),
                 "durata_mediana": median(durate) if durate else None,
                 "durata_q75": quantile(durate, 0.75) if len(durate) >= 4 else None,
+                "quota_finestra_mediana": (median(quote_finestra)
+                                           if quote_finestra else None),
+                "quota_finestra_q25": (quantile(sorted(quote_finestra), 0.25)
+                                       if len(quote_finestra) >= 4 else None),
             }
         return out
 

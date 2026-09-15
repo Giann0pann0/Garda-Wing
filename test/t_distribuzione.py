@@ -141,6 +141,55 @@ ok(B["soglie"][12.0]["durata_mediana"] > B["soglie"][16.0]["durata_mediana"],
    "e sopra una soglia piu' bassa si resta piu' a lungo")
 
 # --------------------------------------------------------------------------
+# 3b. La finestra taglia la durata, e il numero deve dirlo
+# --------------------------------------------------------------------------
+# E' la stessa censura dell'ora di ingresso, ricomparsa dall'altro capo: la
+# finestra utile del Peler e' una fetta ritagliata in mezzo a un evento piu'
+# lungo, quindi i minuti sopra soglia DENTRO la finestra sono quasi sempre un
+# limite inferiore. Un numero censurato stampato come una misura e' esattamente
+# l'errore che questo progetto ha passato giorni a togliere dagli orari.
+piena = esito(15.0)                      # sopra 10 dal primo all'ultimo minuto
+ok(piena["sopra_censurato_media"][10.0] is True,
+   "vento sopra soglia dal primo all'ultimo campione: durata censurata")
+ok(piena["sopra_censurato_media"][20.0] is False,
+   "e a una soglia che non viene mai superata non c'e' niente da censurare")
+
+# Un picco tutto interno: comincia e finisce dentro la finestra, misurabile.
+interno = [(6.0, None)] * 6 + [(18.0, None)] * 12 + [(6.0, None)] * 12
+dentro_tutto = giudica_finestra_utile(giornata(interno), ASSE, SETTORE,
+                                      INIZIO, FINE)
+ok(dentro_tutto["sopra_censurato_media"][10.0] is False,
+   "un periodo che comincia e finisce dentro la finestra NON e' censurato")
+ok(dentro_tutto["minuti_sopra_media"][10.0] < (FINE - INIZIO),
+   "e la sua durata e' minore della finestra, come deve essere")
+
+C1 = aggrega_finestre({"2020-06-%02d" % i: esito(15.0)
+                       for i in range(1, 11)})["mesi"][6]["soglie"][10.0]
+ok(C1["n_censurate"] == 10 and C1["durata_e_limite"] is True,
+   "dieci giornate su dieci censurate: la mediana della durata e' un limite"
+   " (%d/%d)" % (C1["n_censurate"], C1["n_sostenute"]))
+C2 = aggrega_finestre({"2020-06-%02d" % i: dentro_tutto
+                       for i in range(1, 11)})["mesi"][6]["soglie"][10.0]
+ok(C2["n_censurate"] == 0 and C2["durata_e_limite"] is False,
+   "dieci giornate tutte interne: la mediana e' una durata vera")
+# La regola della maggioranza e' la stessa della mediana dell'ingresso.
+meta = {"2020-06-%02d" % i: esito(15.0) for i in range(1, 6)}
+meta.update({"2020-06-%02d" % i: dentro_tutto for i in range(6, 11)})
+C3 = aggrega_finestre(meta)["mesi"][6]["soglie"][10.0]
+ok(C3["n_censurate"] == 5 and C3["durata_e_limite"] is True,
+   "a meta' e meta' vince la prudenza: resta un limite, come per gli orari")
+
+# La quota della finestra, invece, non e' censurata da niente.
+ok(abs(C1["quota_finestra_mediana"] - 1.0) < 1e-9,
+   "vento sopra soglia per tutta la finestra: quota 100%% (%.2f)"
+   % C1["quota_finestra_mediana"])
+ok(C2["quota_finestra_mediana"] < 0.6,
+   "il picco interno occupa meno di due terzi della finestra (%.2f)"
+   % C2["quota_finestra_mediana"])
+ok(C1["quota_finestra_mediana"] <= 1.0 and C2["quota_finestra_mediana"] <= 1.0,
+   "e la quota non puo' superare l'unita': la finestra e' il denominatore")
+
+# --------------------------------------------------------------------------
 # 4. I mesi sono mesi, e l'anno e' la somma
 # --------------------------------------------------------------------------
 misto = {}
@@ -396,6 +445,30 @@ ok(P["coppia_ricorrente_kn"] / P["coppia_media_kn"] < 2.0,
 
 ok("MESSA A VERBALE" in testo and "non validata" in testo,
    "il report stampa la regola e il suo stato")
+ok("Il + vuol dire ALMENO" in testo,
+   "il report dichiara la censura invece di stampare un limite come misura")
+ok("lo taglia la finestra, non il vento" in testo,
+   "e spiega da dove viene: e' la finestra, non il vento")
+# Nessun numero scritto a mano nella legenda: quello vecchio ("42% delle
+# mattine sopra 10 kn") era sbagliato, perche' il 42% era la riga dei 14 a
+# dicembre. Ora l'esempio si calcola, quindi non puo' essere sbagliato - e
+# questo controllo verifica che il numero stampato sia davvero quello del
+# dato, non una costante rimasta nel testo.
+import re as _re
+q10 = DD["anno"]["soglie"][10.0]["quota"]
+atteso = "nel %.0f%% delle mattine" % (100.0 * q10)
+ok(atteso in testo,
+   "la frase d'esempio usa il numero calcolato (%s)" % atteso.strip())
+ok("42%" not in testo,
+   "e il vecchio 42% scritto a mano non c'e' piu' da nessuna parte")
+sospetti = [r for r in testo.splitlines()
+            if "%" in r and "kn" in r and _re.search(r"\d+%", r)
+            and not r.strip()[:1].isdigit() and "delle mattine" not in r
+            and "generoso" not in r]
+ok(sospetti == [],
+   "e nessun'altra riga di testo mescola una percentuale con una soglia: %s"
+   % (sospetti[:1] or "nessuna"))
+
 ok("LIMITE INFERIORE della tua planabilita" in testo,
    "e dice che la colonna dei 14 e' un limite inferiore, non la misura")
 
