@@ -1,8 +1,13 @@
 import os, sys, math, random, datetime as dt
 os.environ["GARDAWIND_HOME"]="/tmp/gwhome"
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-for f in os.listdir("/tmp/gwhome"):
-    os.remove(os.path.join("/tmp/gwhome",f))
+# Cartella pulita, e che esista: elencare una cartella che non c'e'
+# solleva FileNotFoundError, e questo file si fermava prima del primo
+# controllo su qualunque macchina dove /tmp/gwhome non fosse rimasta da
+# un'esecuzione precedente - un runner nuovo, un Mac riavviato.
+import shutil
+shutil.rmtree("/tmp/gwhome", ignore_errors=True)
+os.makedirs("/tmp/gwhome", exist_ok=True)
 from gardawind import store, config, aggregate, engine, features as F, model as M, web
 from gardawind.util import iso_utc, iso_hour_utc, local_hour, local_day, parse_dt_any
 ok=lambda c,m: print(("PASS " if c else "FAIL ")+m)

@@ -113,6 +113,7 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
         "source_span_min": 0.0,
         "dir_unknown_frac": None, "direction_ok": False,
         "peak_wind": None, "peak_regime": None,
+        "first_sample_min": None,
         "regime_onset": None, "planing_onset": None,
         "regime_onset_wind": None, "planing_onset_wind": None,
         "regime_onset_censored": False, "planing_onset_censored": False,
@@ -174,6 +175,14 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
     # Nota: nelle giornate censurate anche la DURATA e' troncata a sinistra,
     # per la stessa ragione.
     primo_minuto = minuti[0]
+    # A che ora comincia il dato di questa giornata. Per una giornata censurata
+    # e' il numero che distingue due cose molto diverse: "alle 04:00 il vento
+    # era gia' dentro" (la finestra di osservazione comincia troppo tardi) e
+    # "il primo campione e' alle 04:50" (di quella giornata non abbiamo il
+    # dato prima). Senza questo campo le due sembrano la stessa cosa, e la
+    # prima suggerisce di allargare la finestra mentre la seconda dice che
+    # allargarla non servirebbe a niente.
+    base["first_sample_min"] = primo_minuto
     for bers, soglia in (("regime", soglia_regime), ("planata", soglia_planata)):
         for lettura in LETTURE:
             s = serie[lettura]
@@ -341,6 +350,10 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
     soglie = {"regime": spot["min_kn"], "planata": spot["planing_kn"]}
     giorni = giorni_osservati(spot_name) if giorni is None else giorni
 
+    # L'audit dei censurati: per ogni mese, quando comincia il dato nelle
+    # giornate in cui il regime era gia' dentro al primo campione.
+    inizio_finestra = spot["window"][0] * 60.0
+    censura_audit = {}
     ingressi = {(b, l): {} for b in BERSAGLI for l in LETTURE}
     censurati = {(b, l): {} for b in BERSAGLI for l in LETTURE}
     durate = {(b, l): {} for b in BERSAGLI for l in LETTURE}
@@ -359,6 +372,10 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
         if (g["dir_unknown_frac"] or 0) > 0.2:
             n_dir_ignota += 1
         mese = int(giorno[5:7])
+        if g.get("reason") == "left_censored" and g.get("first_sample_min") is not None:
+            censura_audit.setdefault(mese, []).append(
+                (g["first_sample_min"], g.get("cadence_min") or 0.0,
+                 g.get("coverage_min") or 0.0))
         for bers in BERSAGLI:
             for lettura in LETTURE:
                 suf = "" if lettura == "regime" else "_wind"
@@ -391,7 +408,62 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
             "soglie": soglie, "n_giorni": n_giorni,
             "n_dir_ignota": n_dir_ignota, "n_non_stimabili": n_non_stimabili,
             "per_mese": per_mese, "annuale": annuale, "ingressi": ingressi,
-            "censurati": censurati, "per_giorno": per_giorno}
+            "censurati": censurati, "per_giorno": per_giorno,
+            "inizio_finestra": inizio_finestra,
+            "censura_audit": audit_censura(censura_audit, inizio_finestra)}
+
+
+# Quanto oltre il bordo della finestra un primo campione si considera "in
+# ritardo". Mezz'ora e' la stessa persistenza che definisce un ingresso: se il
+# dato comincia mezz'ora dopo l'inizio dell'osservazione, in quella mezz'ora un
+# ingresso sarebbe stato possibile e non lo avremmo visto.
+RITARDO_MIN = 30.0
+
+
+def audit_censura(per_mese, inizio_finestra, ritardo_min=RITARDO_MIN):
+    """Perche' una giornata e' censurata: finestra tarda o dato mancante.
+
+    per_mese: {mese: [(primo_campione_min, cadenza_min, copertura_min)]} delle
+    sole giornate censurate.
+
+    Due spiegazioni, e vanno tenute separate perche' portano a due decisioni
+    opposte:
+
+      DAL BORDO   il dato c'era dall'inizio dell'osservazione (il primo
+                  campione cade entro una cadenza dal bordo) e il vento era
+                  gia' sopra soglia. Qui la finestra comincia troppo tardi, e
+                  allargarla recupera l'informazione.
+      IN RITARDO  il primo campione arriva molto dopo il bordo: di quella
+                  giornata non abbiamo il dato prima, e allargare la finestra
+                  non aggiunge niente. E' un problema di disponibilita'
+                  storica, non di definizione.
+
+    Fra le due c'e' una zona grigia (fra una cadenza e il ritardo): si conta a
+    parte invece di essere assegnata d'ufficio a una delle due.
+    """
+    out = {}
+    for mese, righe in per_mese.items():
+        primi = [p for p, _c, _cv in righe]
+        dal_bordo = in_ritardo = grigio = 0
+        for p, cad, _cv in righe:
+            tolleranza = max(cad or 0.0, 1.0)
+            if p <= inizio_finestra + tolleranza:
+                dal_bordo += 1
+            elif p >= inizio_finestra + ritardo_min:
+                in_ritardo += 1
+            else:
+                grigio += 1
+        n = len(righe)
+        out[mese] = {
+            "n": n,
+            "primo_mediano": median(primi),
+            "primo_max": max(primi),
+            "primo_min": min(primi),
+            "dal_bordo": dal_bordo, "in_ritardo": in_ritardo, "grigio": grigio,
+            "quota_dal_bordo": dal_bordo / float(n) if n else None,
+            "quota_in_ritardo": in_ritardo / float(n) if n else None,
+        }
+    return out
 
 
 def previsione_climatologica(ingressi_training, mese, min_gg=MIN_GG_MESE,
