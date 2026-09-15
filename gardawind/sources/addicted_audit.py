@@ -29,13 +29,16 @@ grezzi separati per stazione e restituisce fatti. La decisione di ingerire
 viene dopo, e la prende chi legge l'audit.
 """
 
+import datetime as _dt
+import glob
 import hashlib
 import json as _json
 import os
 import re
 
 from .. import config, store
-from ..util import iso_utc, median, sampling_cadence, utc_now
+from ..util import (iso_utc, local_naive_to_utc, median, num,
+                    sampling_cadence, utc_now)
 from .http import FetchError, fetch_text
 
 PARSER_VERSION = "addicted-audit/1"
@@ -45,27 +48,32 @@ PARSER_VERSION = "addicted-audit/1"
 # stazione di Limone e' "caporeamol". E' il motivo per cui quella stazione
 # sembrava senza archivio - lo slug della webcam non e' lo slug della serie.
 #
-# Accanto a ogni stazione, cio' che il sito DICHIARA: da quando, quante
-# giornate misurate, quanti giorni di vento (col criterio della pagina:
-# minKn=12, minHours=2). Sono numeri da confrontare con quello che si riesce
-# a scaricare davvero: se scarichiamo 300 giornate dove il sito ne dichiara
-# 959, non abbiamo l'archivio - ne abbiamo un terzo, e va saputo.
-#
-# Torbole: 959 giornate misurate su un periodo di 4342 giorni. L'archivio e'
-# RADO al 22%: il tetto di cio' che si puo' scaricare e' 959, non dodici anni.
+# Accanto a ogni stazione, cio' che il sito DICHIARA. La pagina distingue
+# esplicitamente Messtage (giorni con copertura dati) e Windtage (giorni che
+# soddisfano il criterio di vento). Il primo audit li aveva scambiati: da qui
+# le quote assurde sopra il 100%. Questa distinzione e' ora parte del contratto
+# del codice e dei test.
 DICHIARATO = {
-    "torbole":       {"dal": 2014, "giorni_misurati": 959,  "giorni_vento": 522,
-                      "nome": "Gardasee, Torbole"},
-    "caporeamol":    {"dal": 2014, "giorni_misurati": 820,  "giorni_vento": None,
-                      "nome": "Gardasee, Limone"},
-    "malcesine":     {"dal": 2014, "giorni_misurati": 1360, "giorni_vento": None,
-                      "nome": "Gardasee, Malcesine"},
-    "malcesinenord": {"dal": 2023, "giorni_misurati": 43,   "giorni_vento": None,
-                      "nome": "Gardasee, Malcesine (Nord)"},
-    "campione":      {"dal": 2017, "giorni_misurati": 735,  "giorni_vento": None,
-                      "nome": "Gardasee, Campione"},
-    "brenzone":      {"dal": 2017, "giorni_misurati": 735,  "giorni_vento": None,
-                      "nome": "Gardasee, Brenzone"},
+    # I numeri della pagina /historie/ sono due grandezze diverse:
+    #   Messtage = giorni con copertura dati
+    #   Windtage = giorni che superano il criterio di vento della pagina
+    #              (per difetto Grundwind >= 12 kn per almeno 2 h).
+    # Il vecchio audit aveva scambiato Windtage per "giornate misurate" e
+    # produceva quote >100%. I valori qui sotto sono uno SNAPSHOT di controllo:
+    # servono a confrontare ordini di grandezza, non sono un contratto immutabile
+    # (crescono col tempo).
+    "torbole":       {"dal": 2014, "messtage": 4319, "windtage": 957,
+                      "nome": "Gardasee, Torbole", "snapshot": "2026-08"},
+    "caporeamol":    {"dal": 2014, "messtage": 4058, "windtage": 820,
+                      "nome": "Gardasee, Limone", "snapshot": "2026-08"},
+    "malcesine":     {"dal": 2014, "messtage": 4432, "windtage": 1351,
+                      "nome": "Gardasee, Malcesine", "snapshot": "2026-08"},
+    "malcesinenord": {"dal": 2023, "messtage": 1260, "windtage": 43,
+                      "nome": "Gardasee, Malcesine (Nord)", "snapshot": "2026-08"},
+    "campione":      {"dal": 2017, "messtage": 2909, "windtage": 725,
+                      "nome": "Gardasee, Campione", "snapshot": "2026-08"},
+    "brenzone":      {"dal": 2017, "messtage": 2909, "windtage": 725,
+                      "nome": "Gardasee, Brenzone", "snapshot": "2026-08"},
 }
 
 SLUG_STAZIONI = ("torbole", "caporeamol", "malcesine", "malcesinenord",
@@ -78,11 +86,11 @@ SLUG_STAZIONI = ("torbole", "caporeamol", "malcesine", "malcesinenord",
 ORE_PER_RISPOSTA = 72
 PASSO_GIORNI = 3
 
-# La pagina /historie/ dichiara anche il record di raffica. A Torbole e' 49,6
-# kn (4 maggio 2018). Se leggendo mmax si trovano valori PIU' ALTI, uno dei
-# due numeri non e' quello che dice il suo nome - e la cosa va chiarita prima
-# di ingerire, non dopo.
-RECORD_DICHIARATO_KN = {"torbole": 49.6}
+# mmax e' il massimo orario del canale storico. NON e' la nostra
+# "raffica ricorrente 30'": resta una grandezza separata. La pagina /historie/
+# mostra esempi di Peak, ma non espone un unico "record assoluto" stabile da
+# usare come gate automatico, quindi il censimento non boccia piu' mmax contro
+# un numero preso da una card della pagina.
 
 BASE = "https://it.addicted-sports.com/forecast/gardasee/%s/"
 
@@ -390,13 +398,36 @@ def giorni_da_censire(slug, oggi=None, dal=None, passo=PASSO_GIORNI):
     return out
 
 
+def _e_windtag(voce, soglia=12.0, ore_min=2):
+    """Replica il criterio predefinito della pagina: >=12 kn per almeno 2 h.
+
+    Si lavora sulle ore effettive, non sul solo conteggio: due ore sopra soglia
+    separate da mezza giornata non sono "due ore di Grundwind" continuo.
+    """
+    serie = sorted(voce.get("serie") or [])
+    run = 0
+    prev = None
+    for minuto, valore in serie:
+        if valore is None or valore < soglia:
+            run, prev = 0, None
+            continue
+        if prev is not None and minuto - prev <= 90:
+            run += 1
+        else:
+            run = 1
+        prev = minuto
+        if run >= ore_min:
+            return True
+    return False
+
+
 def censimento(slug, oggi=None, dal=None, base_raw=None, salta_esistenti=True,
                massimo=None, su_progresso=None):
     """Cammina l'archivio e conta. Ritorna (per_giorno, riassunto).
 
-    per_giorno: {giorno_misurato: {"ore", "ore_mmax", "completa"}} costruito
-    dalle chiavi arch di TUTTE le risposte - quindi conta i giorni veri, non
-    le richieste: una risposta larga tre giorni ne riempie tre.
+    Messtage e Windtage NON sono la stessa cosa. ``n_con_dato`` e' la nostra
+    ricostruzione dei Messtage; ``n_windtag`` replica invece il criterio
+    predefinito della pagina (media >=12 kn per almeno due ore consecutive).
     """
     import datetime as _dt
     oggi = oggi or _dt.date.today()
@@ -445,35 +476,41 @@ def censimento(slug, oggi=None, dal=None, base_raw=None, salta_esistenti=True,
         mmax = dati.get("mmax") or []
         for k, chiave in enumerate(arch):
             g = _chiave_giorno(chiave)
-            if not g:
+            minuto = _chiave_minuti(chiave)
+            if not g or minuto is None:
                 continue
-            voce = per_giorno.setdefault(g, {"ore": 0, "ore_mmax": 0})
-            if k < len(mavg) and mavg[k] is not None:
+            voce = per_giorno.setdefault(g, {"ore": 0, "ore_mmax": 0, "serie": []})
+            w = num(mavg[k]) if k < len(mavg) else None
+            mx = num(mmax[k]) if k < len(mmax) else None
+            if w is not None:
                 voce["ore"] += 1
-            if k < len(mmax) and mmax[k] is not None:
+                voce["serie"].append((minuto, w))
+            if mx is not None:
                 voce["ore_mmax"] += 1
-                v = mmax[k]
-                if isinstance(v, (int, float)) and (mmax_visto is None or v > mmax_visto):
-                    mmax_visto = v
+                if mmax_visto is None or mx > mmax_visto:
+                    mmax_visto = mx
 
     for g, voce in per_giorno.items():
         voce["completa"] = voce["ore"] >= 24 * QUOTA_COMPLETA
+        voce["windtag"] = _e_windtag(voce)
 
     con_dato = {g: v for g, v in per_giorno.items() if v["ore"] > 0}
     complete = {g: v for g, v in con_dato.items() if v["completa"]}
     con_mmax = {g: v for g, v in con_dato.items() if v["ore_mmax"] > 0}
+    windtag = {g: v for g, v in con_dato.items() if v["windtag"]}
     per_anno = {}
     for g, v in con_dato.items():
         a = g[:4]
-        s = per_anno.setdefault(a, {"con_dato": 0, "complete": 0, "con_mmax": 0})
-        s["con_dato"] += 1
-        if v["completa"]:
-            s["complete"] += 1
-        if v["ore_mmax"] > 0:
-            s["con_mmax"] += 1
+        d = per_anno.setdefault(a, {"con_dato": 0, "complete": 0,
+                                    "con_mmax": 0, "windtag": 0})
+        d["con_dato"] += 1
+        d["complete"] += bool(v["completa"])
+        d["con_mmax"] += bool(v["ore_mmax"] > 0)
+        d["windtag"] += bool(v["windtag"])
 
     dich = DICHIARATO.get(slug, {})
-    atteso = dich.get("giorni_misurati")
+    messtage = dich.get("messtage")
+    windtage = dich.get("windtage")
     riassunto = {
         "slug": slug,
         "n_richieste": n_richieste, "n_dalla_cache": n_saltate,
@@ -482,16 +519,99 @@ def censimento(slug, oggi=None, dal=None, base_raw=None, salta_esistenti=True,
         "n_con_dato": len(con_dato),
         "n_complete": len(complete),
         "n_con_mmax": len(con_mmax),
+        "n_windtag": len(windtag),
         "primo": min(con_dato) if con_dato else None,
         "ultimo": max(con_dato) if con_dato else None,
         "per_anno": per_anno,
-        "dichiarato": atteso,
-        "quota_del_dichiarato": (len(con_dato) / float(atteso)) if atteso else None,
+        "messtage_dichiarati": messtage,
+        "windtage_dichiarati": windtage,
+        "quota_messtage": (len(con_dato) / float(messtage)) if messtage else None,
+        "quota_windtage": (len(windtag) / float(windtage)) if windtage else None,
+        # Alias temporanei per chi usa il vecchio riassunto: ora puntano alla
+        # grandezza giusta (Messtage), non ai Windtage.
+        "dichiarato": messtage,
+        "quota_del_dichiarato": (len(con_dato) / float(messtage)) if messtage else None,
         "mmax_visto": mmax_visto,
-        "record_dichiarato": RECORD_DICHIARATO_KN.get(slug),
-        "mmax_oltre_record": (
-            mmax_visto is not None
-            and RECORD_DICHIARATO_KN.get(slug) is not None
-            and mmax_visto > RECORD_DICHIARATO_KN[slug]),
     }
     return per_giorno, riassunto
+
+
+SERIES_GROUP = {
+    # Audit sui grezzi 2017-2026: Campione e Brenzone coincidono praticamente
+    # punto per punto. Si conservano entrambi, ma non sono due osservazioni
+    # indipendenti del modello.
+    "campione": "campione_brenzone_shared",
+    "brenzone": "campione_brenzone_shared",
+}
+
+
+def _ora_utc_da_arch(chiave):
+    m = _RE_CHIAVE.match(str(chiave))
+    if not m:
+        return None
+    import datetime as _dt
+    naive = _dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                         int(m.group(4)), int(m.group(5)))
+    return iso_utc(local_naive_to_utc(naive))
+
+
+def righe_cache(slug, base_raw=None):
+    """Legge SOLO i raw gia' scaricati e restituisce una riga per ora.
+
+    mavg = media storica/osservata; mmax = massimo dell'ora. mmax viene
+    mantenuto col suo nome semantico e NON diventa gust_rec_30m.
+    """
+    cart = cartella_raw(slug, base_raw)
+    migliori = {}
+    conflitti = 0
+    for percorso in sorted(glob.glob(os.path.join(cart, "*.json"))):
+        nome = os.path.basename(percorso)
+        richiesto = nome[:10]
+        try:
+            req = _dt.date.fromisoformat(richiesto)
+            dati = _json.load(open(percorso, encoding="utf-8"))
+        except Exception:
+            continue
+        arch = dati.get("arch") or []
+        mavg = dati.get("mavg") or []
+        mmax = dati.get("mmax") or []
+        for i, chiave in enumerate(arch):
+            ts = _ora_utc_da_arch(chiave)
+            g = _chiave_giorno(chiave)
+            if not ts or not g:
+                continue
+            w = num(mavg[i]) if i < len(mavg) else None
+            mx = num(mmax[i]) if i < len(mmax) else None
+            if w is None and mx is None:
+                continue
+            try:
+                offset = (_dt.date.fromisoformat(g) - req).days
+            except ValueError:
+                offset = 99
+            rank = offset if 0 <= offset < PASSO_GIORNI else 99
+            candidato = (rank, nome, w, mx)
+            vecchio = migliori.get(ts)
+            if vecchio and (vecchio[2], vecchio[3]) != (w, mx):
+                conflitti += 1
+            if vecchio is None or candidato[:2] < vecchio[:2]:
+                migliori[ts] = candidato
+    gruppo = SERIES_GROUP.get(slug, slug)
+    righe = [(ts, v[2], v[3], SOURCE_ARCHIVIO, gruppo, v[1])
+             for ts, v in sorted(migliori.items())]
+    return righe, conflitti
+
+
+SOURCE_ARCHIVIO = "addicted-sports-history"
+
+
+def importa_cache(slug, base_raw=None):
+    """Ingerisce lo storico gia' in cache nella tabella dedicata.
+
+    Non tocca obs_sample/obs_hour: cosi' il massimo orario di Addicted non puo'
+    essere scambiato accidentalmente per la raffica ricorrente a 30 minuti.
+    """
+    righe, conflitti = righe_cache(slug, base_raw=base_raw)
+    n = store.save_addicted_hours(slug, righe)
+    return {"slug": slug, "n_ore": len(righe), "n_salvate": n,
+            "conflitti_overlap": conflitti,
+            "series_group": SERIES_GROUP.get(slug, slug)}

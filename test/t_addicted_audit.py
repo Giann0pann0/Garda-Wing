@@ -258,10 +258,9 @@ ok(A.DICHIARATO["caporeamol"]["nome"].endswith("Limone"),
    "e il nome leggibile resta Limone, cosi' nessuno si perde")
 ok(set(A.DICHIARATO) >= set(A.SLUG_STAZIONI),
    "ogni stazione sondata ha i suoi numeri dichiarati da confrontare")
-ok(A.DICHIARATO["torbole"]["giorni_misurati"] == 959
-   or A.DICHIARATO["torbole"]["nome"] == "finto",
-   "Torbole dichiara 959 giornate misurate: e' il tetto di cio' che si puo' "
-   "scaricare, non dodici anni")
+ok(A.DICHIARATO["torbole"]["messtage"] > A.DICHIARATO["torbole"]["windtage"],
+   "Messtage e Windtage sono due grandezze diverse: i giorni con dati sono "
+   "molti piu' dei giorni che superano il criterio di vento")
 
 # --------------------------------------------------------------------------
 # 8. Il censimento: giorni veri, non richieste - e ripartibile
@@ -269,8 +268,8 @@ ok(A.DICHIARATO["torbole"]["giorni_misurati"] == 959
 # Il server finto ha 40 giorni di archivio e risponde con finestre di 24 ore.
 # Il censimento deve contare i GIORNI, confrontarli col dichiarato, e alla
 # seconda esecuzione non ribattere il sito.
-A.DICHIARATO["torbole"] = {"dal": 2026, "giorni_misurati": 40,
-                           "giorni_vento": None, "nome": "finto"}
+A.DICHIARATO["torbole"] = {"dal": 2026, "messtage": 40,
+                           "windtage": 40, "nome": "finto"}
 CENS = "/tmp/gwaudit/censimento"
 prima = len(RICHIESTE)
 per_giorno, R1 = A.censimento("torbole", oggi=OGGI_D, dal=2026,
@@ -291,9 +290,12 @@ ok(R1["n_con_dato"] >= 3 * (R1["n_con_dato"] / 3.0) - 1,
    % R1["n_con_dato"])
 ok(R1["primo"] and R1["ultimo"] and R1["primo"] < R1["ultimo"],
    "con il periodo dichiarato: %s -> %s" % (R1["primo"], R1["ultimo"]))
-ok(R1["dichiarato"] == 40 and R1["quota_del_dichiarato"] > 1.0,
-   "il totale si mette accanto al dichiarato (quota %.2f)"
-   % R1["quota_del_dichiarato"])
+ok(R1["messtage_dichiarati"] == 40 and R1["quota_messtage"] > 1.0,
+   "i giorni con dato si confrontano con i Messtage, non coi Windtage (%.2f)"
+   % R1["quota_messtage"])
+ok(R1["n_windtag"] == 40 and R1["windtage_dichiarati"] == 40,
+   "il criterio >=12 kn per almeno due ore ricostruisce i Windtage (%d)"
+   % R1["n_windtag"])
 ok(R1["n_richieste"] == richieste_prima,
    "il conteggio delle richieste e' quello vero (%d)" % R1["n_richieste"])
 
@@ -307,14 +309,24 @@ ok(R2["n_dalla_cache"] > 0 and R2["n_con_dato"] == R1["n_con_dato"],
    "e il risultato e' lo stesso, letto dal grezzo salvato (%d dalla cache)"
    % R2["n_dalla_cache"])
 
-# Il record dichiarato: un mmax piu' alto va segnalato.
-A.RECORD_DICHIARATO_KN["torbole"] = 5.0
-_pg3, R3 = A.censimento("torbole", oggi=OGGI_D, dal=2026, base_raw=CENS,
-                        massimo=20)
-ok(R3["mmax_oltre_record"] is True and R3["mmax_visto"] > 5.0,
-   "un mmax oltre il record dichiarato viene segnalato (%.1f > 5.0)"
-   % R3["mmax_visto"])
-A.RECORD_DICHIARATO_KN["torbole"] = 49.6
+# mmax resta un massimo orario: non viene confrontato con un presunto record
+# preso da una card della pagina e, soprattutto, non diventa gust_rec 30'.
+ok(R1["mmax_visto"] is not None and R1["mmax_visto"] > 0,
+   "il massimo orario viene censito senza attribuirgli una semantica diversa")
+
+# L'importazione usa SOLO la cache e una tabella dedicata.
+I = A.importa_cache("torbole", base_raw=CENS)
+ore_addicted = store.addicted_hours("torbole")
+ok(I["n_salvate"] == len(ore_addicted) and I["n_salvate"] > 0,
+   "la cache viene ingerita nella tabella dedicata (%d ore)" % I["n_salvate"])
+ok(all("hourly_max_kn" in r for r in ore_addicted),
+   "mmax conserva il nome semantico hourly_max_kn")
+ok(store.connect().execute("SELECT COUNT(*) FROM obs_sample").fetchone()[0] == 0,
+   "l'import storico non contamina obs_sample/gust_rec")
+
+# Campione e Brenzone sono marcati come stessa sorgente indipendente.
+ok(A.SERIES_GROUP["campione"] == A.SERIES_GROUP["brenzone"],
+   "Campione e Brenzone condividono un series_group e non valgono doppio")
 
 # I passi sono di tre giorni, non di uno.
 passi = A.giorni_da_censire("torbole", oggi=OGGI_D, dal=2026)

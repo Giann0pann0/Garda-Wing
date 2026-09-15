@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS obs_sample(
 );
 CREATE INDEX IF NOT EXISTS ix_obs_sample_ts ON obs_sample(station, ts);
 
+-- Storico orario Addicted-Sports, tenuto separato dai campioni nativi.
+-- mmax e' il massimo DELL'ORA della fonte: non e' gust_rec (raffica
+-- ricorrente a 30 minuti) e non deve entrare per sbaglio in quella metrica.
+CREATE TABLE IF NOT EXISTS addicted_hour(
+  station        TEXT NOT NULL,
+  hour           TEXT NOT NULL,
+  wind_mean_kn   REAL,
+  hourly_max_kn  REAL,
+  source         TEXT NOT NULL,
+  series_group   TEXT,
+  raw_origin     TEXT,
+  PRIMARY KEY(station, hour, source)
+);
+CREATE INDEX IF NOT EXISTS ix_addicted_hour_hour ON addicted_hour(station, hour);
+
 -- Aggregato orario derivato dai campioni grezzi.
 CREATE TABLE IF NOT EXISTS obs_hour(
   station     TEXT NOT NULL,
@@ -286,6 +301,35 @@ def save_samples(station, rows, source):
         "VALUES(?,?,?,?,?,?)", payload)
     c.commit()
     return len(payload)
+
+
+def save_addicted_hours(station, rows):
+    """Salva ore Addicted senza confondere hourly_max con gust_rec.
+
+    rows: (hour_utc, wind_mean_kn, hourly_max_kn, source, series_group, raw_origin)
+    """
+    c = connect()
+    payload = [(station, h, w, mx, src, grp, raw)
+               for h, w, mx, src, grp, raw in rows if h]
+    if not payload:
+        return 0
+    c.executemany(
+        "INSERT OR REPLACE INTO addicted_hour("
+        "station,hour,wind_mean_kn,hourly_max_kn,source,series_group,raw_origin) "
+        "VALUES(?,?,?,?,?,?,?)", payload)
+    c.commit()
+    return len(payload)
+
+
+def addicted_hours(station=None):
+    q = ("SELECT station,hour,wind_mean_kn,hourly_max_kn,source,series_group,raw_origin "
+         "FROM addicted_hour")
+    args = []
+    if station:
+        q += " WHERE station=?"
+        args.append(station)
+    q += " ORDER BY station,hour"
+    return [dict(r) for r in connect().execute(q, args)]
 
 
 # Quanti corpi grezzi tenere per ogni (fonte, canale). Servono a capire un

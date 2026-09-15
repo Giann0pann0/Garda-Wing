@@ -719,32 +719,25 @@ def cmd_addicted_audit(stazioni=None, giorni_extra=()):
 
 
 def cmd_addicted_censimento(stazioni=None, massimo=None):
-    """Quante giornate COMPLETE si riesce davvero a scaricare, per stazione.
-
-    "Una data del 2016 risponde" non e' "l'archivio e' scaricabile". Questo
-    cammina l'archivio dall'inizio dichiarato a oggi e conta, poi mette il
-    totale accanto a quello che il sito DICHIARA.
-    """
+    """Conta Messtage e Windtage senza confondere le due grandezze."""
     from gardawind.sources import addicted_audit as A
 
     slugs = list(stazioni) if stazioni else list(A.SLUG_STAZIONI)
     print("")
-    print("=" * 78)
+    print("=" * 82)
     print("  ADDICTED-SPORTS  -  CENSIMENTO DELLE GIORNATE SCARICABILI")
+    print("  Messtage = giorni con dati; Windtage = >=12 kn per almeno 2 h consecutive")
     print("  un passo ogni %d giorni (una risposta copre %d ore)"
           % (A.PASSO_GIORNI, A.ORE_PER_RISPOSTA))
-    print("  ripartibile: una giornata gia' salvata non viene richiesta di nuovo")
-    print("  completa = almeno %d%% delle 24 ore con una media misurata"
-          % round(100 * A.QUOTA_COMPLETA))
-    print("=" * 78)
+    print("=" * 82)
 
     esiti = {}
     for slug in slugs:
         d = A.DICHIARATO.get(slug, {})
         print("")
-        print("  -- %s (%s)  dichiarate %s giornate misurate dal %s"
-              % (slug, d.get("nome", "?"), d.get("giorni_misurati", "?"),
-                 d.get("dal", "?")))
+        print("  -- %s (%s)  snapshot sito: Messtage %s, Windtage %s, dal %s"
+              % (slug, d.get("nome", "?"), d.get("messtage", "?"),
+                 d.get("windtage", "?"), d.get("dal", "?")))
         sys.stdout.flush()
 
         def progresso(i, n, giorno, r, _slug=slug):
@@ -755,30 +748,29 @@ def cmd_addicted_censimento(stazioni=None, massimo=None):
                          else "%d slot, %d medie" % (r["n_slot"], r["n_mavg"])))
                 sys.stdout.flush()
 
-        per_giorno, R = A.censimento(slug, massimo=massimo,
-                                     su_progresso=progresso)
+        _per_giorno, R = A.censimento(slug, massimo=massimo,
+                                      su_progresso=progresso)
         esiti[slug] = R
         print("     richieste %d, dalla cache %d, errori %d"
               % (R["n_richieste"], R["n_dalla_cache"], R["n_errori"]))
 
     print("")
-    print("  " + "=" * 74)
-    print("  %-14s %8s %8s %8s %9s %9s  %s"
-          % ("stazione", "con dato", "complete", "con mmax", "dichiarate",
-             "quota", "periodo"))
-    print("  " + "-" * 78)
+    print("  " + "=" * 78)
+    print("  %-14s %8s %8s %8s %8s %8s  %s"
+          % ("stazione", "Messtage", "complete", "mmax", "Windtage", "cop.M", "periodo"))
+    print("  " + "-" * 82)
     for slug in slugs:
         R = esiti[slug]
-        print("  %-14s %8d %8d %8d %9s %8s  %s -> %s"
+        print("  %-14s %8d %8d %8d %8d %7s  %s -> %s"
               % (slug, R["n_con_dato"], R["n_complete"], R["n_con_mmax"],
-                 R["dichiarato"] if R["dichiarato"] is not None else "-",
-                 ("%.0f%%" % (100 * R["quota_del_dichiarato"]))
-                 if R["quota_del_dichiarato"] is not None else "-",
+                 R["n_windtag"],
+                 ("%.0f%%" % (100 * R["quota_messtage"]))
+                 if R["quota_messtage"] is not None else "-",
                  R["primo"] or "-", R["ultimo"] or "-"))
-    print("  " + "-" * 78)
-    print("  \"quota\" e' quanto abbiamo scaricato rispetto a cio' che il sito")
-    print("  dichiara. Se e' molto sotto il 100%, non abbiamo l'archivio: ne")
-    print("  abbiamo una parte, e la differenza va spiegata prima di usarlo.")
+    print("  " + "-" * 82)
+    print("  cop.M confronta i giorni trovati con i Messtage dello snapshot del sito;")
+    print("  NON con i Windtage. Gli snapshot crescono nel tempo, quindi qualche punto")
+    print("  percentuale di scarto non e' un errore del parser.")
 
     for slug in slugs:
         R = esiti[slug]
@@ -786,23 +778,43 @@ def cmd_addicted_censimento(stazioni=None, massimo=None):
             continue
         print("")
         print("  %s, per anno:" % slug)
-        print("    anno   con dato  complete  con mmax")
+        print("    anno   con dato  complete  con mmax  Windtage")
         for a in sorted(R["per_anno"]):
             v = R["per_anno"][a]
-            print("    %-6s %8d %9d %9d"
-                  % (a, v["con_dato"], v["complete"], v["con_mmax"]))
-        if R["mmax_oltre_record"]:
-            print("    ATTENZIONE: il mmax piu' alto letto e' %.1f kn, ma la"
-                  % R["mmax_visto"])
-            print("    pagina storica dichiara come record %.1f kn. Uno dei due"
-                  % R["record_dichiarato"])
-            print("    numeri non e' quello che dice il suo nome, e va chiarito")
-            print("    prima di ingerire.")
+            print("    %-6s %8d %9d %9d %9d"
+                  % (a, v["con_dato"], v["complete"], v["con_mmax"], v["windtag"]))
+        if R["windtage_dichiarati"]:
+            print("    Windtage ricostruiti %d; snapshot sito %d (%.0f%%)"
+                  % (R["n_windtag"], R["windtage_dichiarati"],
+                     100 * R["quota_windtage"]))
+        if R["mmax_visto"] is not None:
+            print("    massimo orario mmax osservato: %.1f kn" % R["mmax_visto"])
 
     print("")
-    print("  Nessuna osservazione scritta nel database. Le tre Malcesine")
-    print("  (storica 2014, serie 2023, feed corrente) restano tre entita'")
-    print("  separate finche' non sono identificate bene.")
+    print("  Nessuna osservazione scritta nel database: il censimento guarda soltanto.")
+    print("  mmax resta 'massimo dell'ora' e NON viene chiamato raffica ricorrente 30'.")
+    sys.stdout.flush()
+
+
+def cmd_addicted_importa(stazioni=None):
+    """Ingerisce SOLO i raw gia' scaricati, in una tabella dedicata."""
+    from gardawind.sources import addicted_audit as A
+    slugs = list(stazioni) if stazioni else list(A.SLUG_STAZIONI)
+    print("")
+    print("=" * 78)
+    print("  ADDICTED-SPORTS  -  IMPORTAZIONE DELLA CACHE")
+    print("  nessuna rete; mavg -> media oraria, mmax -> massimo orario")
+    print("  destinazione: addicted_hour (separata da gust_rec 30')")
+    print("=" * 78)
+    totale = 0
+    for slug in slugs:
+        R = A.importa_cache(slug)
+        totale += R["n_salvate"]
+        print("  %-14s %7d ore  gruppo %-28s conflitti overlap %d"
+              % (slug, R["n_salvate"], R["series_group"], R["conflitti_overlap"]))
+    print("  totale: %d ore salvate/aggiornate" % totale)
+    print("  Campione e Brenzone condividono lo stesso series_group: non vanno contati")
+    print("  come due osservazioni indipendenti finche' la sorgente non cambia.")
     sys.stdout.flush()
 
 
@@ -1534,6 +1546,9 @@ def main(argv=None):
     ap.add_argument("--addicted-censimento", action="store_true",
                     help="cammina l'archivio addicted e conta quante giornate "
                          "complete si riesce davvero a scaricare, per stazione")
+    ap.add_argument("--addicted-importa", action="store_true",
+                    help="ingerisce i raw addicted gia' scaricati nella tabella "
+                         "dedicata addicted_hour; non usa la rete")
     ap.add_argument("--massimo", type=int, metavar="N",
                     help="limita il censimento alle ultime N richieste "
                          "(per provare senza scaricare dodici anni)")
@@ -1589,6 +1604,10 @@ def main(argv=None):
 
     if args.addicted_censimento:
         cmd_addicted_censimento(stazioni=args.stazione, massimo=args.massimo)
+        return 0
+
+    if args.addicted_importa:
+        cmd_addicted_importa(stazioni=args.stazione)
         return 0
 
     if args.addicted_audit:
