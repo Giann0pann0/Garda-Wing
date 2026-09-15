@@ -37,9 +37,11 @@ possiede gia' chi chiama.
 """
 
 from . import config, store
-from .util import (angle_diff, covered_minutes, linear_modes, local_day,
-                   mean, median, merge_by_instant, parse_dt_any, quantile,
-                   sampling_cadence, sustained_onset, time_above, to_local)
+from .util import (FINESTRA_RICORRENTE_MIN, alba_tramonto, angle_diff,
+                   covered_minutes, gust_level, linear_modes, local_day,
+                   mean, median, merge_by_instant, offset_locale_ore,
+                   parse_dt_any, quantile, sampling_cadence, sustained_onset,
+                   time_above, to_local, window_estimable)
 
 # Quanto deve restare sopra soglia perche' sia un ingresso e non un colpo di
 # vento. Trenta minuti e' anche la finestra della raffica ricorrente: un solo
@@ -122,7 +124,11 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
         "regime_duration_min": None, "planing_duration_min": None,
         "regime_duration_wind_min": None, "planing_duration_wind_min": None,
     }
-    dati = sorted([(float(m), w, d) for m, w, d in righe if w is not None],
+    # Si indicizza invece di scompattare: le righe possono portare un quarto
+    # campo (la raffica) che qui non si guarda, e un giorno potrebbero portarne
+    # un quinto. Scompattare tre nomi renderebbe questa funzione fragile a
+    # un'aggiunta che non la riguarda.
+    dati = sorted([(float(r[0]), r[1], r[2]) for r in righe if r[1] is not None],
                   key=lambda r: r[0])
     if not dati:
         vuoto["reason"] = "no_data"
@@ -245,8 +251,13 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
 def giorni_osservati(spot_name):
     """Le giornate della centralina, dentro la finestra del regime.
 
-    {giorno: [(minuti_locali, vento, direzione)]}, con i campioni dello stesso
-    istante gia' uniti fra le fonti.
+    {giorno: [(minuti_locali, vento, direzione, raffica)]}, con i campioni
+    dello stesso istante gia' uniti fra le fonti.
+
+    La raffica viaggia con il campione anche se giudica_giornata non la guarda:
+    serve alla planabilita', che si decide su media E raffica ricorrente. Chi
+    legge solo i primi tre campi continua a funzionare - e infatti
+    giudica_giornata indicizza invece di scompattare, proprio per questo.
     """
     spot = config.SPOTS[spot_name]
     h0, h1 = spot["window"]
@@ -269,7 +280,8 @@ def giorni_osservati(spot_name):
             continue
         giorno, minuti = etich[key]
         if h0 * 60 <= minuti <= (h1 + 1) * 60:
-            out.setdefault(giorno, []).append((minuti, u["wind"], u["dir"]))
+            out.setdefault(giorno, []).append(
+                (minuti, u["wind"], u["dir"], u.get("gust")))
     for giorno in out:
         out[giorno].sort(key=lambda r: r[0])
     return out
@@ -912,3 +924,278 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
             "riferimento": base_nome, "valutato": valutato,
             "previsori": risultati, "porte": porte,
             "esito": esito, "motivo": motivo}
+
+
+# ==========================================================================
+# 1b. La finestra utile: com'e' il vento QUANDO SI PUO' USCIRE
+# ==========================================================================
+#
+# Domanda diversa da quella dell'ingresso, e per il Peler e' la domanda giusta.
+# "A che minuto e' nato il Peler" e' inutile se e' nato alle tre di notte: la
+# domanda e' "alle 6-9 quanto sara' buono". Quindi qui non si cerca un istante,
+# si descrive un intervallo.
+#
+# Tre grandezze, tre ruoli distinti, e non vanno mescolate:
+#
+#   VENTO MEDIO         il fondo della sessione: quanto vento c'e' in modo
+#                       continuo.
+#   RAFFICA RICORRENTE  la spinta che TORNA: mediana dei massimi a 10 minuti
+#       (30 minuti)     dentro una finestra mobile di mezz'ora. Entra nella
+#                       planabilita', perche' con il wing si sta sul foil anche
+#                       con una media modesta se la spinta ripassa spesso.
+#   RAFFICA MASSIMA     NON decide la planata. Descrive quanto il vento e'
+#                       rafficato, cioe' se la giornata e' gradevole o
+#                       sgradevole: 11 kn medi con ricorrente 16 e' navigabile,
+#                       11 kn medi con un solo picco a 23 no.
+#
+# Quello che questa funzione NON fa: non dice se si plana. Nessun coefficiente,
+# nessuna soglia combinata, nessuna etichetta "forte / marginale / debole".
+# Quei numeri si scelgono guardando la distribuzione vera di (media,
+# ricorrente) sulle giornate forti e su quelle deboli - e la raffica
+# nell'archivio lungo di Torbole non c'e', quindi quella distribuzione si
+# costruisce da qui in avanti. Inventarla oggi vorrebbe dire scegliere le
+# soglie prima di aver visto i dati, che e' esattamente cio' che abbiamo
+# evitato di fare per la tabella wing.
+#
+# Al posto delle soglie: il tempo sopra soglia per una GRIGLIA di soglie
+# candidate, sulla media e sulla ricorrente separatamente. Cosi' "quanta parte
+# della finestra resta sopra X" e' disponibile per qualunque X si decidera',
+# senza che nessun X sia cotto dentro.
+
+SOGLIE_CANDIDATE = (10.0, 12.0, 14.0, 16.0, 18.0, 20.0)
+
+# Sotto questa media il rapporto raffica/media non descrive la raffica: con 2
+# nodi di media un rapporto 3 vuol dire 6 nodi, e non e' una giornata
+# rafficata, e' una giornata senza vento.
+MEDIA_MINIMA_RAPPORTO = 5.0
+
+
+def giudica_finestra_utile(righe, asse, settore, inizio, fine,
+                           soglie=SOGLIE_CANDIDATE,
+                           persist_min=PERSISTENZA_MIN,
+                           min_copertura_min=60.0):
+    """La finestra utile di una giornata -> struttura. Nessuna etichetta.
+
+    righe: [(minuti, vento, direzione, raffica_o_None)]. inizio e fine sono
+    minuti dalla mezzanotte locale e arrivano da fuori: la luce e l'ora
+    pratica sono decisioni, e una funzione pura non le prende.
+
+    Come in giudica_giornata, la lettura e' quella del REGIME: i campioni
+    fuori settore valgono zero e una direzione ignota non vale come coerente.
+    """
+    vuoto = {
+        "inizio": inizio, "fine": fine,
+        "estimable": False, "reason": None,
+        "cadence_min": None, "coverage_min": 0.0, "n_samples": 0,
+        "media_mediana": None, "media_q25": None, "media_q75": None,
+        "media_max": None,
+        "ric_stimabile": False, "ric_mediana": None, "ric_q75": None,
+        "ric_max": None, "cadenza_raffica_min": None,
+        "raffica_max": None,
+        "rapporto_ric_media": None, "rapporto_max_media": None,
+        "rapporto_disp": None,
+        "minuti_sopra_media": {}, "minuti_sopra_ric": {},
+        "planata_sostenuta_media": None, "planata_sostenuta_ric": None,
+        "dir_unknown_frac": None,
+    }
+    dentro = sorted([r for r in righe
+                     if r[1] is not None and inizio <= r[0] <= fine],
+                    key=lambda r: r[0])
+    if not dentro:
+        vuoto["reason"] = "no_data"
+        return vuoto
+
+    minuti = [float(r[0]) for r in dentro]
+    cad = sampling_cadence(minuti) or 0.0
+    coperti = covered_minutes(minuti, cad)
+    base = dict(vuoto)
+    ignoti = sum(1 for r in dentro if r[2] is None)
+    base.update({"cadence_min": cad, "coverage_min": coperti,
+                 "n_samples": len(dentro),
+                 "dir_unknown_frac": ignoti / float(len(dentro))})
+    if coperti < min_copertura_min:
+        base["reason"] = "insufficient_coverage"
+        return base
+    base["estimable"] = True
+    base["reason"] = "ok"
+
+    def nel_settore(d):
+        return d is not None and angle_diff(d, asse) <= settore
+
+    serie_media = [(float(r[0]), r[1] if nel_settore(r[2]) else 0.0)
+                   for r in dentro]
+    medie = [v for _m, v in serie_media]
+    base.update({"media_mediana": median(medie),
+                 "media_q25": quantile(medie, 0.25),
+                 "media_q75": quantile(medie, 0.75),
+                 "media_max": max(medie)})
+
+    # La raffica: solo dai campioni che ce l'hanno, e con la cadenza di QUELLI.
+    con_raffica = [(float(r[0]), r[3]) for r in dentro
+                   if r[3] is not None and nel_settore(r[2])]
+    cad_raffica = sampling_cadence([m for m, _g in con_raffica]) if con_raffica else None
+    base["cadenza_raffica_min"] = cad_raffica
+    if con_raffica:
+        base["raffica_max"] = max(g for _m, g in con_raffica)
+    serie_ric = []
+    if con_raffica and window_estimable(cad_raffica, FINESTRA_RICORRENTE_MIN):
+        base["ric_stimabile"] = True
+        serie_ric = [(m, v) for m, v in
+                     gust_level(con_raffica, FINESTRA_RICORRENTE_MIN,
+                                centered=True, cadence_min=cad_raffica)
+                     if v is not None]
+        if serie_ric:
+            valori = [v for _m, v in serie_ric]
+            base.update({"ric_mediana": median(valori),
+                         "ric_q75": quantile(valori, 0.75),
+                         "ric_max": max(valori)})
+
+    # I due rapporti, con i due significati diversi: la ricorrente sulla media
+    # dice quanta spinta in piu' della media torna ripetutamente; il massimo
+    # sulla media dice quanto la giornata e' irregolare. La dispersione del
+    # primo e' la seconda componente della stabilita'.
+    per_minuto = dict(serie_media)
+    rapporti = []
+    for m, v in serie_ric:
+        media = per_minuto.get(m)
+        if media and media >= MEDIA_MINIMA_RAPPORTO:
+            rapporti.append(v / media)
+    if rapporti:
+        mediana_r = median(rapporti)
+        base["rapporto_ric_media"] = mediana_r
+        base["rapporto_disp"] = median([abs(r - mediana_r) for r in rapporti])
+    if base["raffica_max"] is not None and base["media_mediana"] \
+            and base["media_mediana"] >= MEDIA_MINIMA_RAPPORTO:
+        base["rapporto_max_media"] = base["raffica_max"] / base["media_mediana"]
+
+    # Il tempo sopra soglia per una griglia di soglie candidate, separatamente
+    # sulla media e sulla ricorrente. Nessuna soglia e' "la" soglia.
+    base["minuti_sopra_media"] = {
+        t: time_above(serie_media, float(t), cad) for t in soglie}
+    base["planata_sostenuta_media"] = {
+        t: sustained_onset(serie_media, float(t), persist_min=persist_min,
+                           cadence_min=cad) is not None for t in soglie}
+    if serie_ric:
+        base["minuti_sopra_ric"] = {
+            t: time_above(serie_ric, float(t), cad_raffica) for t in soglie}
+        base["planata_sostenuta_ric"] = {
+            t: sustained_onset(serie_ric, float(t), persist_min=persist_min,
+                               cadence_min=cad_raffica) is not None
+            for t in soglie}
+    return base
+
+
+def finestra_utile_del_giorno(spot_name, giorno, alba_min=None):
+    """(inizio, fine) della finestra utile, in minuti locali.
+
+    Tre vincoli, e il piu' stretto vince:
+      la finestra del regime, che dice quando quel vento puo' soffiare;
+      l'ora pratica, che e' una scelta (le 06:00 per il Peler);
+      la LUCE: alba + margine all'inizio, tramonto - margine alla fine.
+
+    Questa funzione legge la configurazione, e per questo NON sta nella logica
+    pura: l'ora pratica e i margini sono decisioni, e le decisioni stanno dove
+    si possono cambiare senza toccare un calcolo.
+    """
+    spot = config.SPOTS[spot_name]
+    h0, h1 = spot["window"]
+    inizio, fine = h0 * 60.0, (h1 + 1) * 60.0
+    pratica = spot.get("ora_pratica")
+    if pratica is not None:
+        inizio = max(inizio, pratica * 60.0)
+    alba, tramonto = alba_tramonto(giorno, spot["lat"], spot["lon"],
+                                   offset_locale_ore(giorno))
+    # I limiti che vengono dalla luce si arrotondano a cinque minuti. Non e'
+    # pigrizia: il margine dopo l'alba e' un giudizio con la precisione di una
+    # mezz'ora, e i campioni arrivano ogni dieci minuti. Senza questo, a
+    # giugno l'alba + 30 dava 06:01 e la finestra utile del Peler cominciava
+    # alle 06:01 invece che alle 06:00 - un minuto che non esiste in nessun
+    # dato e che rende il numero piu' preciso di quanto sia.
+    def a_cinque(x):
+        return round(x / 5.0) * 5.0
+
+    if alba is not None:
+        inizio = max(inizio, a_cinque(alba + config.MARGINE_ALBA_MIN))
+    if tramonto is not None:
+        fine = min(fine, a_cinque(tramonto - config.MARGINE_TRAMONTO_MIN))
+    return inizio, fine
+
+
+# ==========================================================================
+# 1c. Due livelli di verita', e la contabilita' che li tiene separati
+# ==========================================================================
+#
+# Lo storico lungo e il dataset della planabilita' NON sono lo stesso dataset,
+# e la differenza e' enorme: quattordici anni contro poche giornate.
+#
+#   STORICO MEAN-ONLY        vento medio, direzione, stagionalita', frequenza
+#                            dei regimi, durata, finestre tipiche. A Torbole
+#                            sono 5153 giornate dal 2012.
+#   PLANABILITY-READY        media + raffica ricorrente. Esiste solo dove c'e'
+#                            la raffica, e l'archivio storico di Torbole non la
+#                            contiene: e' un dataset PROSPETTIVO, che cresce da
+#                            qui in avanti.
+#
+# Il rischio da cui questa contabilita' difende ha un nome preciso: il falso
+# effetto "abbiamo quattordici anni di planabilita'". Non e' vero, e sarebbe il
+# tipo di errore che non si vede - una tabella con l'aria di essere storica,
+# costruita su nove giornate. E' gia' capitato una volta, quando l'analisi
+# delle raffiche filtrava i campioni senza raffica e quattordici anni
+# diventavano nove giorni senza dirlo.
+#
+# Quindi ogni analisi dichiara la sua copertura PRIMA dei suoi numeri, con i
+# nomi che seguono - e sono i nomi decisi da lui, non tradotti.
+
+def copertura_dataset(giorni, soglia_planability=30):
+    """La contabilita' di copertura di un insieme di giornate.
+
+    giorni: {giorno: [(minuti, vento, direzione, raffica)]} come lo produce
+    giorni_osservati(). Ritorna i campi che ogni analisi deve dichiarare in
+    testa, piu' la distinzione fra i due livelli.
+
+    "planability_ready" non vuol dire "ci sono raffiche": vuol dire che su
+    abbastanza giornate la raffica c'e' a una cadenza che sostiene la finestra
+    mobile di 30 minuti. Una raffica ogni mezz'ora non rende una giornata
+    planability-ready, e chiamarla tale sarebbe lo stesso errore di prima con
+    un'altra maschera.
+    """
+    tot = sorted(giorni)
+    con_raffica, ric_ok, cadenze, cadenze_g = [], [], [], []
+    for giorno in tot:
+        righe = giorni[giorno]
+        minuti = [float(r[0]) for r in righe if r[1] is not None]
+        if minuti:
+            c = sampling_cadence(minuti)
+            if c:
+                cadenze.append(c)
+        con_g = [float(r[0]) for r in righe if len(r) > 3 and r[3] is not None]
+        if not con_g:
+            continue
+        con_raffica.append(giorno)
+        cg = sampling_cadence(con_g)
+        if cg:
+            cadenze_g.append(cg)
+        if window_estimable(cg, FINESTRA_RICORRENTE_MIN):
+            ric_ok.append(giorno)
+
+    n = len(tot)
+    return {
+        "n_days_total": n,
+        "n_days_with_gust": len(con_raffica),
+        "n_days_recurrent_ready": len(ric_ok),
+        "quota_with_gust": (len(con_raffica) / float(n)) if n else None,
+        "quota_recurrent_ready": (len(ric_ok) / float(n)) if n else None,
+        "periodo": (tot[0], tot[-1]) if tot else (None, None),
+        "periodo_gust": ((con_raffica[0], con_raffica[-1])
+                         if con_raffica else (None, None)),
+        "periodo_recurrent": (ric_ok[0], ric_ok[-1]) if ric_ok else (None, None),
+        "cadenza_mediana": median(cadenze) if cadenze else None,
+        "cadenza_raffica_mediana": median(cadenze_g) if cadenze_g else None,
+        # Il livello che si puo' studiare adesso, dichiarato come tale.
+        "livello_medio": "storico mean-only",
+        "livello_planabilita": ("planability-ready"
+                                if len(ric_ok) >= soglia_planability
+                                else "prospettico: campione ancora troppo piccolo"),
+        "planability_ready": len(ric_ok) >= soglia_planability,
+        "soglia_planability": soglia_planability,
+    }

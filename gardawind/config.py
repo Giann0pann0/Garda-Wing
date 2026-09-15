@@ -63,6 +63,31 @@ OBS_AXIS = {
 # --------------------------------------------------------------------------
 # Spot
 # --------------------------------------------------------------------------
+# LA FINESTRA UTILE, che non e' la finestra del regime.
+#
+# "window" dice quando il regime puo' soffiare. Ma la domanda di chi naviga non
+# e' "a che minuto e' nato il Peler": e' "alle 6-9 quanto sara' buono". E per
+# rispondere a quella serve un'altra finestra - quella in cui ha senso pensare
+# di entrare in acqua - che dipende da due cose:
+#
+#   un'ora minima praticabile, che e' una scelta (le 06:00 per il Peler: prima
+#   non ci si alza, e in estate e' quello il vincolo che morde);
+#   la LUCE, che non e' una scelta. A Torbole l'alba passa da 05:31 a fine
+#   giugno a 07:59 a fine dicembre: un'ora pratica fissa sarebbe sbagliata
+#   mezzo anno, e lo sarebbe proprio nei mesi in cui il Peler e' piu' spesso
+#   gia' attivo prima che si cominci a guardare.
+#
+# Quindi: inizio = max(inizio della finestra del regime, ora pratica,
+#                      alba + margine).
+#
+# Il margine dopo l'alba non e' astronomico: e' il tempo fra "tecnicamente c'e'
+# luce" e "ha senso essere in acqua".
+MARGINE_ALBA_MIN = 30.0
+
+# Lo stesso vincolo morde all'altro capo: la finestra dell'Ora arriva alle
+# 20:00, ma a dicembre il sole tramonta alle 16:39. Nessuno atterra al buio.
+MARGINE_TRAMONTO_MIN = 30.0
+
 # window: ore LOCALI incluse (start <= h <= end) in cui il regime puo' soffiare
 # min_kn: soglia sopra la quale consideriamo il regime "entrato" (media oraria)
 # planing_kn: soglia indicativa di planata per wing/windsurf
@@ -83,13 +108,15 @@ SPOTS = {
                         min_kn=11.0, planing_kn=14.0, target="hourly"),
     "Torbole-Peler": dict(TORBOLE, place="Torbole", label="Torbole · Pelèr",
                           regime="PELER", axis=LAKE_AXIS_PELER, window=(4, 10),
-                          min_kn=10.0, planing_kn=13.0, target="hourly"),
+                          min_kn=10.0, planing_kn=13.0, target="hourly",
+                          ora_pratica=6.0),
     "Malcesine-Ora": dict(MALCESINE, place="Malcesine", label="Malcesine · Ora",
                           regime="ORA", axis=LAKE_AXIS_ORA, window=(12, 19),
                           min_kn=11.0, planing_kn=14.0, target="hourly"),
     "Malcesine-Peler": dict(MALCESINE, place="Malcesine", label="Malcesine · Pelèr",
                             regime="PELER", axis=LAKE_AXIS_PELER, window=(5, 11),
-                            min_kn=10.0, planing_kn=13.0, target="hourly"),
+                            min_kn=10.0, planing_kn=13.0, target="hourly",
+                            ora_pratica=6.0),
     # L'archivio pubblico di Malcesine e' giornaliero: da' la raffica massima
     # del giorno senza dire a che ora. E' comunque un bersaglio allenabile su
     # due anni, e "quanto tira di punta oggi" e' una domanda sensata.

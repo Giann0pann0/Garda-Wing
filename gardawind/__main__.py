@@ -594,6 +594,42 @@ def _hhmm(minuti):
     return "%02d:%02d" % (int(minuti // 60) % 24, int(minuti % 60))
 
 
+def _stampa_copertura(C, cosa="questa analisi"):
+    """La copertura del dataset, in testa all'analisi e non in fondo.
+
+    Serve a evitare una frase falsa che nessuno direbbe a voce ma che una
+    tabella dice da sola: "abbiamo quattordici anni di planabilita'". I
+    quattordici anni sono di vento medio; la raffica ricorrente esiste solo
+    dove c'e' la raffica, e nell'archivio storico di Torbole non c'e'.
+    """
+    def per(x):
+        return "-" if x is None else "%.1f%%" % (100.0 * x)
+
+    p0, p1 = C["periodo"]
+    print("  COPERTURA DEL DATO  (%s)" % cosa)
+    print("    storico mean-only      %5d giornate   %s -> %s   cadenza %s"
+          % (C["n_days_total"], p0 or "-", p1 or "-",
+             ("%g min" % C["cadenza_mediana"]) if C["cadenza_mediana"] else "-"))
+    g0, g1 = C["periodo_gust"]
+    print("    con raffica            %5d giornate   %s -> %s   (%s del totale)"
+          % (C["n_days_with_gust"], g0 or "-", g1 or "-",
+             per(C["quota_with_gust"])))
+    r0, r1 = C["periodo_recurrent"]
+    print("    ricorrente 30' stimab. %5d giornate   %s -> %s   (%s del totale)"
+          % (C["n_days_recurrent_ready"], r0 or "-", r1 or "-",
+             per(C["quota_recurrent_ready"])))
+    if C["cadenza_raffica_mediana"]:
+        print("    cadenza della raffica  %g min  (la ricorrente a 30' chiede "
+              "<= 15)" % C["cadenza_raffica_mediana"])
+    print("    planabilita': %s" % C["livello_planabilita"])
+    if not C["planability_ready"]:
+        print("    -> media e direzione si studiano su tutto lo storico;")
+        print("       media + raffica ricorrente NO: e' un dataset prospettico,")
+        print("       e cresce da adesso. Serve almeno %d giornate."
+              % C["soglia_planability"])
+    print("")
+
+
 def _cella(r):
     """Una cella della tabella: giornate, quota censurata, ingresso, disp, durata.
 
@@ -821,8 +857,11 @@ def cmd_orari(spot_name=None):
         print("  una mediana mensile si stampa da %d giornate in su" % O.MIN_GG_MESE)
         print("=" * 78)
 
-        tot = C["n_giorni"] + C["n_non_stimabili"]
         print("")
+        _stampa_copertura(O.copertura_dataset(O.giorni_osservati(name)),
+                          "orario di ingresso: usa solo il vento medio e la "
+                          "direzione")
+        tot = C["n_giorni"] + C["n_non_stimabili"]
         print("  %d giornate nell'archivio: %d stimabili, %d scartate"
               % (tot, C["n_giorni"], C["n_non_stimabili"]))
         if C["n_dir_ignota"]:
