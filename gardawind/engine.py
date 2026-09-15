@@ -5,7 +5,7 @@ import math
 import threading
 import time
 
-from . import (aggregate, config, confidence as CONF, features as F,
+from . import (aggregate, analogs, config, confidence as CONF, features as F,
                model as M, store, validate as V, verify)
 from .sources import malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
@@ -51,6 +51,19 @@ def update_forecasts():
                     okc += 1
             except FetchError as e:
                 _note("warn", "forecast/%s" % name, str(e)[:160])
+    # Sorgente separata per la selezione degli analoghi. Deve essere la stessa
+    # famiglia (best_match) del previous-runs usato nella validazione D+1..D+3,
+    # e NON deve entrare nell'ensemble operativo. Per questo vive in arch_hour
+    # con un prefisso dedicato invece che in fc_hour.
+    for _point, (lat, lon) in _points().items():
+        try:
+            rows, _elev = openmeteo.fetch_forecast(
+                lat, lon, config.ARCHIVE_MODEL, False)
+            if rows:
+                store.save_archive(store.point_key(lat, lon, analogs.CURRENT_SOURCE), rows)
+        except FetchError as e:
+            _note("warn", "forecast/analoghi", str(e)[:160])
+
     store.meta_set("last_forecast_run", run)
     store.prune_forecasts(keep_runs=3)
     return okc
@@ -761,7 +774,7 @@ def ensemble_hours(spot_name):
     """
     spot = config.SPOTS[spot_name]
     point = store.point_key(spot["lat"], spot["lon"])
-    runs = store.latest_runs(point)
+    runs = {m: r for m, r in store.latest_runs(point).items() if m in config.MODELS}
     if not runs:
         return {}, {}, 0, "nessuna"
 
@@ -1382,6 +1395,7 @@ def day_profile(place, day, sessions):
         out.append({
             "hour": h, "key": k, "wind": wind, "gust": wind * ratio,
             "lo": max(0.0, wind - sp), "hi": wind + sp,
+            "spread": sp,
             "dir": hours[k].get("d10"),
             # Aria e cielo viaggiano con il profilo invece di essere ripescati
             # da una seconda passata sull'ensemble: sono gia' qui, e una
@@ -1390,6 +1404,20 @@ def day_profile(place, day, sessions):
             "cloud": hours[k].get("cloud"),
             "precip": hours[k].get("precip"),
         })
+
+    # A Torbole, D+1..D+3, la forma validata viene dalle tre giornate
+    # storiche analoghe. L'ampiezza resta ESATTAMENTE quella del profilo che
+    # avremmo mostrato senza analoghi: cambia solo la forma. La libreria
+    # restituisce 10 minuti, cosi' il gradino non viene ricreato e poi
+    # distrutto da un ricampionamento orario.
+    if place == "Torbole" and analogs.promoted():
+        leads = [int(e.get("lead")) for e in sessions.values()
+                 if e and e.get("lead") is not None]
+        lead = min(leads) if leads else None
+        if lead in (1, 2, 3):
+            shaped, _meta = analogs.apply_to_profile(day, lead, out)
+            if shaped is not out:
+                return shaped
     return out
 
 

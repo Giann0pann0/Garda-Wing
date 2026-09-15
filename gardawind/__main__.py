@@ -14,6 +14,7 @@
     python3 -m gardawind --live-json F   legge le centraline e scrive F (solo osservato)
     python3 -m gardawind --addicted [N]  legge addicted-sports (N giorni indietro)
     python3 -m gardawind --nowcast-validazione  valida persistenza intraday senza attivarla
+    python3 -m gardawind --analoghi-validazione  valida la forma da analoghi storici
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
 
@@ -25,7 +26,7 @@ import sys
 import threading
 import webbrowser
 
-from . import config, engine, store, web
+from . import analogs, config, engine, store, web
 from .util import local_day, local_hour, parse_dt_any, to_local
 
 
@@ -1997,6 +1998,30 @@ def cmd_nowcast_validazione():
     print("    nowcast modifica la curva o la UI mostrata all'utente.")
 
 
+
+def cmd_analoghi_validazione():
+    r = analogs.validation_report()
+    if not r.get("usable"):
+        analogs.promote_from_validation(r)
+        print("analoghi: PORTA CHIUSA - %s" % r.get("reason", r.get("diagnostic", {})))
+        return
+    print("Analoghi Torbole: %d giornate comuni (%s -> %s)" % (r["n"], r["from"], r["to"]))
+    print(" lead   colpi   falsi   err.min   sbil.   ripidezza   vera")
+    for lead in (1, 2, 3):
+        m = r["leads"][lead]
+        print(" D+%d    %5.1f%%  %5.1f%%  %7.1f  %+6.1f    %5.2f      %5.2f" %
+              (lead, 100*m["hits"], 100*m["false_alarms"], m["minute_error"],
+               m["bias_minutes"], m["steepness"], m["true_steepness"]))
+    n = r["null"]
+    print(" nullo  %5.1f%%  %5.1f%%  %7.1f  %+6.1f    %5.2f      %5.2f" %
+          (100*n["hits"], 100*n["false_alarms"], n["minute_error"],
+           n["bias_minutes"], n["steepness"], n["true_steepness"]))
+    opened, reasons, _ = analogs.promote_from_validation(r)
+    print("  PORTA %s" % ("APERTA" if opened else "CHIUSA"))
+    for reason in reasons:
+        print("    - " + reason)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="gardawind", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -2055,6 +2080,8 @@ def main(argv=None):
                          "e quelle che non devono ancora entrare nel modello")
     ap.add_argument("--nowcast-validazione", action="store_true",
                     help="valida persistenza intraday e gate del nowcast senza attivarlo")
+    ap.add_argument("--analoghi-validazione", action="store_true",
+                    help="riproduce la porta della forma analogica Torbole D+1..D+3")
     ap.add_argument("--massimo", type=int, metavar="N",
                     help="limita il censimento alle ultime N richieste "
                          "(per provare senza scaricare dodici anni)")
@@ -2124,6 +2151,10 @@ def main(argv=None):
         cmd_nowcast_validazione()
         return 0
 
+    if args.analoghi_validazione:
+        cmd_analoghi_validazione()
+        return 0
+
     if args.addicted_validazione:
         cmd_addicted_validazione()
         return 0
@@ -2161,6 +2192,14 @@ def main(argv=None):
             print("  " + line, flush=True)
         for r in engine.train_all():
             print("  " + json.dumps(r, default=str, ensure_ascii=False), flush=True)
+        # La forma analogica non entra nel sito per semplice presenza del codice:
+        # il database cloud deve riprodurre il blocco cieco validato.
+        ar = analogs.validation_report()
+        opened, reasons, _ = analogs.promote_from_validation(ar)
+        print("  analoghi: PORTA %s%s" %
+              ("APERTA" if opened else "CHIUSA",
+               "" if opened else " - " + "; ".join(reasons or [str(ar.get("diagnostic") or ar.get("reason"))])),
+              flush=True)
         target = args.export or "site"
         for path in exporter.export(target):
             print("  scritto " + path, flush=True)
