@@ -1201,6 +1201,52 @@ def cmd_orari(spot_name=None):
         sys.stdout.flush()
 
 
+
+def cmd_addicted_validazione():
+    """Confronta lo storico Addicted con T0193 senza cambiare il modello."""
+    from gardawind import addicted_validate as V
+    r = V.rapporto_completo()
+
+    print("\n" + "=" * 78)
+    print("  ADDICTED-SPORTS  -  VALIDAZIONE CONTRO T0193")
+    print("  sola lettura: nessun dato e nessun parametro del modello viene modificato")
+    print("=" * 78)
+
+    def pm(nome, m):
+        if not m or not m.get("n"):
+            print("  %-24s nessun overlap" % nome); return
+        print("  %-24s n=%6d  bias=%+5.2f  MAE=%4.2f  RMSE=%4.2f  r=%4.2f"
+              % (nome, m["n"], m["bias"], m["mae"], m["rmse"], m["corr"]))
+
+    print("\n  mavg Addicted vs media oraria T0193 (candidato - riferimento), kn")
+    pm("tutto", r["media"].get("tutto"))
+    pm("Peler pratico 06-11", r["media"].get("peler_06_11"))
+    pm("Ora 11-20", r["media"].get("ora_11_20"))
+
+    print("\n  mmax Addicted nel periodo con raffica T0193 vera")
+    pm("vs max raffica dell'ora", r["raffica_recente"].get("max_orario"))
+    pm("vs gust_rec 30'", r["raffica_recente"].get("ricorrente30"))
+    print("    ore comuni: %d" % r["raffica_recente"].get("ore", 0))
+
+    print("\n  valori estremi ripetuti da auditare, non cancellati")
+    if r["massimi_sospetti"]:
+        for x in r["massimi_sospetti"]:
+            print("    %.1f kn ripetuto %d volte" % (x["value"], x["count"]))
+    else:
+        print("    nessuno")
+
+    cb = r["campione_brenzone"]
+    q = 100.0 * cb["quota"] if cb["quota"] is not None else 0.0
+    print("\n  Campione/Brenzone: %d/%d ore comuni identiche (%.3f%%)"
+          % (cb["uguali"], cb["n"], q))
+
+    print("\n  VERDETTO")
+    print("  - mavg e' informativo ma non intercambiabile con T0193: va calibrato.")
+    print("  - mmax recente segue bene il massimo di raffica dell'ora, ma NON e'")
+    print("    gust_rec 30' e lo storico contiene valori ripetuti sospetti.")
+    print("  - nessuna di queste serie entra nella planabilita' finche' la relazione")
+    print("    col gust_rec 30' non e' validata su un periodo osservativo piu' lungo.")
+
 def cmd_addicted(giorni=1):
     """Legge addicted-sports e racconta cosa ha letto, con la provenienza.
 
@@ -1549,6 +1595,9 @@ def main(argv=None):
     ap.add_argument("--addicted-importa", action="store_true",
                     help="ingerisce i raw addicted gia' scaricati nella tabella "
                          "dedicata addicted_hour; non usa la rete")
+    ap.add_argument("--addicted-validazione", action="store_true",
+                    help="confronta Addicted con T0193 e segnala le parti sicure "
+                         "e quelle che non devono ancora entrare nel modello")
     ap.add_argument("--massimo", type=int, metavar="N",
                     help="limita il censimento alle ultime N richieste "
                          "(per provare senza scaricare dodici anni)")
@@ -1608,6 +1657,10 @@ def main(argv=None):
 
     if args.addicted_importa:
         cmd_addicted_importa(stazioni=args.stazione)
+        return 0
+
+    if args.addicted_validazione:
+        cmd_addicted_validazione()
         return 0
 
     if args.addicted_audit:
