@@ -594,6 +594,109 @@ def _hhmm(minuti):
     return "%02d:%02d" % (int(minuti // 60) % 24, int(minuti % 60))
 
 
+def cmd_addicted_audit(stazioni=None, giorni_extra=()):
+    """Cosa contiene davvero l'archivio addicted, stazione per stazione.
+
+    Non ingerisce niente: scarica, salva il grezzo separato per stazione, e
+    dichiara i fatti. La decisione di usare una di queste stazioni viene dopo
+    aver letto questa tabella.
+    """
+    from gardawind.sources import addicted_audit as A
+
+    slugs = list(stazioni) if stazioni else list(A.SLUG_STAZIONI)
+    print("")
+    print("=" * 78)
+    print("  ADDICTED-SPORTS  -  AUDIT DELL'ARCHIVIO")
+    print("  canale: <pagina>?json=wind&from=YYYY-MM-DD   parser %s"
+          % A.PARSER_VERSION)
+    print("  il grezzo va in %s/<stazione>/"
+          % os.path.join(store.support_dir(), "raw", "addicted"))
+    print("=" * 78)
+    print("")
+    print("  Il primo controllo non e' 'quanti giorni ci sono': e' se il server")
+    print("  RISPETTA 'from'. Un server che ignora quel parametro e risponde")
+    print("  sempre con oggi farebbe concludere 'anni di storico' mentre si")
+    print("  rilegge mille volte la stessa giornata - e i dati sembrerebbero")
+    print("  buoni, perche' lo sono: sono solo sempre gli stessi.")
+    print("")
+
+    riassunti = {}
+    for slug in slugs:
+        print("  -- %s" % slug)
+
+        def progresso(delta, r, _slug=slug):
+            stato = ("serie" if (r["ok"] and r["n_mavg"] > 0)
+                     else ("FROM IGNORATO" if r["from_ignorato"]
+                           else ("non json" if not r["json"] else "vuota")))
+            print("     -%-5d %-12s %s  %s"
+                  % (delta, r["giorno"], stato,
+                     ("%d slot, %d medie" % (r["n_slot"], r["n_mavg"]))
+                     if r["json"] else (r["errore"] or "")[:60]))
+            sys.stdout.flush()
+
+        ris, oriz = A.trova_orizzonte(slug, su_progresso=progresso)
+        for g in giorni_extra:
+            ris[g] = A.audit_giorno(slug, g)
+        riassunti[slug] = (A.riassumi(ris), oriz)
+        print("")
+
+    print("  " + "=" * 74)
+    print("  RIASSUNTO")
+    print("  " + "=" * 74)
+    print("  %-14s %7s %6s %6s %7s %8s %6s  %s"
+          % ("stazione", "provati", "serie", "ignor.", "cadenza", "slot/gg",
+             "buchi", "orizzonte"))
+    print("  " + "-" * 74)
+    for slug in slugs:
+        R, oriz = riassunti[slug]
+        print("  %-14s %7d %6d %6d %7s %8s %6s  %s"
+              % (slug, R["n_provati"], R["n_con_serie"], R["n_from_ignorato"],
+                 ("%g min" % R["cadenza_mediana"]) if R["cadenza_mediana"] else "-",
+                 ("%g" % R["slot_per_giorno"]) if R["slot_per_giorno"] else "-",
+                 ("%g" % R["buchi_mediani"]) if R["buchi_mediani"] is not None else "-",
+                 oriz or "nessun archivio"))
+    print("  " + "-" * 74)
+
+    for slug in slugs:
+        R, oriz = riassunti[slug]
+        print("")
+        print("  %s" % slug)
+        print("    campi visti:        %s" % (", ".join(R["campi_visti"]) or "-"))
+        print("    unita': mavg fino a %s, mmax fino a %s"
+              % (R["mavg_max"] if R["mavg_max"] is not None else "-",
+                 R["mmax_max"] if R["mmax_max"] is not None else "-"))
+        print("      valori di quest'ordine sono NODI. La prova indipendente e'")
+        print("      il riquadro 'misurato ora' della pagina, che scrive l'unita':")
+        print("      se il canale json fosse in km/h il rapporto starebbe attorno")
+        print("      a 1,85 - e --addicted lo controlla a ogni lettura.")
+        print("    semantica mavg/mmax:")
+        print("      ore con mmax SOTTO mavg: %d" % R["mmax_sotto_mavg"])
+        if R["mmax_sotto_mavg"] == 0:
+            print("      coerente con 'media dell'ora' e 'massimo dell'ora'.")
+            print("      Resta cio' che e': un MASSIMO OSSERVATO NELL'ORA. Non")
+            print("      e' la prova di una raffica meteorologica definita, e")
+            print("      nel database va tenuto con quel significato.")
+        else:
+            print("      ATTENZIONE: se il massimo sta sotto la media, i due nomi")
+            print("      non vogliono dire quello che sembra. Da chiarire prima")
+            print("      di usarli.")
+        if R["mae_dichiarato"] is not None:
+            print("    errore dichiarato dal sito: %s" % R["mae_dichiarato"])
+        if R["errori"]:
+            print("    errori incontrati:")
+            for e in R["errori"][:4]:
+                print("      %s" % e[:110])
+    print("")
+    print("  Le due Malcesine restano DUE stazioni: qui non vengono unite.")
+    print("  Due centraline che misurano lo stesso lago a qualche chilometro")
+    print("  di distanza vanno prima confrontate sulle ore in comune, e unirle")
+    print("  prima del confronto vorrebbe dire non poterlo piu' fare.")
+    print("")
+    print("  Nessuna osservazione e' stata scritta nel database: questo comando")
+    print("  guarda. L'ingestione e' un'altra decisione, e viene dopo.")
+    sys.stdout.flush()
+
+
 def _stampa_copertura(C, cosa="questa analisi"):
     """La copertura del dataset, in testa all'analisi e non in fondo.
 
@@ -1315,6 +1418,12 @@ def main(argv=None):
                     help="legge la pagina di addicted-sports per Torbole e "
                          "salva la serie oraria misurata (GIORNI indietro, "
                          "compreso oggi; per difetto 1)")
+    ap.add_argument("--addicted-audit", action="store_true",
+                    help="sonda l'archivio addicted-sports stazione per "
+                         "stazione: periodo, cadenza, buchi, unita', semantica "
+                         "di mavg/mmax. Salva il grezzo e non ingerisce niente")
+    ap.add_argument("--stazione", action="append", metavar="SLUG",
+                    help="limita l'audit a queste stazioni (ripetibile)")
     ap.add_argument("--live-json", metavar="FILE",
                     help="legge le centraline e scrive SOLO il dato osservato "
                          "in FILE: nessun modello, nessuna previsione. E' il "
@@ -1361,6 +1470,10 @@ def main(argv=None):
 
     if args.addicted:
         cmd_addicted(args.addicted)
+        return 0
+
+    if args.addicted_audit:
+        cmd_addicted_audit(stazioni=args.stazione)
         return 0
 
     if args.live_json:
