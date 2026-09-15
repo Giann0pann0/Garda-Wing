@@ -1239,6 +1239,20 @@ def cmd_addicted_validazione():
     q = 100.0 * cb["quota"] if cb["quota"] is not None else 0.0
     print("\n  Campione/Brenzone: %d/%d ore comuni identiche (%.3f%%)"
           % (cb["uguali"], cb["n"], q))
+    sh = r["campione_brenzone_shift7"]
+    qs = 100.0 * sh["quota"] if sh["quota"] is not None else 0.0
+    print("  nullo +7 giorni:  %d/%d identiche (%.3f%%)"
+          % (sh["uguali"], sh["n"], qs))
+
+    print("\n  QC storico mmax (segnala, non cancella)")
+    for st, x in sorted(r["qc_massimi"].items()):
+        qok = 100.0 * x.get("quota_qc_ok", 0.0)
+        print("    %-14s n=%6d  p99=%5.1f  max=%5.1f  QC-ok=%6.2f%%  sotto-media=%d"
+              % (st, x.get("n_max", 0), x.get("p99", 0.0), x.get("max", 0.0),
+                 qok, x.get("max_sotto_media", 0)))
+        for p in x.get("plateau_sospetti", []):
+            print("      plateau sospetto %.1f kn: %d ore (%.2f%%)"
+                  % (p["value"], p["count"], 100.0 * p["share"]))
 
     print("\n  VERDETTO")
     print("  - mavg e' informativo ma non intercambiabile con T0193: va calibrato.")

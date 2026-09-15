@@ -159,10 +159,118 @@ def identita_campione_brenzone(conn=None):
     return {"n": n, "uguali": ug, "quota": (ug / n if n else None)}
 
 
+
+def qc_massimi_storici(conn=None, tolleranza_kn=0.2):
+    """QC descrittivo di mmax per stazione, senza cancellare dati.
+
+    Un plateau alto viene solo SEGNALATO quando un valore esatto occupa almeno
+    lo 0.5% della serie (minimo 20 ore) ed e' nel percentile 99 o oltre.
+    E' un criterio conservativo per trovare masse puntuali come 49.6 Torbole:
+    non trasforma automaticamente il valore in sentinella e non modifica dati.
+    """
+    c = conn or store.connect()
+    stations = [r[0] for r in c.execute(
+        "SELECT DISTINCT station FROM addicted_hour ORDER BY station"
+    ).fetchall()]
+    out = {}
+    for station in stations:
+        rows = c.execute(
+            "SELECT wind_mean_kn,hourly_max_kn FROM addicted_hour "
+            "WHERE station=?", (station,)
+        ).fetchall()
+        vals = [float(r[1]) for r in rows if _finite(r[1])]
+        if not vals:
+            out[station] = {"n": len(rows), "n_max": 0, "plateau_sospetti": []}
+            continue
+        sv = sorted(vals)
+        def quantile(p):
+            # interpolazione lineare compatibile con la definizione usuale
+            pos = (len(sv) - 1) * p
+            lo = int(math.floor(pos)); hi = int(math.ceil(pos))
+            if lo == hi:
+                return sv[lo]
+            return sv[lo] + (sv[hi] - sv[lo]) * (pos - lo)
+        p99 = quantile(0.99)
+        counts = Counter(round(v, 3) for v in vals)
+        min_repeat = max(20, int(math.ceil(0.005 * len(vals))))
+        plateaux = sorted(
+            [{"value": v, "count": n, "share": n / len(vals)}
+             for v, n in counts.items() if v >= p99 and n >= min_repeat],
+            key=lambda x: (-x["count"], x["value"]),
+        )
+        bad_below = 0
+        zero_with_mean = 0
+        missing = 0
+        for mean, mx in rows:
+            if not _finite(mx):
+                missing += 1
+                continue
+            if _finite(mean) and float(mx) + float(tolleranza_kn) < float(mean):
+                bad_below += 1
+            if _finite(mean) and float(mx) == 0.0 and float(mean) > float(tolleranza_kn):
+                zero_with_mean += 1
+        suspect_values = {x["value"] for x in plateaux}
+        safe = 0
+        for mean, mx in rows:
+            if not _finite(mx):
+                continue
+            x = round(float(mx), 3)
+            if x in suspect_values:
+                continue
+            if _finite(mean) and float(mx) + float(tolleranza_kn) < float(mean):
+                continue
+            if _finite(mean) and float(mx) == 0.0 and float(mean) > float(tolleranza_kn):
+                continue
+            safe += 1
+        out[station] = {
+            "n": len(rows), "n_max": len(vals), "missing_max": missing,
+            "p50": quantile(0.50), "p95": quantile(0.95),
+            "p99": p99, "p999": quantile(0.999), "max": max(vals),
+            "max_sotto_media": bad_below, "zero_con_media": zero_with_mean,
+            "plateau_sospetti": plateaux, "ore_qc_ok": safe,
+            "quota_qc_ok": safe / len(rows) if rows else None,
+        }
+    return out
+
+
+def identita_shiftata_campione_brenzone(conn=None, giorni=7):
+    """Modello di nullo: Campione contro Brenzone sfasata di N giorni.
+
+    Il confronto viene fatto in Python per non rompere l'indice SQL con
+    funzioni datetime sulle centinaia di migliaia di righe.
+    """
+    from datetime import timedelta
+    c = conn or store.connect()
+    ca = c.execute(
+        "SELECT hour,wind_mean_kn,hourly_max_kn FROM addicted_hour "
+        "WHERE station='campione'"
+    ).fetchall()
+    br = c.execute(
+        "SELECT hour,wind_mean_kn,hourly_max_kn FROM addicted_hour "
+        "WHERE station='brenzone'"
+    ).fetchall()
+    bmap = {r[0]: (r[1], r[2]) for r in br}
+    delta = timedelta(days=int(giorni))
+    n = ug = 0
+    for hour, mean, mx in ca:
+        d = datetime.fromisoformat(hour.replace("Z", "+00:00")) + delta
+        target = d.isoformat().replace("+00:00", "Z")
+        b = bmap.get(target)
+        if b is None:
+            continue
+        n += 1
+        if mean == b[0] and mx == b[1]:
+            ug += 1
+    return {"giorni": int(giorni), "n": n, "uguali": ug,
+            "quota": ug / n if n else None}
+
+
 def rapporto_completo(conn=None):
     return {
         "media": confronto_media(conn),
         "raffica_recente": confronto_raffica_recente(conn),
         "massimi_sospetti": valori_massimo_sospetti(conn),
         "campione_brenzone": identita_campione_brenzone(conn),
+        "campione_brenzone_shift7": identita_shiftata_campione_brenzone(conn, 7),
+        "qc_massimi": qc_massimi_storici(conn),
     }

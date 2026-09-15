@@ -43,3 +43,17 @@ cb = V.identita_campione_brenzone(c)
 ok(cb["n"] == 3 and cb["uguali"] == 3 and abs(cb["quota"]-1) < 1e-9,
    "riconosce serie Campione/Brenzone identica")
 
+
+# QC: un plateau alto e massivo viene segnalato ma non cancellato.
+qc = V.qc_massimi_storici(c)
+ok("torbole" in qc and qc["torbole"]["plateau_sospetti"],
+   "QC trova il plateau estremo ripetuto")
+ok(qc["torbole"]["plateau_sospetti"][0]["value"] == 49.6,
+   "QC conserva il valore sospetto esplicito (49.6)")
+ok(qc["torbole"]["ore_qc_ok"] < qc["torbole"]["n"],
+   "le ore sospette non entrano nel sottoinsieme QC-ok")
+
+# Modello di nullo: tre coppie identiche allo stesso istante non devono
+# restare identiche dopo uno shift se la serie di prova non lo prevede.
+sh = V.identita_shiftata_campione_brenzone(c, 7)
+ok(sh["uguali"] == 0, "shift temporale rompe l'identita' artificiale")
