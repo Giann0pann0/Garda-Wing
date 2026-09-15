@@ -273,4 +273,124 @@ def rapporto_completo(conn=None):
         "campione_brenzone": identita_campione_brenzone(conn),
         "campione_brenzone_shift7": identita_shiftata_campione_brenzone(conn, 7),
         "qc_massimi": qc_massimi_storici(conn),
+        "profilo_rafficosita": profilo_rafficosita_storica(conn),
+        "gate_proxy_gust_rec": gate_proxy_gust_rec(conn),
     }
+
+
+def _fit_lineare(coppie):
+    """Retta candidato = intercetta + pendenza * riferimento, solo descrittiva."""
+    pts = [(float(x), float(y)) for x, y in coppie if _finite(x) and _finite(y)]
+    if len(pts) < 2:
+        return {"n": len(pts), "intercetta": None, "pendenza": None,
+                "corr": None, "mae_fit": None}
+    xs = [x for x, _ in pts]; ys = [y for _, y in pts]
+    mx = sum(xs) / len(xs); my = sum(ys) / len(ys)
+    vx = sum((x - mx) ** 2 for x in xs)
+    if vx <= 0:
+        return {"n": len(pts), "intercetta": None, "pendenza": None,
+                "corr": None, "mae_fit": None}
+    cov = sum((x - mx) * (y - my) for x, y in pts)
+    b = cov / vx
+    a = my - b * mx
+    pred = [a + b * x for x in xs]
+    mae = sum(abs(y - p) for y, p in zip(ys, pred)) / len(ys)
+    vy = sum((y - my) ** 2 for y in ys)
+    corr = cov / math.sqrt(vx * vy) if vy > 0 else None
+    return {"n": len(pts), "intercetta": a, "pendenza": b,
+            "corr": corr, "mae_fit": mae}
+
+
+def profilo_rafficosita_storica(conn=None, station="torbole"):
+    """Descrive il ponte mavg -> mmax sul sottoinsieme QC-ok.
+
+    Non costruisce una proxy di gust_rec e non tocca il modello. Il rapporto
+    mmax/mavg viene riassunto solo per mavg>=3 kn: sotto quella soglia il
+    rapporto esplode per puro denominatore e diventa poco interpretabile.
+    """
+    c = conn or store.connect()
+    qc = qc_massimi_storici(c).get(station, {})
+    sospetti = {round(float(x["value"]), 3)
+                for x in qc.get("plateau_sospetti", [])}
+    rows = c.execute(
+        "SELECT hour,wind_mean_kn,hourly_max_kn FROM addicted_hour "
+        "WHERE station=? AND wind_mean_kn IS NOT NULL AND hourly_max_kn IS NOT NULL "
+        "ORDER BY hour", (station,)
+    ).fetchall()
+
+    gruppi = defaultdict(list)
+    per_mese = defaultdict(list)
+    esclusi = 0
+    for hour, mean, mx in rows:
+        if not (_finite(mean) and _finite(mx)):
+            continue
+        mean = float(mean); mx = float(mx)
+        if round(mx, 3) in sospetti or mx + 0.2 < mean or (mx == 0.0 and mean > 0.2):
+            esclusi += 1
+            continue
+        h = _local_hour(hour)
+        periodo = _periodo(h)
+        gruppi[periodo].append((mean, mx))
+        d = datetime.fromisoformat(hour.replace("Z", "+00:00")).astimezone(ROME)
+        if periodo in ("peler_06_11", "ora_11_20"):
+            per_mese[(periodo, d.month)].append((mean, mx))
+
+    def riassunto(pts):
+        if not pts:
+            return {"n": 0}
+        means = [x for x, _ in pts]
+        maxs = [y for _, y in pts]
+        spread = [y - x for x, y in pts]
+        ratios = [y / x for x, y in pts if x >= 3.0]
+        fit = _fit_lineare(pts)
+        return {
+            "n": len(pts),
+            "mavg_mediana": statistics.median(means),
+            "mmax_mediana": statistics.median(maxs),
+            "spread_mediana": statistics.median(spread),
+            "spread_p90": sorted(spread)[int(0.90 * (len(spread) - 1))],
+            "ratio_mediana_mavg_ge3": statistics.median(ratios) if ratios else None,
+            "fit": fit,
+        }
+
+    mensile = {k: riassunto(v) for k, v in sorted(per_mese.items())}
+    return {
+        "station": station,
+        "ore_input": len(rows),
+        "ore_escluse_qc": esclusi,
+        "gruppi": {k: riassunto(v) for k, v in gruppi.items()},
+        "mensile": mensile,
+    }
+
+
+def gate_proxy_gust_rec(conn=None, min_ore=1000, min_giorni=90, min_mesi=6):
+    """Gate di COPERTURA per qualsiasi futura calibrazione mmax -> gust_rec.
+
+    Non giudica la bonta' della formula: impedisce soltanto di promuoverla con
+    pochi giorni o una sola stagione. I limiti sono espliciti e dichiarati,
+    non costanti nascoste nella planabilita'.
+    """
+    c = conn or store.connect()
+    rows = c.execute(
+        "SELECT ts,gust_kn FROM obs_sample WHERE station='T0193' "
+        "AND gust_kn IS NOT NULL ORDER BY ts"
+    ).fetchall()
+    if not rows:
+        return {"ore": 0, "giorni": 0, "mesi": 0, "pronto": False,
+                "min_ore": min_ore, "min_giorni": min_giorni, "min_mesi": min_mesi}
+    ore = set(); giorni = set(); mesi = set()
+    for ts, _ in rows:
+        h = ts[:13] + ":00:00Z"
+        a = c.execute(
+            "SELECT hourly_max_kn FROM addicted_hour WHERE station='torbole' AND hour=?",
+            (h,)).fetchone()
+        if not a or not _finite(a[0]):
+            continue
+        ore.add(h)
+        d = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(ROME)
+        giorni.add(d.date().isoformat())
+        mesi.add("%04d-%02d" % (d.year, d.month))
+    pronto = len(ore) >= min_ore and len(giorni) >= min_giorni and len(mesi) >= min_mesi
+    return {"ore": len(ore), "giorni": len(giorni), "mesi": len(mesi),
+            "pronto": pronto, "min_ore": int(min_ore),
+            "min_giorni": int(min_giorni), "min_mesi": int(min_mesi)}

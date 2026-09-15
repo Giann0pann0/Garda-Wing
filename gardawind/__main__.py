@@ -1254,6 +1254,28 @@ def cmd_addicted_validazione():
             print("      plateau sospetto %.1f kn: %d ore (%.2f%%)"
                   % (p["value"], p["count"], 100.0 * p["share"]))
 
+    print("\n  ponte storico mavg -> mmax, solo ore QC-ok")
+    prof = r.get("profilo_rafficosita", {})
+    for key, label in (("peler_06_11", "Peler 06-11"), ("ora_11_20", "Ora 11-20")):
+        x = prof.get("gruppi", {}).get(key, {})
+        if not x.get("n"):
+            continue
+        f = x.get("fit", {})
+        print("    %-12s n=%6d  spread med=%4.1f  p90=%4.1f  ratio med*=%4.2f"
+              % (label, x["n"], x["spread_mediana"], x["spread_p90"],
+                 x.get("ratio_mediana_mavg_ge3") or 0.0))
+        print("      mmax ~= %4.1f + %4.2f*mavg   r=%4.2f  MAE fit=%4.2f kn"
+              % (f.get("intercetta") or 0.0, f.get("pendenza") or 0.0,
+                 f.get("corr") or 0.0, f.get("mae_fit") or 0.0))
+    print("    * rapporto calcolato solo con mavg >= 3 kn")
+
+    gate = r.get("gate_proxy_gust_rec", {})
+    print("\n  gate copertura per futura calibrazione mmax -> gust_rec 30'")
+    print("    disponibili: %d ore, %d giorni, %d mesi; richiesti: >=%d ore, >=%d giorni, >=%d mesi"
+          % (gate.get("ore", 0), gate.get("giorni", 0), gate.get("mesi", 0),
+             gate.get("min_ore", 0), gate.get("min_giorni", 0), gate.get("min_mesi", 0)))
+    print("    stato: %s" % ("APERTO" if gate.get("pronto") else "CHIUSO"))
+
     print("\n  VERDETTO")
     print("  - mavg e' informativo ma non intercambiabile con T0193: va calibrato.")
     print("  - mmax recente segue bene il massimo di raffica dell'ora, ma NON e'")

@@ -57,3 +57,14 @@ ok(qc["torbole"]["ore_qc_ok"] < qc["torbole"]["n"],
 # restare identiche dopo uno shift se la serie di prova non lo prevede.
 sh = V.identita_shiftata_campione_brenzone(c, 7)
 ok(sh["uguali"] == 0, "shift temporale rompe l'identita' artificiale")
+
+# Ponte storico: il plateau sospetto non deve entrare nelle ore QC-ok.
+prof = V.profilo_rafficosita_storica(c)
+ok(prof["ore_escluse_qc"] >= 20, "profilo esclude il plateau dal ponte storico")
+ok(prof["gruppi"]["peler_06_11"]["n"] >= 1, "profilo conserva la fascia Peler QC-ok")
+ok(prof["gruppi"]["ora_11_20"]["n"] >= 1, "profilo conserva la fascia Ora QC-ok")
+
+# Il gate di copertura resta chiuso su un campione minuscolo e dichiara le soglie.
+gate = V.gate_proxy_gust_rec(c, min_ore=10, min_giorni=2, min_mesi=2)
+ok(gate["pronto"] is False and gate["min_ore"] == 10,
+   "gate proxy esplicito e chiuso senza copertura sufficiente")
