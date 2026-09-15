@@ -567,6 +567,8 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
 # passare da gardawind/orari.py.
 MOTIVI = {
     "ok": "regime entrato, orario misurato",
+    "left_censored": "regime gia' presente all'inizio della finestra: "
+                     "orario non osservabile",
     "no_data": "nessun campione con vento nella finestra",
     "insufficient_coverage": "copertura oraria insufficiente",
     "gap_too_large": "entrato, ma il passaggio cade in un buco: orario = limite",
@@ -578,18 +580,49 @@ MOTIVI = {
 MESI_BREVI = ["gen", "feb", "mar", "apr", "mag", "giu",
               "lug", "ago", "set", "ott", "nov", "dic"]
 
+# Perche' due massimi locali non sono stati dichiarati due modi. Come per i
+# codici delle giornate: la logica usa codici, il rendering le parole.
+MOTIVI_MODI = {
+    "valle_alta": "con la valle alta quanto il picco",
+    "troppo_vicini": "con i due picchi appiccicati",
+    "pochi_dati": "con troppe poche giornate per una forma",
+}
+
 
 def _hhmm(minuti):
     return "%02d:%02d" % (int(minuti // 60) % 24, int(minuti % 60))
 
 
 def _cella(r):
-    """Una cella della tabella: giornate, mediana, dispersione, durata."""
+    """Una cella della tabella: giornate, quota censurata, ingresso, disp, durata.
+
+    Tre cose che la cella deve poter dire, e che prima non diceva:
+
+      "c%" e' la quota di giornate in cui il regime era GIA' presente al primo
+      campione della finestra. La'  dove e' alta - il Peler d'inverno - l'ora di
+      ingresso non e' osservabile, e prima uscivano orari come 03:55 con
+      dispersione zero, che nessuno ha misurato;
+
+      un ingresso scritto "<=04:00" e' un LIMITE, non una misura: capita quando
+      le censurate sono la maggioranza e la mediana cade dentro di loro;
+
+      una dispersione scritta ">=40" e' un limite inferiore, perche' le
+      censurate stanno piu' lontano dalla mediana di quanto si possa misurare.
+    """
+    q = r.get("quota_censurata")
+    cens = "  -" if not q else "%2.0f%%" % (100.0 * q)
     if r["mediana"] is None:
-        return "%4d   %8s %5s %8s" % (r["n"], "-", "-", "-")
-    return "%4d   %8s %5s %8s" % (
-        r["n"], _hhmm(r["mediana"]),
-        ("+-%d" % round(r["disp"])) if r["disp"] is not None else "-",
+        if r.get("mediana_limite") is not None:
+            return "%4d %s %8s %5s %8s" % (
+                r["n"], cens, "<=" + _hhmm(r["mediana_limite"]), "-",
+                ("%d min" % round(r["durata"])) if r.get("durata") else "-")
+        return "%4d %s %8s %5s %8s" % (r["n"], cens, "-", "-", "-")
+    disp = "-"
+    if r["disp"] is not None:
+        disp = ("%s%d" % (">=" if r.get("disp_limite_inferiore") else "+-",
+                          round(r["disp"])))
+    return "%4d %s %8s %5s %8s" % (
+        r["n"], cens, _hhmm(r["mediana"]), disp,
         ("%d min" % round(r["durata"])) if r["durata"] else "-")
 
 
@@ -640,9 +673,14 @@ def _stampa_validazione(O, C):
         if not V["porte"]:
             print("  %s." % (V.get("motivo") or "non validabile"))
             continue
-        print("  %d giornate stimabili, %d con un ingresso (%.0f%% del totale)"
+        print("  %d giornate stimabili, %d con un ingresso MISURATO (%.0f%%)"
               % (V["n_stimabili"], V["n_ingressi"],
                  100.0 * (V["quota_stimabile"] or 0.0)))
+        if V.get("n_censurati"):
+            print("  %d escluse perche' il regime era gia' presente all'inizio"
+                  % V["n_censurati"])
+            print("  della finestra: l'ora vera non e' osservabile, e misurare")
+            print("  un modello su un limite vuol dire misurarlo su un'ipotesi.")
         print("  %d blocchi di validazione, sempre in avanti nel tempo: il primo"
               % V["n_fold"])
         print("  blocco di giornate serve solo ad addestrare e non viene predetto.")
@@ -812,11 +850,11 @@ def cmd_orari(spot_name=None):
             print("")
             print("  INGRESSO %s  (soglia %g kn)"
                   % (bers.upper(), C["soglie"][bers]))
-            print("                 VENTO (solo intensita')        "
+            print("                  VENTO (solo intensita')          "
                   "REGIME (intensita' + direzione)")
-            print("  mese     gg   ingresso  disp   durata      "
-                  "gg   ingresso  disp   durata")
-            print("  " + "-" * 76)
+            print("  mese     gg  c%  ingresso  disp   durata      "
+                  "gg  c%  ingresso  disp   durata")
+            print("  " + "-" * 84)
             for mese in range(1, 13):
                 celle = [_cella(C["per_mese"][(bers, l, mese)]) for l in O.LETTURE]
                 rr = C["per_mese"][(bers, "regime", mese)]
@@ -826,7 +864,7 @@ def cmd_orari(spot_name=None):
                             % (_hhmm(rr["modi"][0]), _hhmm(rr["modi"][1])))
                 print("  %-6s %s   %s%s"
                       % (MESI_BREVI[mese - 1], celle[0], celle[1], nota))
-            print("  " + "-" * 76)
+            print("  " + "-" * 84)
             celle = [_cella(C["annuale"][(bers, l)]) for l in O.LETTURE]
             print("  %-6s %s   %s" % ("anno", celle[0], celle[1]))
             v = C["annuale"][(bers, "vento")]["n"]
@@ -841,10 +879,41 @@ def cmd_orari(spot_name=None):
                 print("  bastava ma non era %s."
                       % ("l'Ora" if spot["regime"] == "ORA" else "il Peler"))
 
+        # Quante giornate, in tutto, hanno un orario non osservabile. E' il
+        # numero che dice se una finestra di osservazione e' troppo stretta
+        # per il regime che deve misurare.
+        n_cens = sum(1 for g in C["per_giorno"].values()
+                     if g.get("regime_onset_censored"))
+        if n_cens:
+            print("")
+            print("  %d giornate (%.0f%% delle stimabili) avevano il regime GIA'"
+                  % (n_cens, 100.0 * n_cens / max(1, C["n_giorni"])))
+            print("  presente al primo campione della finestra: per quelle l'ora")
+            print("  di ingresso non e' osservabile, e valgono come limite - non")
+            print("  entrano nell'addestramento del timing e non fanno mediana.")
+            print("  Se la quota e' alta in un mese, la finestra di osservazione")
+            print("  comincia troppo tardi per quel regime, e non e' un difetto")
+            print("  del vento.")
         bimodali = [(b, m) for b in O.BERSAGLI for m in range(1, 13)
                     if (C["per_mese"][(b, "regime", m)]["modi"] or [])
                     and len(C["per_mese"][(b, "regime", m)]["modi"]) >= 2]
+        # I rifiutati vanno detti: "non ci sono due picchi" e' un risultato,
+        # e tacerlo farebbe sembrare che la forma non sia stata guardata.
+        rifiutati = {}
+        for b in O.BERSAGLI:
+            for m in range(1, 13):
+                mot = C["per_mese"][(b, "regime", m)].get("modi_motivo")
+                if mot:
+                    rifiutati[mot] = rifiutati.get(mot, 0) + 1
         print("")
+        if rifiutati:
+            print("  Mesi con due massimi locali ma NON due modi: %s."
+                  % ", ".join("%d %s" % (n, MOTIVI_MODI.get(k, k))
+                              for k, n in sorted(rifiutati.items())))
+            print("  Una valle alta quanto il picco non separa due popolazioni:")
+            print("  e' una distribuzione larga, e chiamarla bimodale invita a")
+            print("  costruire una complessita' che il dato non sostiene.")
+            print("")
         if bimodali:
             print("  ATTENZIONE: %d mesi hanno due picchi di ingresso del regime."
                   % len(bimodali))

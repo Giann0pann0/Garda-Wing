@@ -1032,7 +1032,24 @@ def merge_by_instant(samples, tol_kn=TOLLERANZA_KN, tol_deg=TOLLERANZA_DEG):
     return per_istante, conflitti
 
 
-def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35):
+# Perche' due massimi locali non sono due modi. Senza questi tre criteri il
+# rapporto dichiarava "DUE PICCHI" anche con valle/picco 0.99 e 1.00, cioe'
+# una valle alta quanto il picco: quella non e' una distribuzione a due modi,
+# e' una gobba larga e piatta con due massimi locali dentro il rumore. E
+# dichiararla bimodale invita a costruire una complessita' che il dato non
+# sostiene.
+MAX_DIP = 0.70                 # la valle deve stare sotto il 70% del picco
+MIN_SEPARAZIONE_MODI = 60.0    # due picchi a mezz'ora sono una gobba sola
+MIN_N_MODI = 30                # una FORMA ha bisogno di piu' dati di una mediana
+
+# Perche' la coppia di picchi e' stata rifiutata. Codici chiusi, come per le
+# giornate: il rendering traduce, la logica non contiene italiano.
+MOTIVI_MODI = ("valle_alta", "troppo_vicini", "pochi_dati")
+
+
+def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35,
+                 max_dip=MAX_DIP, min_sep=MIN_SEPARAZIONE_MODI,
+                 min_n=MIN_N_MODI, dettagli=False):
     """Uno o due picchi in una distribuzione su una retta (non circolare).
 
     Serve sugli orari: se in un mese l'ingresso ha due picchi distinti - meta'
@@ -1048,13 +1065,25 @@ def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35):
     dip e' None quando non ci sono due picchi: attenzione a non confonderlo con
     0.0, che e' il caso PIU' bimodale di tutti - una valle vuota. Lo stesso
     inciampo l'avevamo avuto sulle direzioni.
+
+    Due massimi locali non bastano per dichiarare due modi. Servono tutte tre:
+    la valle sotto max_dip del picco piu' basso (prominenza), i due centri
+    distanti almeno min_sep (separazione), e almeno min_n valori (una forma
+    chiede piu' dati di una mediana). Se la coppia viene rifiutata si ritorna
+    un solo modo - ma con dettagli=True si ottiene anche PERCHE', cosi' il
+    rifiuto si puo' mostrare invece di farlo in silenzio.
+
+    dettagli=True -> (modi, dip, motivo) invece di (modi, dip).
     """
+    def esito(modi, dip, motivo=None):
+        return (modi, dip, motivo) if dettagli else (modi, dip)
+
     xs = [float(v) for v in values if v is not None]
     if len(xs) < 6:
-        return [], None
+        return esito([], None, "pochi_dati")
     lo, hi = min(xs), max(xs)
     if hi - lo < bin_size:
-        return [median(xs)], None
+        return esito([median(xs)], None)
     n_bin = max(3, int((hi - lo) / bin_size) + 1)
     conteggi = [0] * n_bin
     for v in xs:
@@ -1072,17 +1101,30 @@ def linear_modes(values, bin_size=30.0, smooth=1, min_share=0.35):
               and conteggi[i] >= conteggi[min(n_bin - 1, i + 1)]
               and conteggi[i] > 0]
     if not picchi:
-        return [median(xs)], None
+        return esito([median(xs)], None)
     picchi.sort(key=lambda i: -conteggi[i])
     primo = picchi[0]
     # Un secondo picco conta solo se e' alto almeno min_share del primo e non
     # e' il suo vicino immediato: due bin adiacenti sono una gobba, non due.
-    secondo = next((i for i in picchi[1:]
-                    if conteggi[i] >= min_share * conteggi[primo]
-                    and abs(i - primo) >= 2), None)
+    abbastanza_alti = [i for i in picchi[1:]
+                       if conteggi[i] >= min_share * conteggi[primo]]
+    secondo = next((i for i in abbastanza_alti if abs(i - primo) >= 2), None)
     if secondo is None:
-        return [centro(primo)], None
+        # Distinguere "nessun secondo picco" da "secondo picco appiccicato al
+        # primo" serve a chi legge: il secondo caso e' una gobba larga, e
+        # saperlo e' diverso dal non avere affatto un secondo massimo.
+        return esito([centro(primo)], None,
+                     "troppo_vicini" if abbastanza_alti else None)
     a, b = sorted((primo, secondo))
     valle = min(conteggi[a + 1:b]) if b > a + 1 else min(conteggi[a], conteggi[b])
     dip = valle / min(conteggi[a], conteggi[b]) if min(conteggi[a], conteggi[b]) else None
-    return [centro(a), centro(b)], dip
+
+    # I tre criteri. L'ordine conta solo per il messaggio: si dice il motivo
+    # piu' sostanziale, cioe' "non e' una valle" prima di "sono pochi dati".
+    if dip is None or dip > max_dip:
+        return esito([centro(a)], None, "valle_alta")
+    if abs(centro(b) - centro(a)) < min_sep:
+        return esito([centro(a)], None, "troppo_vicini")
+    if len(xs) < min_n:
+        return esito([centro(a)], None, "pochi_dati")
+    return esito([centro(a), centro(b)], dip)

@@ -60,6 +60,12 @@ LETTURE = ("vento", "regime")
 # dire aggiungerlo qui, e un controllo verifica che non se ne inventino altri.
 #
 #   ok                        la giornata e' stimabile e il regime e' entrato
+#   left_censored             il regime era GIA' presente al primo campione
+#                             della finestra: sappiamo che era entrato, non
+#                             quando. L'orario e' un limite superiore (non
+#                             dopo quell'istante), e la giornata NON entra
+#                             nell'addestramento del timing come se fosse una
+#                             misura precisa
 #   no_data                   nessun campione con vento
 #   insufficient_coverage     troppo poco tempo coperto per dire qualcosa
 #   gap_too_large             il regime risulta entrato, ma il passaggio cade
@@ -69,8 +75,9 @@ LETTURE = ("vento", "regime")
 #   threshold_not_sustained   la soglia e' stata superata, ma non abbastanza
 #                             a lungo perche' sia un ingresso
 #   no_regime                 la soglia non e' mai stata superata
-REASONS = ("ok", "no_data", "insufficient_coverage", "gap_too_large",
-           "direction_outside_sector", "threshold_not_sustained", "no_regime")
+REASONS = ("ok", "left_censored", "no_data", "insufficient_coverage",
+           "gap_too_large", "direction_outside_sector",
+           "threshold_not_sustained", "no_regime")
 
 # I campi della struttura per giornata usano i nomi del contratto.
 EN = {"regime": "regime", "planata": "planing"}
@@ -108,6 +115,9 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
         "peak_wind": None, "peak_regime": None,
         "regime_onset": None, "planing_onset": None,
         "regime_onset_wind": None, "planing_onset_wind": None,
+        "regime_onset_censored": False, "planing_onset_censored": False,
+        "regime_onset_wind_censored": False,
+        "planing_onset_wind_censored": False,
         "regime_duration_min": None, "planing_duration_min": None,
         "regime_duration_wind_min": None, "planing_duration_wind_min": None,
     }
@@ -146,6 +156,24 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
     # volta sola, nello stesso posto dove e' definito il settore.
     base["peak_wind"] = max(v for _m, v in serie["vento"])
     base["peak_regime"] = max(v for _m, v in serie["regime"])
+    # CENSURA A SINISTRA. sustained_onset restituisce il CENTRO dell'intervallo
+    # coperto dal primo campione sopra soglia: se quel campione e' il primo
+    # della finestra, il centro cade PRIMA dell'inizio dell'osservazione - ed e'
+    # da li' che nascevano i 10:55 di Torbole e i 03:55 del Peler, orari che
+    # nessuno ha misurato. Semanticamente non sappiamo che il vento sia entrato
+    # alle 03:55: sappiamo che alle 04:00 era GIA' sopra soglia, e che quindi e'
+    # entrato prima di quando abbiamo cominciato a guardare.
+    #
+    # Quindi: l'orario diventa il bordo della finestra (un limite, non una
+    # misura) e la giornata viene marcata. A valle, il livello statistico la
+    # tiene fuori dalle mediane come se fosse una misura precisa, ma NON la
+    # butta via: sapere che in gennaio il Peler e' gia' dentro alle quattro e'
+    # un'informazione, e buttarla renderebbe la mediana di gennaio
+    # artificialmente tarda.
+    #
+    # Nota: nelle giornate censurate anche la DURATA e' troncata a sinistra,
+    # per la stessa ragione.
+    primo_minuto = minuti[0]
     for bers, soglia in (("regime", soglia_regime), ("planata", soglia_planata)):
         for lettura in LETTURE:
             s = serie[lettura]
@@ -153,7 +181,11 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
                                   cadence_min=cad)
             dur = time_above(s, float(soglia), cad)
             suffisso = "" if lettura == "regime" else "_wind"
+            censurato = ing is not None and ing < primo_minuto
+            if censurato:
+                ing = primo_minuto
             base["%s_onset%s" % (EN[bers], suffisso)] = ing
+            base["%s_onset%s_censored" % (EN[bers], suffisso)] = censurato
             base["%s_duration%s_min" % (EN[bers], suffisso)] = dur if dur > 0 else None
 
     # "La direzione era coerente" vuol dire: dove il vento bastava, veniva
@@ -180,7 +212,12 @@ def giudica_giornata(righe, asse, settore, soglia_regime, soglia_planata,
             if v >= soglia_regime:
                 break
             prec = m
-        base["reason"] = "gap_too_large" if dentro_buco else "ok"
+        if base["regime_onset_censored"]:
+            # Prima di gap_too_large: se il regime c'e' gia' al primo
+            # campione non esiste un buco precedente di cui parlare.
+            base["reason"] = "left_censored"
+        else:
+            base["reason"] = "gap_too_large" if dentro_buco else "ok"
     elif base["regime_onset_wind"] is not None:
         base["reason"] = "direction_outside_sector"
     elif any(v >= soglia_regime for _m, v in serie["regime"]):
@@ -237,14 +274,57 @@ def _disp(xs):
     return median([abs(x - m) for x in xs])
 
 
-def _riassunto(xs, durs=None, min_gg=MIN_GG_MESE):
-    if len(xs) < min_gg:
-        return {"n": len(xs), "mediana": None, "disp": None, "durata": None,
-                "modi": None, "dip": None}
-    modi, dip = linear_modes(xs, bin_size=30.0)
-    return {"n": len(xs), "mediana": median(xs), "disp": _disp(xs),
-            "durata": median(durs) if durs else None,
-            "modi": modi, "dip": dip}
+def _riassunto(xs, durs=None, min_gg=MIN_GG_MESE, censurati=None):
+    """Il riassunto di un mese, con la censura a sinistra trattata per quello che e'.
+
+    xs sono gli ingressi MISURATI; censurati sono i limiti delle giornate in
+    cui il regime era gia' presente al primo campione ("entrato non dopo
+    questo istante"). Buttarli non e' neutro: sono sistematicamente i piu'
+    PRECOCI, e togliendoli la mediana del mese slitta in avanti. A gennaio, sul
+    Peler, sono quasi tutte le giornate.
+
+    Quindi si usa quello che si sa. Una osservazione censurata e' un valore
+    ignoto ma NON PIU' GRANDE del suo limite, e per una MEDIANA questo basta:
+    le censurate stanno tutte in fondo all'ordinamento, e finche' sono meno
+    della meta' la mediana cade su un valore osservato ed e' esatta. Quando
+    sono la meta' o piu', la mediana non e' un numero: e' "non dopo il bordo
+    della finestra", e viene dichiarata come limite invece di essere inventata.
+
+    La dispersione, con le censurate sostituite dal loro limite, e' un LIMITE
+    INFERIORE: il valore vero e' piu' lontano dalla mediana, non piu' vicino.
+    """
+    censurati = list(censurati or [])
+    n_tot = len(xs) + len(censurati)
+    vuoto = {"n": n_tot, "n_misurati": len(xs), "n_censurati": len(censurati),
+             "quota_censurata": (len(censurati) / float(n_tot)) if n_tot else None,
+             "mediana": None, "mediana_limite": None, "disp": None,
+             "disp_limite_inferiore": False, "durata": None,
+             "modi": None, "dip": None, "modi_motivo": None}
+    if n_tot < min_gg:
+        return vuoto
+
+    # Le censurate valgono "un filo prima del loro limite": e' l'unica cosa
+    # che si sa, ed e' abbastanza per ordinare.
+    finti = [c - 1e-6 for c in censurati]
+    tutti = sorted(xs + finti)
+    if len(censurati) * 2 >= n_tot:
+        # La mediana cade dentro il gruppo censurato: non e' un orario, e' un
+        # limite. Si dichiara il bordo piu' tardo fra quelli censurati.
+        vuoto["mediana_limite"] = max(censurati)
+        vuoto["durata"] = median(durs) if durs else None
+        return vuoto
+
+    m = median(tutti)
+    disp = _disp(tutti)
+    # La forma (i due picchi) si cerca solo sulle giornate MISURATE: una
+    # colonna di valori tutti uguali al bordo della finestra produrrebbe un
+    # picco che e' un artefatto della finestra, non del vento.
+    modi, dip, motivo = linear_modes(xs, bin_size=30.0, dettagli=True)
+    vuoto.update({"mediana": m, "disp": disp,
+                  "disp_limite_inferiore": bool(censurati),
+                  "durata": median(durs) if durs else None,
+                  "modi": modi, "dip": dip, "modi_motivo": motivo})
+    return vuoto
 
 
 def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
@@ -262,6 +342,7 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
     giorni = giorni_osservati(spot_name) if giorni is None else giorni
 
     ingressi = {(b, l): {} for b in BERSAGLI for l in LETTURE}
+    censurati = {(b, l): {} for b in BERSAGLI for l in LETTURE}
     durate = {(b, l): {} for b in BERSAGLI for l in LETTURE}
     n_giorni = n_dir_ignota = n_non_stimabili = 0
     per_giorno = {}
@@ -282,7 +363,10 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
             for lettura in LETTURE:
                 suf = "" if lettura == "regime" else "_wind"
                 ing = g["%s_onset%s" % (EN[bers], suf)]
-                if ing is not None:
+                cens = g["%s_onset%s_censored" % (EN[bers], suf)]
+                if ing is not None and cens:
+                    censurati[(bers, lettura)].setdefault(mese, []).append(ing)
+                elif ing is not None:
                     ingressi[(bers, lettura)].setdefault(mese, []).append(ing)
                 dur = g["%s_duration%s_min" % (EN[bers], suf)]
                 if dur:
@@ -291,19 +375,23 @@ def climatologia(spot_name, giorni=None, persist_min=PERSISTENZA_MIN,
     per_mese, annuale = {}, {}
     for bers in BERSAGLI:
         for lettura in LETTURE:
-            tutti = []
+            tutti, tutti_cens = [], []
             for mese in range(1, 13):
                 xs = ingressi[(bers, lettura)].get(mese, [])
+                cs = censurati[(bers, lettura)].get(mese, [])
                 tutti.extend(xs)
+                tutti_cens.extend(cs)
                 per_mese[(bers, lettura, mese)] = _riassunto(
-                    xs, durate[(bers, lettura)].get(mese, []), min_gg)
-            annuale[(bers, lettura)] = _riassunto(tutti, None, min_gg)
+                    xs, durate[(bers, lettura)].get(mese, []), min_gg,
+                    censurati=cs)
+            annuale[(bers, lettura)] = _riassunto(tutti, None, min_gg,
+                                                  censurati=tutti_cens)
 
     return {"spot": spot_name, "asse": asse, "settore": settore,
             "soglie": soglie, "n_giorni": n_giorni,
             "n_dir_ignota": n_dir_ignota, "n_non_stimabili": n_non_stimabili,
             "per_mese": per_mese, "annuale": annuale, "ingressi": ingressi,
-            "per_giorno": per_giorno}
+            "censurati": censurati, "per_giorno": per_giorno}
 
 
 def previsione_climatologica(ingressi_training, mese, min_gg=MIN_GG_MESE,
@@ -401,17 +489,27 @@ def _campo_ingresso(bersaglio, lettura):
     return "%s_onset%s" % (EN[bersaglio], "" if lettura == "regime" else "_wind")
 
 
-def osservazioni(records, bersaglio="regime", lettura="regime"):
-    """Le giornate con un ingresso misurato: [(data, mese, minuti)], in ordine.
+def osservazioni(records, bersaglio="regime", lettura="regime",
+                 censurate=False):
+    """Le giornate con un ingresso MISURATO: [(data, mese, minuti)], in ordine.
 
     records: le strutture di giudica_giornata(), in qualunque ordine. Entrano
     solo quelle stimabili e con un ingresso: una giornata senza regime NON
     diventa un orario inventato, contribuisce solo al tasso di base.
+
+    Le giornate CENSURATE A SINISTRA - regime gia' presente al primo campione
+    della finestra - restano fuori: non sono misure dell'orario, sono limiti, e
+    addestrare o misurare un modello del timing su un limite significa
+    insegnargli un orario che nessuno ha osservato. Con censurate=True si
+    ottengono proprio quelle, per contarle e dichiararle.
     """
     campo = _campo_ingresso(bersaglio, lettura)
+    campo_cens = campo + "_censored"
     out = []
     for r in records:
         if not r.get("estimable") or r.get(campo) is None or not r.get("date"):
+            continue
+        if bool(r.get(campo_cens)) != bool(censurate):
             continue
         out.append((r["date"], int(r["date"][5:7]), float(r[campo])))
     out.sort(key=lambda x: x[0])
@@ -559,6 +657,7 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
     from .validate import bootstrap_gain
 
     oss = osservazioni(records, bersaglio, lettura)
+    cens = osservazioni(records, bersaglio, lettura, censurate=True)
     stimabili = sum(1 for r in records if r.get("estimable"))
     base_nome = "climatologia"
     if previsori is None:
@@ -568,7 +667,8 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
 
     vuoto = {"bersaglio": bersaglio, "lettura": lettura,
              "n_records": len(records), "n_stimabili": stimabili,
-             "n_ingressi": len(oss), "quota_stimabile":
+             "n_ingressi": len(oss), "n_censurati": len(cens),
+             "quota_stimabile":
                  (len(oss) / float(len(records)) if records else None),
              "n_fold": 0, "fold": [], "previsori": {}, "esito": "incerto",
              "porte": None, "motivo": "troppe poche giornate con un ingresso"}
@@ -734,7 +834,7 @@ def valida_ingressi(records, bersaglio="regime", lettura="regime",
 
     return {"bersaglio": bersaglio, "lettura": lettura,
             "n_records": len(records), "n_stimabili": stimabili,
-            "n_ingressi": len(oss),
+            "n_ingressi": len(oss), "n_censurati": len(cens),
             "quota_stimabile": len(oss) / float(len(records)) if records else None,
             "n_fold": len(tagli), "fold": tagli,
             "riferimento": base_nome, "valutato": valutato,

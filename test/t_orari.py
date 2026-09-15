@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import shutil
 shutil.rmtree("/tmp/gworari", ignore_errors=True)
 
-from gardawind.orari import (climatologia, giudica_giornata,
+from gardawind.orari import (climatologia, giudica_giornata, osservazioni,
                              previsione_climatologica)
 from gardawind.util import linear_modes
 
@@ -192,9 +192,13 @@ for g_ in range(1, 26):
 # dispersione nota: luglio sparso su +-60 minuti attorno alle 13:00
 for g_ in range(1, 26):
     scrivi_giorno("2024-07-%02d" % g_, 780.0 + ((g_ % 13) - 6) * 10.0)
-# bimodalita' nota: agosto meta' alle 12:00, meta' alle 15:00
-for g_ in range(1, 27):
+# bimodalita' nota: agosto meta' alle 12:00, meta' alle 15:00. Ci vogliono
+# almeno trenta giornate: da adesso una FORMA non si dichiara su venti valori,
+# perche' due massimi locali dentro il rumore non sono due modi.
+for g_ in range(1, 32):
     scrivi_giorno("2024-08-%02d" % g_, 720.0 if g_ % 2 else 900.0)
+for g_ in range(1, 11):
+    scrivi_giorno("2023-08-%02d" % g_, 720.0 if g_ % 2 else 900.0)
 
 C = climatologia(SPOT)
 K = ("regime", "regime")
@@ -294,3 +298,112 @@ g = giudica_giornata([(m, None, None) for m in range(660, 1200, 10)],
                      ASSE, SETTORE, REG, PLAN)
 ok(g["peak_wind"] is None and g["peak_regime"] is None,
    "picchi: senza vento restano None, non zero")
+
+# --------------------------------------------------------------------------
+# CENSURA A SINISTRA: "gia' dentro all'inizio" non e' "entrato alle 03:55"
+# --------------------------------------------------------------------------
+# Il difetto che il rapporto sui quattordici anni ha mostrato: a gennaio il
+# Peler di Torbole risultava entrato alle 03:55 in 329 giornate su 329, con
+# dispersione ZERO. Non e' un ingresso misurato: e' la finestra che comincia
+# alle 04:00 e trova il vento gia' sopra soglia. Il centro dell'intervallo del
+# primo campione cade prima dell'inizio dell'osservazione, e diventava un
+# orario che nessuno ha visto.
+PRIMO = 240.0       # 04:00, come la finestra del Peler
+g = giudica_giornata([(PRIMO + 10 * i, 14.0, ASSE) for i in range(42)],
+                     ASSE, SETTORE, REG, PLAN, date="2026-01-10")
+ok(g["regime_onset_censored"] is True,
+   "censura: vento gia' sopra soglia al primo campione -> censurato")
+ok(g["regime_onset"] == PRIMO,
+   "censura: l'orario riportato e' il BORDO (%s), non 03:55" % g["regime_onset"])
+ok(g["reason"] == "left_censored",
+   "censura: e il codice della giornata lo dice (%s)" % g["reason"])
+ok(g["planing_onset_censored"] is True and g["planing_onset"] == PRIMO,
+   "censura: vale per tutti e due i bersagli")
+
+# Una giornata che entra DENTRO la finestra non e' censurata, e il suo orario
+# resta quello misurato, centro dell'intervallo compreso.
+g2 = giudica_giornata([(PRIMO + 10 * i, 3.0 if i < 12 else 14.0, ASSE)
+                       for i in range(42)],
+                      ASSE, SETTORE, REG, PLAN, date="2026-01-11")
+ok(g2["regime_onset_censored"] is False and g2["reason"] == "ok",
+   "censura: chi entra dentro la finestra non e' censurato")
+ok(g2["regime_onset"] == PRIMO + 120 - 5,
+   "censura: e il suo orario resta il centro dell'intervallo (%s)"
+   % g2["regime_onset"])
+
+# La censura NON deve poter entrare nell'addestramento del timing.
+misurate = osservazioni([g, g2])
+censurate = osservazioni([g, g2], censurate=True)
+ok([d for d, _m, _v in misurate] == ["2026-01-11"],
+   "censura: nelle osservazioni per il modello entra solo la giornata misurata")
+ok([d for d, _m, _v in censurate] == ["2026-01-10"],
+   "censura: e le censurate si ottengono a parte, per contarle")
+
+# --------------------------------------------------------------------------
+# La mediana di un mese con censura: esatta finche' le censurate sono meno
+# della meta', un LIMITE quando sono la maggioranza. Buttarle sarebbe la cosa
+# peggiore: sono sistematicamente le piu' precoci, e togliendole la mediana
+# del mese slitta in avanti.
+# --------------------------------------------------------------------------
+from gardawind.orari import _riassunto
+
+# 12 misurate alle 05:00..06:50 (mediana 05:55) e 4 censurate al bordo 04:00.
+mis = [300.0 + 10 * i for i in range(12)]
+r = _riassunto(mis, None, min_gg=10, censurati=[240.0] * 4)
+ok(r["n"] == 16 and r["n_misurati"] == 12 and r["n_censurati"] == 4,
+   "censura: il mese conta 16 giornate, di cui 4 censurate")
+# 4 censurate in coda + 12 misurate da 05:00 a 06:50: la mediana di sedici
+# valori cade fra l'ottavo e il nono, cioe' 05:30 e 05:40 -> 05:35. Le sole
+# misurate darebbero 05:55: venti minuti piu' tardi, ed e' esattamente il
+# modo in cui buttare le censurate sposterebbe il mese in avanti.
+ok(r["mediana"] == 335.0,
+   "censura: con la minoranza censurata la mediana e' esatta e piu' PRECOCE "
+   "di quella delle sole misurate (%s contro 355)" % r["mediana"])
+ok(r["disp_limite_inferiore"] is True,
+   "censura: e la dispersione e' dichiarata come limite inferiore")
+
+r2 = _riassunto(mis, None, min_gg=10, censurati=[240.0] * 20)
+ok(r2["mediana"] is None and r2["mediana_limite"] == 240.0,
+   "censura: quando sono la maggioranza la mediana non e' un numero ma un "
+   "limite (<= %s)" % r2["mediana_limite"])
+ok(r2["quota_censurata"] > 0.6,
+   "censura: e la quota censurata si dichiara (%.0f%%)"
+   % (100 * r2["quota_censurata"]))
+
+# Il caso vero di gennaio, in piccolo: TUTTE censurate.
+r3 = _riassunto([], None, min_gg=10, censurati=[240.0] * 30)
+ok(r3["mediana"] is None and r3["mediana_limite"] == 240.0 and r3["n"] == 30,
+   "censura: trenta giornate tutte censurate non fanno una mediana, fanno un "
+   "limite, e le trenta giornate NON scompaiono")
+
+# --------------------------------------------------------------------------
+# BIMODALITA': due massimi locali non sono due modi
+# --------------------------------------------------------------------------
+# Il rapporto dichiarava "DUE PICCHI" anche con valle/picco 0.99 e 1.00: una
+# valle alta quanto il picco non separa niente. Tre criteri ora: prominenza,
+# separazione, e un numero minimo di giornate - perche' una forma chiede piu'
+# dati di una mediana.
+veri = [720.0] * 25 + [900.0] * 25
+modi, dip, motivo = linear_modes(veri, bin_size=30.0, dettagli=True)
+ok(len(modi) == 2 and dip is not None and dip < 0.3 and motivo is None,
+   "modi: due popolazioni separate restano due picchi (dip %.2f)" % dip)
+
+piatta = []
+for k in range(9):
+    piatta += [720.0 + 30.0 * k] * (7 if k in (2, 6) else 6)
+modi, dip, motivo = linear_modes(piatta, bin_size=30.0, dettagli=True)
+ok(len(modi) == 1 and motivo == "valle_alta",
+   "modi: una gobba larga con due massimi dentro il rumore NON e' bimodale "
+   "(motivo %s)" % motivo)
+
+pochi = [720.0] * 8 + [900.0] * 8
+modi, dip, motivo = linear_modes(pochi, bin_size=30.0, dettagli=True)
+ok(len(modi) == 1 and motivo == "pochi_dati",
+   "modi: sedici giornate non bastano per dichiarare una forma (%s)" % motivo)
+
+# E il motivo del rifiuto arriva fino al riassunto del mese, cosi' il rapporto
+# puo' dirlo invece di tacere.
+rr = _riassunto(piatta, None, min_gg=10)
+ok(rr["modi_motivo"] == "valle_alta" and (rr["modi"] or []) == [rr["modi"][0]],
+   "modi: il riassunto del mese porta il motivo del rifiuto (%s)"
+   % rr["modi_motivo"])
