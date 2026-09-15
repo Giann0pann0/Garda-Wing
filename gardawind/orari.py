@@ -1199,3 +1199,166 @@ def copertura_dataset(giorni, soglia_planability=30):
         "planability_ready": len(ric_ok) >= soglia_planability,
         "soglia_planability": soglia_planability,
     }
+
+
+# ==========================================================================
+# 1d. La distribuzione della finestra utile: i numeri da cui si SCEGLIE
+# ==========================================================================
+#
+# Le soglie di planata delle sue ali non sono mai state scelte, e finora il
+# codice ha fatto la cosa giusta: non inventarle. Ma non scegliere non e'
+# gratis - senza una soglia non esiste "quanto sara' buono alle 6-9", che e'
+# la domanda da cui e' partito tutto il blocco del Peler.
+#
+# Questa aggregazione non sceglie niente nemmeno lei. Prende la griglia di
+# soglie candidate e, per ogni mese, dice due cose per ognuna:
+#
+#   in quante giornate la MEDIA e' rimasta sopra quella soglia per almeno la
+#   persistenza (trenta minuti consecutivi) DENTRO la finestra utile;
+#   e quanto e' durata, quando e' successo.
+#
+# Cosi' la scelta si fa guardando: "a 14 nodi dicembre da' il 18% delle
+# giornate per una media di 70 minuti" e' una frase su cui si puo' decidere.
+# "La soglia e' 14" no.
+#
+# Una cosa che questa tabella NON dice, e che va detta ogni volta: e' tutta
+# sul VENTO MEDIO. La raffica ricorrente non c'e' nell'archivio lungo, quindi
+# queste percentuali sono un limite INFERIORE della planabilita' vera - con il
+# wing si sta sul foil anche sotto la media, se la spinta ripassa. Il numero
+# di giornate in cui la ricorrente era stimabile viaggia accanto, in chiaro,
+# perche' e' quello che dice quanto siamo lontani dal poter rispondere davvero.
+
+def aggrega_finestre(finestre, soglie=SOGLIE_CANDIDATE, min_gg=MIN_GG_MESE,
+                     stagioni=None):
+    """PURA. {giorno: esito di giudica_finestra_utile} -> distribuzione mensile.
+
+    Nessuna soglia e' privilegiata e nessun coefficiente viene introdotto: si
+    contano giornate e minuti, per ognuna delle soglie candidate.
+
+    Un mese con meno di min_gg giornate stimabili viene comunque restituito,
+    ma marcato `sufficiente: False`: nasconderlo darebbe l'impressione che non
+    ci siano dati, e invece ci sono e sono pochi - che e' un'informazione
+    diversa e piu' utile.
+    """
+    gruppi = {}
+    for giorno in sorted(finestre):
+        gruppi.setdefault(int(giorno[5:7]), []).append((giorno, finestre[giorno]))
+
+    def riassumi(coppie):
+        stimabili = [e for _g, e in coppie if e.get("estimable")]
+        motivi = {}
+        for _g, e in coppie:
+            if not e.get("estimable"):
+                r = e.get("reason") or "no_data"
+                motivi[r] = motivi.get(r, 0) + 1
+        out = {
+            "n_giorni": len(coppie),
+            "n_stimabili": len(stimabili),
+            "motivi": motivi,
+            "sufficiente": len(stimabili) >= min_gg,
+            "n_ric_stimabile": sum(1 for e in stimabili if e.get("ric_stimabile")),
+            "inizio_mediano": None, "fine_mediana": None, "durata_mediana": None,
+            "media_q25": None, "media_mediana": None, "media_q75": None,
+            "picco_mediano": None, "picco_q90": None,
+            "soglie": {},
+        }
+        if not stimabili:
+            return out
+        inizi = [e["inizio"] for e in stimabili if e.get("inizio") is not None]
+        fini = [e["fine"] for e in stimabili if e.get("fine") is not None]
+        if inizi and fini:
+            out["inizio_mediano"] = median(inizi)
+            out["fine_mediana"] = median(fini)
+            out["durata_mediana"] = median([b - a for a, b in zip(inizi, fini)])
+        # Il "fondo" della giornata dentro la finestra: la mediana del vento
+        # medio. Il picco e' il massimo istantaneo della media, che serve a
+        # capire se la giornata aveva un momento buono o era piatta.
+        centri = [e["media_mediana"] for e in stimabili
+                  if e.get("media_mediana") is not None]
+        if centri:
+            ordinati = sorted(centri)
+            out["media_q25"] = quantile(ordinati, 0.25)
+            out["media_mediana"] = median(ordinati)
+            out["media_q75"] = quantile(ordinati, 0.75)
+        picchi = sorted([e["media_max"] for e in stimabili
+                         if e.get("media_max") is not None])
+        if picchi:
+            out["picco_mediano"] = median(picchi)
+            out["picco_q90"] = quantile(picchi, 0.9)
+
+        # Una soglia che le giornate non hanno calcolato NON e' una soglia con
+        # zero giornate sopra. La differenza e' tutta: la prima e' "non lo
+        # sappiamo", la seconda e' "non succede mai", e una tabella che le
+        # confonde stampa uno zero rassicurante al posto di un buco.
+        for t in soglie:
+            calcolate = [e for e in stimabili
+                         if t in (e.get("planata_sostenuta_media") or {})]
+            sopra = [e for e in calcolate
+                     if e["planata_sostenuta_media"].get(t)]
+            durate = sorted([(e.get("minuti_sopra_media") or {}).get(t) or 0.0
+                             for e in sopra])
+            out["soglie"][t] = {
+                "n_calcolate": len(calcolate),
+                "non_calcolata": len(calcolate) == 0,
+                "n_sostenute": len(sopra),
+                "quota": ((len(sopra) / float(len(calcolate)))
+                          if calcolate else None),
+                "durata_mediana": median(durate) if durate else None,
+                "durata_q75": quantile(durate, 0.75) if len(durate) >= 4 else None,
+            }
+        return out
+
+    tutte = [(g, e) for m in sorted(gruppi) for g, e in gruppi[m]]
+    # Le stagioni arrivano da fuori, come la finestra: quali mesi sono "la
+    # stagione in cui si naviga" e' una decisione, e una funzione pura non
+    # prende decisioni. Passando None non ci sono stagioni, e la tabella e'
+    # solo mensile - cosi' un fold o un controllo puo' chiedere i mesi nudi.
+    per_stagione = {}
+    for nome, mesi in (stagioni or ()):
+        coppie = [c for m in mesi for c in gruppi.get(m, ())]
+        per_stagione[nome] = riassumi(coppie)
+        per_stagione[nome]["mesi_inclusi"] = tuple(mesi)
+    return {
+        "soglie": tuple(soglie),
+        "min_gg": min_gg,
+        "mesi": {m: riassumi(gruppi[m]) for m in sorted(gruppi)},
+        "stagioni": per_stagione,
+        "ordine_stagioni": tuple(n for n, _m in (stagioni or ())),
+        "anno": riassumi(tutte),
+    }
+
+
+def distribuzione_finestra_utile(spot_name, giorni=None,
+                                 soglie=SOGLIE_CANDIDATE,
+                                 persist_min=PERSISTENZA_MIN,
+                                 stagioni=None):
+    """Livello 2: legge configurazione e archivio, poi aggrega.
+
+    La finestra utile di OGNI giornata viene ricalcolata, perche' dipende dalla
+    luce e quindi dal giorno dell'anno: a dicembre il Peler utilizzabile
+    comincia dopo che a giugno, e mediare le due sarebbe mediare due finestre
+    diverse chiamandole la stessa.
+    """
+    spot = config.SPOTS[spot_name]
+    asse = spot.get("axis_obs", spot["axis"])
+    settore = config.REGIME_SECTOR_DEG
+    giorni = giorni_osservati(spot_name) if giorni is None else giorni
+    finestre = {}
+    for giorno in sorted(giorni):
+        inizio, fine = finestra_utile_del_giorno(spot_name, giorno)
+        if fine <= inizio:
+            finestre[giorno] = {"inizio": inizio, "fine": fine,
+                                "estimable": False, "reason": "no_daylight"}
+            continue
+        finestre[giorno] = giudica_finestra_utile(
+            giorni[giorno], asse, settore, inizio, fine,
+            soglie=soglie, persist_min=persist_min)
+    D = aggrega_finestre(
+        finestre, soglie=soglie,
+        stagioni=config.STAGIONI_USO if stagioni is None else stagioni)
+    D["spot"] = spot_name
+    D["asse"] = asse
+    D["settore"] = settore
+    D["persist_min"] = persist_min
+    D["copertura"] = copertura_dataset(giorni)
+    return D

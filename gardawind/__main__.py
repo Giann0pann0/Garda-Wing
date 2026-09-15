@@ -1036,6 +1036,225 @@ def _stampa_validazione(O, C):
             print("  che il timing e' incerto. %s" % (V["motivo"] or ""))
 
 
+def _hhmm(minuti):
+    """Minuti dalla mezzanotte -> HH:MM. None resta un trattino."""
+    if minuti is None:
+        return "  -  "
+    m = int(round(minuti))
+    return "%02d:%02d" % (m // 60, m % 60)
+
+
+def _durata(minuti):
+    if minuti is None:
+        return "   - "
+    m = int(round(minuti))
+    return "%dh%02d" % (m // 60, m % 60)
+
+
+# Una sola riga-modello per i mesi e per il totale: se le due si scrivono a
+# mano separatamente, prima o poi si scollano di un carattere e la tabella
+# diventa illeggibile senza che nessun controllo se ne accorga.
+RIGA_FINESTRA = "  %-4s %4d  %5d  %s-%s     %s   %s  %s"
+
+MESI_BREVI = ("gen", "feb", "mar", "apr", "mag", "giu",
+              "lug", "ago", "set", "ott", "nov", "dic")
+
+
+def cmd_distribuzione(spot_name=None):
+    """La distribuzione osservata dentro la finestra utile, per mese.
+
+    Serve a una cosa sola: scegliere le soglie guardando i numeri veri invece
+    di inventarle. Per questo non c'e' nessuna etichetta "forte / debole" e
+    nessuna soglia privilegiata - c'e' la griglia intera, e la scelta la fa chi
+    legge.
+
+    Come cmd_orari, qui non si calcola niente: tutta la logica sta in
+    gardawind/orari.py e questa funzione traduce e impagina.
+    """
+    from gardawind import orari as O
+
+    spots = [spot_name] if spot_name else [
+        n for n in config.SPOT_ORDER if config.SPOTS[n]["target"] == "hourly"]
+
+    for name in spots:
+        spot = config.SPOTS[name]
+        h0, h1 = spot["window"]
+        D = O.distribuzione_finestra_utile(name)
+        soglie = D["soglie"]
+
+        print("")
+        print("=" * 78)
+        print("  DENTRO LA FINESTRA UTILE  -  %s" % name)
+        print("  finestra del regime %02d:00-%02d:00" % (h0, h1 + 1), end="")
+        pratica = spot.get("ora_pratica")
+        if pratica is not None:
+            print("  -  ora pratica %02d:00" % int(pratica), end="")
+        print("")
+        print("  piu' stretta di: alba + %g min, tramonto - %g min"
+              % (config.MARGINE_ALBA_MIN, config.MARGINE_TRAMONTO_MIN))
+        print("  asse osservato %g deg  -  settore +-%g  -  fuori settore = 0"
+              % (D["asse"], D["settore"]))
+        print("  sostenuta = sopra soglia per almeno %g minuti consecutivi"
+              % D["persist_min"])
+        print("=" * 78)
+        print("")
+        _stampa_copertura(D["copertura"],
+                          "dentro la finestra utile: SOLO vento medio")
+
+        print("  ATTENZIONE, e vale per tutta la tabella: queste quote sono")
+        print("  calcolate sul VENTO MEDIO. Con il wing si sta sul foil anche")
+        print("  sotto la media, se la raffica ricorrente ripassa spesso -")
+        print("  quindi sono un LIMITE INFERIORE della planabilita' vera, non")
+        print("  la planabilita'. La ricorrente nell'archivio lungo non c'e'.")
+        print("")
+
+        # ------------------------------------------------------------------
+        # Tabella 1: com'e' fatta la finestra, e quanto vento ci sta dentro
+        # ------------------------------------------------------------------
+        print("  LA FINESTRA, E IL VENTO MEDIO CHE CI STA DENTRO")
+        print("  mese   gg  stim.  finestra mediana  durata   medio q25/med/q75"
+              "   picco")
+        print("  " + "-" * 74)
+        for m in range(1, 13):
+            r = D["mesi"].get(m)
+            if not r:
+                continue
+            tre = "  -  /  -  /  -  "
+            if r["media_mediana"] is not None:
+                tre = "%5.1f /%5.1f /%5.1f" % (r["media_q25"], r["media_mediana"],
+                                               r["media_q75"])
+            picco = "   - "
+            if r["picco_mediano"] is not None:
+                picco = "%5.1f" % r["picco_mediano"]
+            print(RIGA_FINESTRA
+                  % (MESI_BREVI[m - 1], r["n_giorni"], r["n_stimabili"],
+                     _hhmm(r["inizio_mediano"]), _hhmm(r["fine_mediana"]),
+                     _durata(r["durata_mediana"]), tre, picco)
+                  + ("" if r["sufficiente"] else "  (pochi)"))
+        A = D["anno"]
+        print("  " + "-" * 74)
+        tre = "  -  /  -  /  -  "
+        if A["media_mediana"] is not None:
+            tre = "%5.1f /%5.1f /%5.1f" % (A["media_q25"], A["media_mediana"],
+                                           A["media_q75"])
+        print(RIGA_FINESTRA
+              % ("anno", A["n_giorni"], A["n_stimabili"],
+                 _hhmm(A["inizio_mediano"]), _hhmm(A["fine_mediana"]),
+                 _durata(A["durata_mediana"]), tre,
+                 "%5.1f" % A["picco_mediano"] if A["picco_mediano"] is not None
+                 else "   - "))
+        print("  " + "-" * 74)
+        print("  \"stim.\" = giornate con abbastanza dato dentro la finestra.")
+        print("  \"medio\" = mediana del vento medio nella finestra, per giornata:")
+        print("  il fondo della sessione. \"picco\" = mediana del massimo della")
+        print("  media, cioe' il momento migliore della giornata tipica.")
+        print("  \"(pochi)\" = meno di %d giornate stimabili: numero fragile."
+              % D["min_gg"])
+        print("")
+
+        # ------------------------------------------------------------------
+        # Tabella 2: la griglia delle soglie. Nessuna e' "la" soglia.
+        # ------------------------------------------------------------------
+        print("  QUANTE GIORNATE, E PER QUANTO, SOPRA OGNI SOGLIA CANDIDATA")
+        print("  quota delle giornate stimabili con media sostenuta %g' sopra"
+              % D["persist_min"])
+        print("  soglia, e sotto la durata mediana in minuti di quel periodo")
+        print("")
+        testa = "  %-5s" % "mese"
+        for t in soglie:
+            testa += "%8s" % ("%g kn" % t)
+        print(testa)
+        print("  " + "-" * (6 + 8 * len(soglie)))
+        for m in range(1, 13):
+            r = D["mesi"].get(m)
+            if not r:
+                continue
+            riga = "  %-5s" % MESI_BREVI[m - 1]
+            durate = "       "
+            for t in soglie:
+                c = r["soglie"].get(t) or {}
+                q = c.get("quota")
+                riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
+                d = c.get("durata_mediana")
+                durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
+            print(riga + ("" if r["sufficiente"] else " (pochi)"))
+            if durate.strip():
+                print(durate)
+        print("  " + "-" * (6 + 8 * len(soglie)))
+        riga = "  %-5s" % "anno"
+        durate = "       "
+        for t in soglie:
+            c = A["soglie"].get(t) or {}
+            q = c.get("quota")
+            riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
+            d = c.get("durata_mediana")
+            durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
+        print(riga)
+        if durate.strip():
+            print(durate)
+        print("  " + "-" * (6 + 8 * len(soglie)))
+        print("")
+
+        # ------------------------------------------------------------------
+        # Tabella 3: le stagioni d'uso. Non si naviga dodici mesi l'anno.
+        # ------------------------------------------------------------------
+        if D.get("stagioni"):
+            print("  LE STESSE QUOTE, RAGGRUPPATE PER STAGIONE D'USO")
+            testa = "  %-12s  gg " % "stagione"
+            for t in soglie:
+                testa += "%8s" % ("%g kn" % t)
+            print(testa)
+            print("  " + "-" * (18 + 8 * len(soglie)))
+            for nome in D["ordine_stagioni"]:
+                r = D["stagioni"].get(nome)
+                if not r:
+                    continue
+                mesi = r.get("mesi_inclusi") or ()
+                etich = "%s" % nome
+                riga = "  %-12s %4d " % (etich, r["n_stimabili"])
+                durate = "  %-12s      " % ""
+                for t in soglie:
+                    c = r["soglie"].get(t) or {}
+                    q = c.get("quota")
+                    riga += "%7s " % ("-" if q is None else "%.0f%%" % (100.0 * q))
+                    d = c.get("durata_mediana")
+                    durate += "%7s " % ("" if not d else "%d'" % int(round(d)))
+                print(riga)
+                if durate.strip():
+                    print(durate)
+                print("  %-12s      mesi %s"
+                      % ("", ", ".join(MESI_BREVI[m - 1] for m in mesi)))
+            print("  " + "-" * (18 + 8 * len(soglie)))
+            print("  La stagione PRIMARIA e' quella su cui si leggono le quote")
+            print("  d'uso: e' quando si va in acqua. La DIAGNOSTICA (inverno)")
+            print("  serve a vedere persistenza e struttura del regime, non a")
+            print("  tarare il prodotto - una metrica tarata su dicembre")
+            print("  funzionerebbe bene proprio nei mesi in cui non la usi.")
+            print("  Ma la soglia di planata NON si sceglie dalla stagione:")
+            print("  quanti nodi ti tengono sul foil e' una proprieta' della")
+            print("  tua ala, non del mese. La stagione dice quali righe")
+            print("  leggere, il numero lo dai tu.")
+            print("")
+
+        print("  COME SI LEGGE, E COSA SI DECIDE")
+        print("  Una riga dice: in quella frazione delle giornate del mese il")
+        print("  vento medio nella finestra utile e' rimasto sopra quella soglia")
+        print("  per almeno mezz'ora di fila, e quando e' successo e' durato")
+        print("  quei minuti. Nessuna di queste soglie e' \"la\" soglia: la")
+        print("  griglia c'e' tutta proprio perche' la scelta non e' del codice.")
+        print("  Serve un numero: a quanti nodi di vento medio, con la tua ala")
+        print("  piu' grande, stai sul foil. Da quello nasce la scheda del")
+        print("  Peler, e solo da quello.")
+        print("")
+        print("  giornate in cui la raffica ricorrente 30' era stimabile: %d su %d"
+              % (A["n_ric_stimabile"], A["n_stimabili"]))
+        if A["n_stimabili"] and A["n_ric_stimabile"] < A["n_stimabili"]:
+            print("  -> e' la distanza che ci separa dal poter rispondere per")
+            print("     davvero: la planabilita' vera si decide su media E")
+            print("     ricorrente, e la ricorrente c'e' solo da adesso.")
+        sys.stdout.flush()
+
+
 def cmd_orari(spot_name=None):
     """Quando entra il vento: climatologia osservata dell'orario.
 
@@ -1691,6 +1910,10 @@ def main(argv=None):
     ap.add_argument("--direzioni", action="store_true",
                     help="istogramma delle provenienze osservate: verifica se "
                          "l'asse del regime e' messo nel posto giusto")
+    ap.add_argument("--distribuzione", action="store_true",
+                    help="dentro la finestra utile: quanto vento, per quanto, "
+                         "per ogni soglia candidata. Serve a scegliere le "
+                         "soglie guardando i numeri veri.")
     ap.add_argument("--orari", action="store_true",
                     help="climatologia osservata dell'orario di ingresso: regime "
                          "e planata, con e senza filtro di direzione, per mese")
@@ -1752,6 +1975,10 @@ def main(argv=None):
 
     if args.orari:
         cmd_orari(args.spot[0] if args.spot else None)
+        return 0
+
+    if args.distribuzione:
+        cmd_distribuzione(args.spot[0] if args.spot else None)
         return 0
 
     if args.raffiche:

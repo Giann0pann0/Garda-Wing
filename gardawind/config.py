@@ -88,6 +88,21 @@ MARGINE_ALBA_MIN = 30.0
 # 20:00, ma a dicembre il sole tramonta alle 16:39. Nessuno atterra al buio.
 MARGINE_TRAMONTO_MIN = 30.0
 
+# Non si va in acqua dodici mesi l'anno, e questo cambia quali righe di una
+# tabella climatologica contano. Le soglie d'uso si guardano nella stagione in
+# cui si naviga davvero; l'inverno resta utile, ma come banco - la' si vede la
+# persistenza e la struttura del Peler senza che quei mesi tirino a se' una
+# soglia che poi si usa a maggio.
+#
+# Una cosa che questa divisione NON fa: non scegliere la soglia di planata.
+# Quanti nodi servono per stare sul foil e' una proprieta' dell'ala e di chi la
+# usa, non del mese. La stagione decide quali quote si leggono, non il numero.
+STAGIONI_USO = (
+    ("primaria", (4, 5, 6, 7, 8, 9, 10)),
+    ("transizione", (3, 11)),
+    ("diagnostica", (12, 1, 2)),
+)
+
 # window: ore LOCALI incluse (start <= h <= end) in cui il regime puo' soffiare
 # min_kn: soglia sopra la quale consideriamo il regime "entrato" (media oraria)
 # planing_kn: soglia indicativa di planata per wing/windsurf
