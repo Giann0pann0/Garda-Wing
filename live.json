@@ -1,0 +1,34 @@
+{
+ "generato": "2026-09-16T01:11:05Z",
+ "versione": "3.7",
+ "luoghi": {
+  "Torbole": {
+   "station": "T0193",
+   "ts": "2026-09-16T01:00:00Z",
+   "wind": 6.02591795,
+   "gust": 9.13606915,
+   "dir": 67.0,
+   "gust_rec": 8.066954675,
+   "gust_rec_stato": "ok",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 10.0,
+   "cadenza_raffica_min": 10.0,
+   "n_campioni": 40,
+   "html": "<div class=\"nowbig\"><div class=\"v\">6 <small>kn</small></div><div class=\"compass\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(67 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"var(--pc)\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg><span><b>ENE</b><small>da nord-est</small></span></div></div><div class=\"nowgust\">raffica <b>9 kn</b></div><div class=\"nowmeta\"><span class=\"nowage\">orario sconosciuto</span><span>ultimo dato 03:00</span></div>"
+  },
+  "Malcesine": {
+   "station": "malcesine",
+   "ts": "2026-09-16T01:11:00Z",
+   "wind": 2.6,
+   "gust": null,
+   "dir": 90.0,
+   "gust_rec": null,
+   "gust_rec_stato": "raffica assente",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 17.0,
+   "cadenza_raffica_min": null,
+   "n_campioni": 40,
+   "html": "<div class=\"nowbig\"><div class=\"v\">3 <small>kn</small></div><div class=\"compass\"><svg width=\"26\" height=\"26\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(90 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"var(--pc)\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg><span><b>E</b><small>da est</small></span></div></div><div class=\"nowgust\" style=\"color:var(--ink-3)\">raffica non disponibile</div><div class=\"nowmeta\"><span class=\"nowage\">orario sconosciuto</span><span>ultimo dato 03:11</span></div>"
+  }
+ }
+}
