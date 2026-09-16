@@ -952,8 +952,13 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     # la curva che conta di piu' e' quella che esce dal grafico.
     oss_righe = [r for r in ((osservato or {}).get("righe") or [])
                  if rows[0]["hour"] <= r["hour"] <= rows[-1]["hour"]]
+    # Nella scala entrano anche i campioni fini, non solo le medie orarie: una
+    # punta misurata a dieci minuti e' piu' alta della media della sua ora, e
+    # se la scala non la conosce la riga del misurato esce dal disegno.
+    oss_fini = [r for r in ((osservato or {}).get("fini") or [])
+                if rows[0]["hour"] <= r.get("hour", -1) <= rows[-1]["hour"]]
     peak = max([r["gust"] for r in rows]
-               + [r[k] for r in oss_righe for k in ("wind", "gust")
+               + [r[k] for r in oss_righe + oss_fini for k in ("wind", "gust")
                   if r.get(k) is not None]
                + [12.0])
     top = max(15.0, 5 * math.ceil(peak / 5.0))
@@ -1056,8 +1061,16 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     # curva e' il confronto, e un confronto con un dato inventato non e' un
     # confronto.
     if oss_righe:
-        w_oss = [(r["hour"], r["wind"]) for r in oss_righe if r.get("wind") is not None]
-        g_oss = [(r["hour"], r["gust"]) for r in oss_righe if r.get("gust") is not None]
+        # Si DISEGNANO i campioni veri, non le medie orarie. La media oraria
+        # nasconde proprio quello che la misura serve a mostrare: misurato su
+        # 2.769 inversioni di regime, il fondo del buco fra Peler e Ora sta al
+        # 25% del livello coi campioni e al 40% con le medie - 2,6 kn contro
+        # 4,2 - e nel 25% dei giri in cui il buco c'e' la media lo cancella.
+        # Il CONFRONTO con la previsione resta invece sull'asse orario, dove
+        # e' stato validato: scarto_line continua a leggere `righe`.
+        serie = oss_fini if len(oss_fini) >= 12 else oss_righe
+        w_oss = [(r["hour"], r["wind"]) for r in serie if r.get("wind") is not None]
+        g_oss = [(r["hour"], r["gust"]) for r in serie if r.get("gust") is not None]
         if len(g_oss) >= 2:
             p.append('<polyline points="%s" fill="none" stroke="var(--gust)" '
                      'stroke-width="2.6" stroke-dasharray="3 3" '

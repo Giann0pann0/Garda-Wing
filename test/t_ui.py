@@ -265,3 +265,73 @@ ok(re.search(r"Affidabilità\s*<b>(alta|buona|tendenza|outlook)</b>", H)
    "resta una parola, dentro la scheda Peler")
 ok(re.search(r"Probabilità\s*<b>\d+%</b>", H) is not None,
    "e la percentuale che si mostra e' la probabilita' del regime, che esiste")
+
+# --------------------------------------------------------------------------
+# La riga del MISURATO si disegna coi campioni, non con le medie orarie
+# --------------------------------------------------------------------------
+# Domanda di Gian, guardando la pagina di una centralina: "loro hanno una
+# precisione live pazzesca, com'e' possibile che non la consideriamo". Le
+# misure le usiamo per tutto - il modello e' addestrato su 123.661 ore - ma le
+# DISEGNAVAMO per ore, e la media oraria nasconde proprio cio' che la misura
+# serve a mostrare. Misurato su 2.769 inversioni di regime in quattordici
+# anni: il fondo del buco fra Peler e Ora sta al 25% del livello coi campioni
+# veri e al 40% con le medie orarie, e nel 25% dei giri in cui il buco c'e' la
+# media lo cancella del tutto.
+#
+# Qui si costruisce quella situazione: una giornata con un crollo a 1 kn per
+# venti minuti alle 07:40, che l'ora 07:00-08:00 mediata a 9 kn nasconde.
+FINI = []
+for i in range(4 * 6, 21 * 6 + 1):
+    m = i * 10.0
+    if 7 * 60 + 30 <= m <= 7 * 60 + 50:
+        w = 1.0                       # il buco vero, venti minuti
+    elif m < 11 * 60:
+        w = 11.0
+    else:
+        w = 16.0
+    FINI.append({"hour": m / 60.0, "wind": w, "gust": w * 1.4})
+ORARIE = []
+for h in range(4, 21):        # la stessa finestra del profilo di prova
+    dentro = [r["wind"] for r in FINI if h <= r["hour"] < h + 1]
+    if dentro:
+        media = sum(dentro) / len(dentro)
+        ORARIE.append({"hour": h, "wind": media, "gust": media * 1.4})
+media_del_buco = next(r["wind"] for r in ORARIE if r["hour"] == 7)
+ok(media_del_buco >= 5.0,
+   "il caso e' costruito bene: il fondo vero e' 1 kn e l'ora che lo contiene,"
+   " mediata, ne dichiara %.1f - sei volte tanto" % media_del_buco)
+
+OSS = {"righe": ORARIE, "fini": FINI, "raffica_fonte": "ricorrente 30'",
+       "ultima_ora": 20}
+GG_OSS = [dict(GIORNI[0])]
+pl = {k: dict(v) for k, v in GIORNI[0]["places"].items()}
+pl["Torbole"] = dict(pl["Torbole"], osservato=OSS)
+GG_OSS[0] = dict(GIORNI[0], places=pl, lead=0)
+_vecchio_by_day = engine.by_day
+engine.by_day = lambda product=None: GG_OSS
+try:
+    H_OSS = web.page_home()
+finally:
+    engine.by_day = _vecchio_by_day
+
+misurate = re.findall(r'<polyline points="([^"]+)" fill="none" '
+                      r'stroke="var\(--pc\)" stroke-width="3.6"', H_OSS)
+ok(misurate and max(len(p.split()) for p in misurate) > 60,
+   "la riga del misurato ha i vertici dei campioni, non diciotto (%s)"
+   % [len(p.split()) for p in misurate][:3])
+
+# E il buco deve arrivare in fondo al disegno: si controlla sulle ORDINATE,
+# perche' e' quello che l'occhio legge. La y cresce verso il basso, quindi il
+# punto piu' basso in velocita' e' quello con la y piu' grande.
+ys = [float(v.split(",")[1]) for p in misurate for v in p.split()]
+ok(ys and max(ys) - min(ys) > 40,
+   "e un crollo a 1 kn si vede come tale, non appiattito (escursione %.0f"
+   " punti di disegno)" % (max(ys) - min(ys) if ys else 0))
+
+# Il CONFRONTO con la previsione resta orario: e' l'asse su cui e' stato
+# validato, e spostarlo a dieci minuti vorrebbe dire confrontare due cose
+# diverse senza dirlo.
+_sc = web.scarto_line(profilo(20.0), OSS)
+ok(_sc is not None and float(_sc["hour"]) == int(_sc["hour"]),
+   "la riga dello scarto continua a confrontare su un'ora intera (%s)"
+   % (_sc and _sc["hour"]))

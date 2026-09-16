@@ -10,7 +10,8 @@ from . import (aggregate, analogs, config, confidence as CONF, features as F,
 from .sources import malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
-                   mean, parse_dt_any, pstdev, utc_now, vector_mean_direction)
+                   mean, parse_dt_any, pstdev, recurrent_gust, sampling_cadence,
+                   utc_now, vector_mean_direction)
 
 STATE = {
     "running": False,
@@ -1311,8 +1312,54 @@ def day_observed(place, day):
     fonte = None
     if righe:
         fonte = "ricorrente 30'" if usa_ric else "massimo dell'ora"
-    return {"righe": righe, "raffica_fonte": fonte,
+    return {"righe": righe, "fini": _osservato_fine(station, day),
+            "raffica_fonte": fonte,
             "ultima_ora": righe[-1]["hour"] if righe else None}
+
+
+def _osservato_fine(station, day):
+    """I campioni veri della giornata, alla cadenza a cui arrivano.
+
+    La serie oraria sopra resta, perche' e' quella su cui si confronta con la
+    previsione e il confronto vive sull'asse orario. Ma DISEGNARE la misura
+    per ore e' un'altra cosa, ed era un errore: la media oraria nasconde
+    esattamente quello che la misura serve a mostrare.
+
+    Misurato su 2.769 inversioni di regime in quattordici anni: il fondo del
+    buco fra Peler e Ora sta al 25% del livello con i campioni veri e al 40%
+    con le medie orarie - 2,6 kn contro 4,2 su un livello di 10,5 - e nel 25%
+    dei giri in cui il buco c'e', la media oraria lo cancella del tutto.
+    Disegnavamo la nostra stessa misura sei volte piu' grossolana di come la
+    abbiamo, e la riga "misurato" diceva che il vento non era mai caduto.
+
+    La raffica qui e' la RICORRENTE a trenta minuti, la stessa grandezza della
+    serie oraria e della scheda: il massimo dei dieci minuti sarebbe piu' alto
+    e piu' nervoso, e due righe con lo stesso nome e due definizioni sono il
+    modo piu' sicuro di far leggere un numero per un altro.
+    """
+    campioni = store.samples_since(station, day_shift(day, -1) + "T00:00:00Z")
+    per_ist = {}
+    for r in campioni:
+        dt = parse_dt_any(r["ts"])
+        if dt is None or local_day(dt) != day:
+            continue
+        # Lo stesso istante puo' arrivare da due fonti: si tiene una lettura
+        # sola per istante, e la prima in ordine di fonte e' stabile.
+        per_ist.setdefault(iso_utc(dt), r)
+    if len(per_ist) < 12:
+        return []
+    ordinati = sorted(per_ist.items())
+    minuti = [local_hour(parse_dt_any(k)) * 60.0 for k, _r in ordinati]
+    venti = [_r.get("wind_kn") for _k, _r in ordinati]
+    raffiche = [_r.get("gust_kn") for _k, _r in ordinati]
+    cadenza = sampling_cadence(minuti)
+    ric = dict(recurrent_gust(list(zip(minuti, raffiche)), cadence_min=cadenza))
+    out = []
+    for m, w in zip(minuti, venti):
+        if w is None:
+            continue
+        out.append({"hour": m / 60.0, "wind": float(w), "gust": ric.get(m)})
+    return out
 
 
 def day_profile(place, day, sessions):
