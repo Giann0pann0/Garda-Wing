@@ -19,7 +19,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, confidence, engine, store, verify
+from . import config, confidence, engine, orari, store, verify
 from .util import (angle_diff, clamp, local_day, parse_dt_any,
                    sampling_cadence, sustained_onset, time_above,
                    to_local, utc_now)
@@ -739,7 +739,12 @@ def _durata_soglia(serie, soglia, passo=PASSO_CARD_MIN):
     return minuti, limite
 
 
-PERSISTENZA_CARD_MIN = 30.0
+# La mezz'ora della scheda e' la mezz'ora della climatologia: una definizione
+# sola, nel posto dove e' definita. Qui c'era una seconda copia del numero 30,
+# ed era l'ultima rimasta - la stessa doppia scrittura che nel motore
+# analogico aveva prodotto una porta che misurava venti minuti credendone
+# trenta. Un numero scritto due volte prima o poi diventa due numeri.
+PERSISTENZA_CARD_MIN = orari.PERSISTENZA_MIN
 
 
 def _durata_parole(minuti, limite=False):
@@ -766,7 +771,7 @@ def peler_card(place, profile, sessions, giorno=None, live=None, today=False):
     giornate su tre e non discriminano niente. La soglia che separa e' 10; i
     12 dicono se il Peler e' di quelli consistenti.
     """
-    from . import orari as O
+    O = orari
 
     name = place_spots(place).get("PELER")
     if not name or name not in sessions:
@@ -1344,7 +1349,7 @@ def regime_bands(place, giorno=None):
     07:50. Finche' il disegno mostrava solo il regime, diceva una cosa e la
     scheda accanto ne diceva un'altra a dieci centimetri di distanza.
     """
-    from . import orari as O
+    O = orari
 
     spots = place_spots(place)
     fills = {"PELER": "#1a2635", "ORA": "#20303f"}

@@ -895,9 +895,17 @@ def time_above(series, threshold, cadence_min=None, max_gap_min=None):
     return total
 
 
-def sustained_onset(series, threshold, persist_min=30.0, max_gap_min=None,
+def sustained_onset(series, threshold, persist_min, max_gap_min=None,
                     cadence_min=None):
     """Primo istante in cui la serie sta sopra soglia e CI RESTA.
+
+    `persist_min` non ha un valore di default, e non e' una dimenticanza: era
+    30.0, e un default e' una definizione. Questa e' logica pura e non conosce
+    la configurazione, quindi la mezz'ora deve arrivarle da fuori - da
+    orari.PERSISTENZA_MIN, che e' l'unico posto dove quel numero e' deciso.
+    Con il default, un chiamante distratto misurava trenta minuti senza
+    saperlo, e il giorno che la persistenza cambiasse in orari.py lui avrebbe
+    continuato a misurare trenta.
 
     Il "ci resta" e' il punto: il primo superamento puntuale lo produce
     qualunque colpo di vento, e non risponde alla domanda vera, che e' da che

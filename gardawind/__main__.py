@@ -496,7 +496,8 @@ def cmd_raffiche(spot_name=None, soglie=(14, 16, 18, 20, 22)):
             sr = [(m, r) for m, _w, _g, r in sel if r is not None]
             for t in soglie:
                 B["durate"][t].append(time_above(sr, float(t), cad_g))
-                ing = sustained_onset(sr, float(t), persist_min=30.0,
+                ing = sustained_onset(sr, float(t),
+                                      persist_min=O.PERSISTENZA_MIN,
                                       cadence_min=cad_g)
                 if ing is not None:
                     B["ingressi"][t].append(ing)
