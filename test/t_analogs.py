@@ -74,8 +74,8 @@ rep = {"usable": True, "n": analogs.EXPECTED_CONFIRM_DAYS, "leads": {},
        "null": {"hits": .54, "false_alarms": .25}}
 for lead, vals in analogs.BENCHMARK.items():
     row = dict(vals); row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
-    row["peler"] = {"bias_minutes": -9.0, "steepness": 3.3,
-                    "true_steepness": 3.9, "hits": .589, "false_alarms": .377}
+    row["peler"] = {"bias_minutes": 7.5, "steepness": 3.59,
+                    "true_steepness": 3.89, "hits": .685, "false_alarms": .448}
     rep["leads"][lead] = row
 gate, why = analogs.benchmark_gate(rep)
 ok(gate and not why, "gate apre sui numeri del benchmark congelato")
@@ -129,9 +129,9 @@ def rapporto(n_giorni):
     for lead, vals in analogs.BENCHMARK.items():
         row = dict(vals)
         row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
-        row["peler"] = {"bias_minutes": -9.0, "steepness": 3.3,
-                        "true_steepness": 3.9, "hits": .589,
-                        "false_alarms": .377}
+        row["peler"] = {"bias_minutes": 7.5, "steepness": 3.59,
+                        "true_steepness": 3.89, "hits": .685,
+                        "false_alarms": .448}
         r["leads"][lead] = row
     return r
 
@@ -159,8 +159,9 @@ ok(not gl and any("troppo liscia" in x for x in wl)
    "e una mattina piatta e corta come la curva liscia chiude la porta"
    " dicendo entrambe le cose")
 
-# Ma NON si pretendono colpi sulla mattina: col livello giusto il nullo ne
-# prende quanti il modello (83,3% contro 83,0%), quindi chiedere
+# Ma NON si pretendono colpi sulla mattina: separando forma e livello - col
+# picco vero regalato dentro la finestra - il nullo ne prende quanti il
+# modello (83,3% contro 83,0%), quindi chiedere
 # discriminazione vorrebbe dire chiudere la porta per un merito che il metodo
 # non ha mai dichiarato di avere. Quella la decide il livello della sessione.
 colpi_scarsi = rapporto(analogs.EXPECTED_CONFIRM_DAYS)
@@ -384,11 +385,36 @@ ok(a_lug >= 6 * 60 and b_lug <= 11 * 60,
    "la finestra del Peler e' quella utile, non le sette ore del regime"
    " (%02d:%02d-%02d:%02d)" % (a_lug // 60, a_lug % 60, b_lug // 60, b_lug % 60))
 
-# Il nullo resta obbligatorio: se non degrada, la porta non apre comunque.
+# --------------------------------------------------------------------------
+# Il nullo si giudica sul VANTAGGIO, non sui colpi
+# --------------------------------------------------------------------------
+# Con la sagoma riportata a picco 1 - che e' giusto, perche' il prodotto
+# conserva il picco del motore - qualunque mediana promette vento, anche
+# quella di tre giornate a caso: il nullo prende l'84% di colpi ed e' normale.
+# La porta chiedeva che restasse sotto il 65%, quindi si chiudeva sempre.
+nullo_forte = rapporto(atteso)
+nullo_forte["null"] = {"hits": .844, "false_alarms": .473}
+g4, w4 = analogs.benchmark_gate(nullo_forte)
+ok(g4 and not w4,
+   "un nullo con l'84% di colpi non chiude piu' la porta, se perde sui falsi")
+
+nullo_bravo = rapporto(atteso)
+nullo_bravo["null"] = {"hits": .88, "false_alarms": .37}
+g5, w5 = analogs.benchmark_gate(nullo_bravo)
+ok(not g5 and any("vantaggio sul nullo" in x for x in w5),
+   "ma un nullo che sceglie come il modello la chiude, dicendo i punti: %s"
+   % w5[:1])
+
+v_mod = 100 * (analogs.BENCHMARK[1]["hits"]
+               - analogs.BENCHMARK[1]["false_alarms"])
+ok(v_mod - 100 * (.844 - .473) >= analogs.GUADAGNO_MIN_SU_NULLO,
+   "il vantaggio misurato (%.1f punti) supera la soglia dichiarata (%.1f)"
+   % (v_mod - 100 * (.844 - .473), analogs.GUADAGNO_MIN_SU_NULLO))
+
 senza_nullo = rapporto(atteso)
-senza_nullo["null"] = {"hits": .80, "false_alarms": .05}
-g4, w4 = analogs.benchmark_gate(senza_nullo)
-ok(not g4 and any("nullo" in x for x in w4),
-   "un nullo che non degrada chiude la porta anche con i numeri giusti")
+senza_nullo["null"] = {}
+g6, w6 = analogs.benchmark_gate(senza_nullo)
+ok(not g6 and any("nullo non misurato" in x for x in w6),
+   "e senza nullo la porta non apre per fiducia")
 
 print("%d controlli analoghi" % passati)

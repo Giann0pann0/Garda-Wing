@@ -70,24 +70,44 @@ GATE_SIGNATURE = "torbole-analogs-k3-20260916"
 #   vicini cambiano un poco e i falsi allarmi a D+1 passano dal 20,9% al
 #   24,4%, oltre la tolleranza di 0,035.
 #
-# Rimisurato il 2026-09-16 sull'archivio vero con le definizioni di qui, e la
-# regola pre-registrata di selezione rifatta sul 2024 con le stesse
-# definizioni sceglie ancora k=3 (falsi 16,3% entro il budget, ripidezza 5,69
-# la piu' vicina alla vera 6,42). Il metodo non e' cambiato: e' cambiato il
-# metro. La conclusione scientifica regge - 83,2% di colpi contro il 52,9%
-# della curva liscia, sbilanciamento -8 minuti contro -94.
+#   la NORMALIZZAZIONE della sagoma, che e' la piu' importante delle tre.
+#   _median_template chiude con `v / peak`: la mediana dei k vicini viene
+#   riportata a picco 1,00, perche' il prodotto conserva il picco previsto dal
+#   motore e per farlo la forma deve valere 1 nel suo massimo. Il test non lo
+#   faceva, e la mediana di tre curve che culminano a ore diverse ha massimo
+#   0,85-0,95: le curve del test erano dal 5 al 20% piu' basse del vero.
+#   Questo codice ha ragione e il test aveva torto, e la differenza non e'
+#   piccola: colpi 89,2% invece di 83,2%, falsi 36,3% invece di 24,4%,
+#   sbilanciamento +17 minuti invece di -8.
+#
+# Rimisurato il 2026-09-16 sull'archivio vero, con le definizioni di qui.
+# Quello che regge della validazione e' verificato in modo indipendente: la
+# curva liscia, la libreria, le curve grezze e la scelta dei vicini sono
+# identiche riga per riga fra il mio calcolo e questo codice (stessi tre
+# vicini, stesse distanze, stessa liscia 52,9% / 5,5% / -94 / 1,41).
+#
+# Cosa NON regge: il budget dei falsi allarmi. Con la normalizzazione giusta
+# la regola pre-registrata - falsi entro il 20% in selezione, poi la ripidezza
+# piu' vicina al vero - non seleziona NIENTE: sul 2024 il k migliore fa 27,2%
+# di falsi. Il metodo funziona ma costa piu' di quanto era stato dichiarato, e
+# quella e' una decisione di prodotto, non un numero da aggiustare. k resta 3
+# perche' cambiarlo dopo aver visto la conferma sarebbe selezione sul
+# risultato.
 BENCHMARK = {
-    1: {"hits": .832, "false_alarms": .244, "minute_error": 78.0,
-        "bias_minutes": -8.0, "steepness": 5.95},
-    2: {"hits": .812, "false_alarms": .289, "minute_error": 91.0,
-        "bias_minutes": -6.0, "steepness": 6.25},
-    3: {"hits": .812, "false_alarms": .274, "minute_error": 93.0,
-        "bias_minutes": -8.0, "steepness": 6.02},
+    1: {"hits": .892, "false_alarms": .363, "minute_error": 85.0,
+        "bias_minutes": 16.6, "steepness": 6.43},
+    2: {"hits": .904, "false_alarms": .393, "minute_error": 94.0,
+        "bias_minutes": 24.8, "steepness": 6.88},
+    3: {"hits": .892, "false_alarms": .413, "minute_error": 95.0,
+        "bias_minutes": 20.4, "steepness": 6.68},
 }
 # La ripidezza VERA nella finestra dell'Ora, sulle giornate di conferma: e' una
 # proprieta' del lago, non del codice, e serve da controllo di sanita' del
 # campione. Se cambia, non stiamo guardando le stesse giornate.
 RIPIDEZZA_VERA_ORA = 7.0
+# Punti di vantaggio (colpi meno falsi allarmi, in centesimi) che il modello
+# deve avere sul nullo. Misurati: 15,8. La soglia e' la meta'.
+GUADAGNO_MIN_SU_NULLO = 8.0
 FEATURES = (
     "rad_tot", "cloud", "tmax", "precip", "dp_lago",
     "wx", "wy", "wnotte", "sin", "cos",
@@ -600,18 +620,24 @@ FINESTRA_RIPIDEZZA_MIN = 30
 # risponderebbe a una domanda che nessuno fa.
 SOGLIA_PELER = 10.0
 SPOT_PELER = "Torbole-Peler"
-# Riferimenti della mattina misurati il 2026-09-16 sulle stesse 617 giornate.
+# Riferimenti della mattina, misurati il 2026-09-16 sull'archivio vero: D+1 fa
+# 68,5% di colpi con 44,8% di falsi, sbilanciamento +7,5 minuti e ripidezza
+# 3,59 su una vera di 3,89; il nullo fa 57,1% con 51,2%.
+#
 # Hanno un ruolo diverso da quelli dell'Ora: qui NON si pretende
-# discriminazione, perche' sui dati non c'e' - con il livello giusto il nullo
-# prende gli stessi colpi del modello (83,3% contro 83,0%), cioe' nella
-# mattina la forma non dice QUALE giornata, dice com'e' fatta una mattina di
-# Peler. Si pretende invece calibrazione: la durata promessa e la ripidezza
-# devono restare vicine al vero, e molto meglio della curva liscia, che
-# sbaglia la durata di quarantasei minuti e produce una rampa di 0,3 kn/30'
-# dove il lago ne fa 3,9.
+# discriminazione. Il vantaggio della mattina sul nullo e' 23,7 contro 5,9
+# punti, cioe' c'e', ma quasi tutto viene dal LIVELLO della sessione, non
+# dalla forma: separando le due cose - regalando il picco vero dentro la
+# finestra - il nullo prende gli stessi colpi del modello. Nella mattina la
+# forma dice com'e' fatta una mattina di Peler, non QUALE mattina lo sara'.
+#
+# Si pretende invece calibrazione: la durata promessa e la ripidezza devono
+# restare vicine al vero, e molto meglio della curva liscia, che sbaglia la
+# durata di quarantasei minuti e produce una rampa di 0,25 kn/30' dove il lago
+# ne fa 3,89.
 BENCHMARK_PELER = {
     "bias_minutes_max": 25.0,      # |sbilanciamento| ammesso, contro -46 liscia
-    "steepness_min": 2.0,          # rampa minima, contro 0,3 della liscia
+    "steepness_min": 2.0,          # rampa minima, contro 0,25 della liscia
     "true_steepness": 3.9,
 }
 
@@ -866,11 +892,33 @@ def benchmark_gate(report):
         if tv is None or abs(float(tv) - RIPIDEZZA_VERA_ORA) > .5:
             reasons.append("D+%d ripidezza vera=%s (attesa %.1f +/- 0.5)"
                            % (lead, tv, RIPIDEZZA_VERA_ORA))
+    # Il nullo si confronta sul VANTAGGIO, non sui colpi.
+    #
+    # Prima la porta chiedeva che il nullo restasse sotto il 65% di colpi, e
+    # con la normalizzazione a picco 1 quel controllo e' sbagliato in
+    # partenza: qualunque mediana riportata a picco 1 promette vento, anche
+    # quella di tre giornate a caso, quindi il nullo prende l'84% di colpi ed
+    # e' NORMALE. Chiudere la porta per quello significa chiuderla per sempre.
+    #
+    # Quello che distingue una selezione buona da una a caso non sono i colpi
+    # ma il vantaggio fra colpi e falsi allarmi: il modello fa 89,2 - 36,3 =
+    # 52,9, il nullo 84,4 - 47,3 = 37,1. Quindici punti e mezzo di differenza.
+    # La soglia e' otto, meta' di quel che si e' misurato: il rumore non la
+    # supera, una selezione rotta non la raggiunge.
     null = report.get("null") or {}
-    if null.get("hits") is None or null["hits"] >= .65:
-        reasons.append("nullo non degrada abbastanza sui colpi")
-    if null.get("false_alarms") is None or null["false_alarms"] <= .15:
-        reasons.append("nullo non degrada abbastanza sui falsi")
+    uno = (report.get("leads") or {}).get(1) or {}
+
+    def vantaggio(m):
+        h, f = (m or {}).get("hits"), (m or {}).get("false_alarms")
+        return None if h is None or f is None else 100.0 * (h - f)
+
+    v_mod, v_null = vantaggio(uno), vantaggio(null)
+    if v_mod is None or v_null is None:
+        reasons.append("nullo non misurato")
+    elif v_mod - v_null < GUADAGNO_MIN_SU_NULLO:
+        reasons.append("vantaggio sul nullo %.1f punti (minimo %.1f): il"
+                       " modello non sta scegliendo meglio del caso"
+                       % (v_mod - v_null, GUADAGNO_MIN_SU_NULLO))
     # La mattina: si pretende CALIBRAZIONE, non discriminazione.
     #
     # Sui dati la mattina non discrimina: col livello giusto il nullo prende

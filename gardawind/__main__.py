@@ -2033,6 +2033,24 @@ def cmd_analoghi_validazione():
     # Una riga di lettura, perche' i numeri della mattina si fraintendono: i
     # colpi del nullo sono quasi quelli del modello, e chi legge deve sapere
     # che non e' un errore ma il risultato.
+    # Il vantaggio: colpi meno falsi allarmi. E' l'unico modo di mettere in
+    # fila i tre concorrenti senza farsi ingannare da una sola colonna - i
+    # colpi alti si comprano promettendo tutti i giorni, e con la sagoma
+    # riportata a picco 1 anche il nullo ne prende l'84%.
+    def vant(m):
+        h, f = (m or {}).get("hits"), (m or {}).get("false_alarms")
+        return None if h is None or f is None else 100.0 * (h - f)
+
+    print("\nVANTAGGIO (colpi meno falsi allarmi), finestra dell'Ora:")
+    for etichetta, m in (("D+1 analoghi", r["leads"][1]),
+                         ("curva liscia", r.get("liscia")),
+                         ("nullo", r.get("null"))):
+        v = vant(m)
+        print("  %-14s %s" % (etichetta,
+                              "non misurato" if v is None else "%+.1f punti" % v))
+    print("  la porta pretende almeno %.1f punti di vantaggio sul nullo"
+          % analogs.GUADAGNO_MIN_SU_NULLO)
+
     n_p = (r.get("null") or {}).get("peler") or {}
     m_p = (r["leads"][1] or {}).get("peler") or {}
     if n_p.get("hits") is not None and m_p.get("hits") is not None:
