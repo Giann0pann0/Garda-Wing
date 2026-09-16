@@ -52,7 +52,7 @@ def update_forecasts():
             except FetchError as e:
                 _note("warn", "forecast/%s" % name, str(e)[:160])
     # Sorgente separata per la selezione degli analoghi. Deve essere la stessa
-    # famiglia (best_match) del previous-runs usato nella validazione D+1..D+3,
+    # famiglia (best_match) del previous-runs usato nella validazione,
     # e NON deve entrare nell'ensemble operativo. Per questo vive in arch_hour
     # con un prefisso dedicato invece che in fc_hour.
     for _point, (lat, lon) in _points().items():
@@ -1423,7 +1423,7 @@ def day_profile(place, day, sessions):
         leads = [int(e.get("lead")) for e in sessions.values()
                  if e and e.get("lead") is not None]
         lead = min(leads) if leads else None
-        if lead in (1, 2, 3):
+        if lead in analogs.LEADS:
             # Le finestre dei regimi viaggiano con la chiamata: la forma viene
             # dagli analoghi, ma il LIVELLO di ciascuna finestra resta quello
             # che il motore aveva previsto per quella sessione. Altrimenti la

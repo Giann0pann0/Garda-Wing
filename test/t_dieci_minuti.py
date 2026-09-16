@@ -136,10 +136,29 @@ ok(all(r["gust"] >= r["wind"] for r in forma),
 ok(all(r["lo"] <= r["wind"] <= r["hi"] for r in forma),
    "la banda contiene sempre la sua curva")
 
-# D+4 non tocca niente: il protocollo e' validato solo fino a D+3.
-oltre, m4 = analogs.apply_to_profile("2026-09-20", 4, base)
-ok(oltre is base and m4 is None,
-   "oltre D+3 il profilo resta quello del motore, senza analoghi")
+# Oltre l'ultima scadenza promossa non si tocca niente. Attenzione: questo
+# controllo va fatto CON la libreria disponibile, altrimenti passa per il
+# motivo sbagliato - senza libreria choose() fallisce chiuso e restituisce il
+# profilo di prima per qualunque scadenza, compresa una promossa. Era
+# esattamente cosi' finche' le scadenze erano (1,2,3): quando D+4 e' entrato,
+# la riga diceva ancora "oltre D+3" ed era verde perche' in prova la libreria
+# non c'e'. Un controllo verde per il motivo sbagliato e' un controllo assente.
+analogs.choose = lambda day, lead, current=None: (
+    gradino(), {"k": 3, "days": ["a", "b", "c"], "distances": [.4, .5, .6],
+                "training_days": 4020, "source": "finto"})
+try:
+    ultima = max(analogs.LEADS)
+    dentro, m_dentro = analogs.apply_to_profile("2026-09-20", ultima, base)
+    fuori, m_fuori = analogs.apply_to_profile("2026-09-21", ultima + 1, base)
+finally:
+    analogs.choose = vecchio_choose
+ok(dentro is not base and m_dentro is not None,
+   "l'ultima scadenza promossa (D+%d) riceve la forma analogica" % ultima)
+ok(fuori is base and m_fuori is None,
+   "la prima NON promossa (D+%d) resta quella del motore" % (ultima + 1))
+ok(ultima == 4,
+   "e l'ultima promossa oggi e' D+4: D+5 e' fuori per un criterio dichiarato,"
+   " lo sbilanciamento del Peler a +26 minuti contro i 25 ammessi")
 
 # --------------------------------------------------------------------------
 # 2. La pagina regge il profilo a dieci minuti

@@ -2025,7 +2025,7 @@ def cmd_analoghi_validazione():
                           v["minute_error"], v["bias_minutes"], v["steepness"],
                           v["true_steepness"]))
 
-    righe = ([("D+%d" % lead, r["leads"][lead]) for lead in (1, 2, 3)]
+    righe = ([("D+%d" % lead, r["leads"][lead]) for lead in analogs.LEADS]
              + [("nullo", r.get("null")), ("liscia", r.get("liscia"))])
     blocco("ORA - finestra 11:00-20:00, soglia %.0f kn, persistenza %g'"
            % (analogs.SOGLIA_PORTA, analogs._persistenza_min()), None, righe)

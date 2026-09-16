@@ -144,7 +144,34 @@ ok(analogs._punti_persistenza() == int(orari.PERSISTENZA_MIN / passo) + 1,
    "e i campioni della persistenza si contano dagli intervalli, non dai punti")
 
 # --------------------------------------------------------------------------
-# 5. Il raccordo del livello non puo' fabbricare una giornata
+# 5. Le scadenze promosse: una tupla, non otto copie
+# --------------------------------------------------------------------------
+# Erano scritte a mano in otto posti - choose, apply_to_profile, tre volte in
+# validation_report, la promozione, il motore e il comando. Aggiungere una
+# scadenza voleva dire trovarle tutte, e dimenticarne una avrebbe prodotto la
+# peggiore delle incoerenze: un giorno con la forma nuova che la porta non
+# misura, o misurato e non mostrato.
+ok(isinstance(analogs.LEADS, tuple) and analogs.LEADS == (1, 2, 3, 4),
+   "le scadenze promosse sono una tupla dichiarata: %s" % (analogs.LEADS,))
+copie_leads = []
+for nome, testo in sorgenti():
+    for riga in righe_di_codice(testo):
+        if re.search(r"\(\s*1\s*,\s*2\s*,\s*3\s*(,\s*4\s*)?\)", riga) \
+                and "LEADS" not in riga and "VERIFY_LEADS" not in riga:
+            copie_leads.append((nome, riga.strip()[:70]))
+ok(not copie_leads,
+   "e nessun modulo le riscrive a mano (%s)" % copie_leads[:2])
+ok(1 in analogs.LEADS and 0 not in analogs.LEADS,
+   "D+0 non c'e': oggi la forma non si tocca, il nowcast e' strada chiusa")
+ok(max(analogs.LEADS) in analogs.BENCHMARK,
+   "e ogni scadenza promossa ha i suoi numeri congelati nel benchmark: la"
+   " piu' lontana e' D+%d" % max(analogs.LEADS))
+ok(set(analogs.BENCHMARK) == set(analogs.LEADS),
+   "ne' piu' ne' meno - un benchmark senza scadenza sarebbe un numero morto,"
+   " una scadenza senza benchmark sarebbe una forma non misurata")
+
+# --------------------------------------------------------------------------
+# 6. Il raccordo del livello non puo' fabbricare una giornata
 # --------------------------------------------------------------------------
 ok(analogs._raccordo_min() * 2 <= orari.PERSISTENZA_MIN,
    "il raccordo intero (%g') resta sotto la persistenza (%g'): un falso"

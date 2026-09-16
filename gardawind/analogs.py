@@ -41,6 +41,24 @@ TOLLERANZA_CONFERMA_GG = 15
 # libreria diversa peggiorasse i numeri la porta si chiuderebbe da se'.
 TOLLERANZA_ADDESTRAMENTO_GG = 40
 K = 3
+# Le scadenze su cui la forma analogica sostituisce quella dell'ensemble.
+# Era scritta a mano in otto posti: in choose, in apply_to_profile, tre volte
+# in validation_report, nella promozione, nel motore e nel comando. Otto copie
+# di una decisione, e aggiungere una scadenza voleva dire trovarle tutte.
+#
+# D+4 e' entrato il 2026-09-16 dopo aver passato, sul blocco cieco 2025-2026,
+# gli stessi criteri delle altre: vantaggio +51,4 con +15,3 punti sul proprio
+# nullo, ripidezza 6,67, Peler sbilanciato di +13 minuti. La forma non
+# peggiora con la scadenza - le condizioni che la decidono, stagione e
+# gradiente e radiazione, sono piu' prevedibili del vento stesso.
+#
+# D+5 e' RIMASTO FUORI, e va detto perche': passa tutto tranne un criterio,
+# lo sbilanciamento della durata del Peler, +26 minuti contro i 25 ammessi.
+# Un minuto. Il limite era dichiarato prima, e spostarlo perche' un caso ci
+# cade appena fuori e' la definizione di spostare il bersaglio. Se un giorno
+# si vuole D+5, si ricava quel limite da un principio e si rimisura tutto,
+# non si cambia il 25 in 30.
+LEADS = (1, 2, 3, 4)
 GRID_MIN = tuple(range(4 * 60, 21 * 60 + 1, 10))
 MIN_COVERAGE = 0.90
 MIN_PEAK = 6.0
@@ -100,6 +118,8 @@ BENCHMARK = {
         "bias_minutes": 24.8, "steepness": 6.88},
     3: {"hits": .892, "false_alarms": .413, "minute_error": 95.0,
         "bias_minutes": 20.4, "steepness": 6.68},
+    4: {"hits": .882, "false_alarms": .368, "minute_error": 99.0,
+        "bias_minutes": 20.0, "steepness": 6.67},
 }
 # La ripidezza VERA nella finestra dell'Ora, sulle giornate di conferma: e' una
 # proprieta' del lago, non del codice, e serve da controllo di sanita' del
@@ -399,7 +419,7 @@ def _median_template(neighbours):
 
 def choose(day, lead, current=None):
     """Seleziona i tre analoghi usando solo informazioni disponibili in previsione."""
-    if int(lead) not in (1, 2, 3):
+    if int(lead) not in LEADS:
         return None, None
     library, _era = _ensure_library()
     if not library:
@@ -548,7 +568,7 @@ def apply_to_profile(day, lead, base_profile, finestre=None):
     livello che aveva nel profilo del motore invece di ereditare il picco
     della giornata.
     """
-    if int(lead) not in (1, 2, 3) or not base_profile:
+    if int(lead) not in LEADS or not base_profile:
         return base_profile, None
     peak = max((float(r["wind"]) for r in base_profile if r.get("wind") is not None),
                default=0.0)
@@ -724,12 +744,12 @@ def validation_report(start_day="2025-01-01", end_day="2026-09-14"):
     # distribuzione disponibile dal 2024. Il campione di conferma resta invece
     # rigorosamente 2025-2026 e comune ai tre lead.
     source_all = {lead: _archive_daily("lead%d" % lead, "2024-01-01", end_day)
-                  for lead in (1, 2, 3)}
+                  for lead in LEADS}
     pred = {lead: {d: v for d, v in source_all[lead].items()
                    if start_day <= d <= end_day}
-            for lead in (1, 2, 3)}
+            for lead in LEADS}
     common = set(obs_norm)
-    for lead in (1, 2, 3):
+    for lead in LEADS:
         common &= set(pred[lead])
     days = sorted(common)
     # Il campione di conferma NON deve essere esattamente quello di allora.
@@ -830,7 +850,7 @@ def validation_report(start_day="2025-01-01", end_day="2026-09-14"):
         out["peler"] = peler.esito(used)
         return out
 
-    leads = {lead: measure(lead, {}) for lead in (1, 2, 3)}
+    leads = {lead: measure(lead, {}) for lead in LEADS}
     # Il vincolo che conta qui non e' la DIMENSIONE del campione - quella la
     # giudica la porta, con la sua tolleranza dichiarata - ma che i tre lead
     # abbiano misurato le STESSE giornate. E' il difetto che aveva reso
