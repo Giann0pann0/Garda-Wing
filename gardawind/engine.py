@@ -62,7 +62,16 @@ def update_forecasts():
             if rows:
                 store.save_archive(store.point_key(lat, lon, analogs.CURRENT_SOURCE), rows)
         except FetchError as e:
-            _note("warn", "forecast/analoghi", str(e)[:160])
+            # La diagnostica deve dire la CONSEGUENZA, non solo la causa. Un
+            # "handshake operation timed out" lo capisce chi conosce il
+            # codice; che la curva mostrata sia tornata quella liscia lo
+            # capisce chiunque guardi la pagina e si chieda perche'. E se la
+            # porta e' aperta non e' un avviso: e' una funzione promessa e
+            # spenta, quindi va in errore.
+            livello = "error" if analogs.promoted() else "warn"
+            _note(livello, "forecast/analoghi",
+                  "condizioni per gli analoghi non scaricate, la forma resta"
+                  " quella liscia: %s" % str(e)[:120])
 
     store.meta_set("last_forecast_run", run)
     store.prune_forecasts(keep_runs=3)
