@@ -1415,7 +1415,15 @@ def day_profile(place, day, sessions):
                  if e and e.get("lead") is not None]
         lead = min(leads) if leads else None
         if lead in (1, 2, 3):
-            shaped, _meta = analogs.apply_to_profile(day, lead, out)
+            # Le finestre dei regimi viaggiano con la chiamata: la forma viene
+            # dagli analoghi, ma il LIVELLO di ciascuna finestra resta quello
+            # che il motore aveva previsto per quella sessione. Altrimenti la
+            # mattina eredita il picco del pomeriggio, ed e' il difetto che sul
+            # Peler portava i falsi allarmi dal 15% al 38%.
+            finestre = tuple((config.SPOTS[n]["window"][0] * 60.0,
+                              (config.SPOTS[n]["window"][1] + 1) * 60.0)
+                             for n in spot_names)
+            shaped, _meta = analogs.apply_to_profile(day, lead, out, finestre)
             if shaped is not out:
                 return shaped
     return out

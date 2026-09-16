@@ -2006,16 +2006,46 @@ def cmd_analoghi_validazione():
         print("analoghi: PORTA CHIUSA - %s" % r.get("reason", r.get("diagnostic", {})))
         return
     print("Analoghi Torbole: %d giornate comuni (%s -> %s)" % (r["n"], r["from"], r["to"]))
-    print(" lead   colpi   falsi   err.min   sbil.   ripidezza   vera")
-    for lead in (1, 2, 3):
-        m = r["leads"][lead]
-        print(" D+%d    %5.1f%%  %5.1f%%  %7.1f  %+6.1f    %5.2f      %5.2f" %
-              (lead, 100*m["hits"], 100*m["false_alarms"], m["minute_error"],
-               m["bias_minutes"], m["steepness"], m["true_steepness"]))
-    n = r["null"]
-    print(" nullo  %5.1f%%  %5.1f%%  %7.1f  %+6.1f    %5.2f      %5.2f" %
-          (100*n["hits"], 100*n["false_alarms"], n["minute_error"],
-           n["bias_minutes"], n["steepness"], n["true_steepness"]))
+    RIGA = " %-8s %5.1f%%  %5.1f%%  %7.1f  %+6.1f    %5.2f      %5.2f"
+
+    def blocco(titolo, chiave, quali):
+        """Una tabella per finestra. Le due finestre hanno soglie diverse, e
+        stampate insieme senza dirlo si leggerebbero come la stessa cosa."""
+        print("\n%s" % titolo)
+        print(" %-8s colpi   falsi   err.min   sbil.   ripidezza   vera"
+              % "quale")
+        for etichetta, m in quali:
+            if not m:
+                continue
+            v = m if chiave is None else m.get("peler")
+            if not v or v.get("hits") is None:
+                print(" %-8s non misurata" % etichetta); continue
+            print(RIGA % (etichetta, 100*v["hits"], 100*v["false_alarms"],
+                          v["minute_error"], v["bias_minutes"], v["steepness"],
+                          v["true_steepness"]))
+
+    righe = ([("D+%d" % lead, r["leads"][lead]) for lead in (1, 2, 3)]
+             + [("nullo", r.get("null")), ("liscia", r.get("liscia"))])
+    blocco("ORA - finestra 11:00-20:00, soglia %.0f kn, persistenza %g'"
+           % (analogs.SOGLIA_PORTA, analogs._persistenza_min()), None, righe)
+    blocco("PELER - finestra utile del giorno, soglia %.0f kn, persistenza %g'"
+           % (analogs.SOGLIA_PELER, analogs._persistenza_min()), "peler", righe)
+    # Una riga di lettura, perche' i numeri della mattina si fraintendono: i
+    # colpi del nullo sono quasi quelli del modello, e chi legge deve sapere
+    # che non e' un errore ma il risultato.
+    n_p = (r.get("null") or {}).get("peler") or {}
+    m_p = (r["leads"][1] or {}).get("peler") or {}
+    if n_p.get("hits") is not None and m_p.get("hits") is not None:
+        print("\n  Sul Peler la forma NON discrimina la giornata: il nullo"
+              " prende %.1f%% di colpi contro %.1f%% del modello."
+              % (100*n_p["hits"], 100*m_p["hits"]))
+        print("  Quello che la forma porta e' la calibrazione: durata"
+              " sbilanciata di %+.0f minuti contro %+.0f della curva liscia."
+              % (m_p["bias_minutes"],
+                 ((r.get("liscia") or {}).get("peler") or {})
+                 .get("bias_minutes", float("nan"))))
+        print("  Quale mattina sara' di Peler lo decide il LIVELLO, che viene"
+              " dalla previsione della sessione.")
     opened, reasons, _ = analogs.promote_from_validation(r)
     print("  PORTA %s" % ("APERTA" if opened else "CHIUSA"))
     for reason in reasons:

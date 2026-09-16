@@ -73,7 +73,9 @@ ok(abs(analogs._steepness(curve) - 7.0) < 1e-9,
 rep = {"usable": True, "n": analogs.EXPECTED_CONFIRM_DAYS, "leads": {},
        "null": {"hits": .54, "false_alarms": .25}}
 for lead, vals in analogs.BENCHMARK.items():
-    row = dict(vals); row["true_steepness"] = 7.6
+    row = dict(vals); row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
+    row["peler"] = {"bias_minutes": -9.0, "steepness": 3.3,
+                    "true_steepness": 3.9, "hits": .589, "false_alarms": .377}
     rep["leads"][lead] = row
 gate, why = analogs.benchmark_gate(rep)
 ok(gate and not why, "gate apre sui numeri del benchmark congelato")
@@ -126,10 +128,47 @@ def rapporto(n_giorni):
          "null": {"hits": .54, "false_alarms": .25}}
     for lead, vals in analogs.BENCHMARK.items():
         row = dict(vals)
-        row["true_steepness"] = 7.6
+        row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
+        row["peler"] = {"bias_minutes": -9.0, "steepness": 3.3,
+                        "true_steepness": 3.9, "hits": .589,
+                        "false_alarms": .377}
         r["leads"][lead] = row
     return r
 
+
+# --------------------------------------------------------------------------
+# La porta guarda anche la MATTINA, e sa cosa pretendere
+# --------------------------------------------------------------------------
+# La forma analogica cambia tutta la giornata, ma la porta misurava solo
+# 11:00-20:00: la mattina veniva sostituita e promossa sulla base di numeri
+# che parlavano del pomeriggio. Ora si misura anche il Peler, e si pretende
+# cio' che il metodo ha: calibrazione, non discriminazione.
+senza_mattina = rapporto(analogs.EXPECTED_CONFIRM_DAYS)
+for row in senza_mattina["leads"].values():
+    row.pop("peler")
+gm, wm = analogs.benchmark_gate(senza_mattina)
+ok(not gm and any("mattina non misurata" in x for x in wm),
+   "una mattina non misurata non passa piu': %s" % wm[:1])
+
+liscia_mattina = rapporto(analogs.EXPECTED_CONFIRM_DAYS)
+for row in liscia_mattina["leads"].values():
+    row["peler"] = dict(row["peler"], steepness=0.3, bias_minutes=-46.0)
+gl, wl = analogs.benchmark_gate(liscia_mattina)
+ok(not gl and any("troppo liscia" in x for x in wl)
+   and any("sbilanciata" in x for x in wl),
+   "e una mattina piatta e corta come la curva liscia chiude la porta"
+   " dicendo entrambe le cose")
+
+# Ma NON si pretendono colpi sulla mattina: col livello giusto il nullo ne
+# prende quanti il modello (83,3% contro 83,0%), quindi chiedere
+# discriminazione vorrebbe dire chiudere la porta per un merito che il metodo
+# non ha mai dichiarato di avere. Quella la decide il livello della sessione.
+colpi_scarsi = rapporto(analogs.EXPECTED_CONFIRM_DAYS)
+for row in colpi_scarsi["leads"].values():
+    row["peler"] = dict(row["peler"], hits=.50, false_alarms=.44)
+gc, wc = analogs.benchmark_gate(colpi_scarsi)
+ok(gc and not wc,
+   "colpi deboli sulla mattina, con la durata giusta, non chiudono nulla")
 
 atteso = analogs.EXPECTED_CONFIRM_DAYS
 tol = analogs.TOLLERANZA_CONFERMA_GG
@@ -189,6 +228,69 @@ ok(lib3 is None and d3.get("reason") == "training_days"
 ok(d3.get("tolerance") == analogs.TOLLERANZA_ADDESTRAMENTO_GG,
    "con la tolleranza dichiarata accanto, non da indovinare")
 
+# --------------------------------------------------------------------------
+# Ogni finestra di regime tiene il SUO livello
+# --------------------------------------------------------------------------
+# Anche il Peler e' una curva, e con un solo fattore per la giornata la
+# mattina ereditava il picco del pomeriggio. Misurato sulle 617 giornate di
+# conferma, nella finestra utile del Peler a 10 kn: falsi allarmi 37,7% col
+# picco della giornata, 20,3% col livello per finestra, e i colpi dal 58,9%
+# all'83,0%. Il picco della giornata, del resto, cade nella finestra dell'Ora
+# solo nel 65% dei giorni.
+FIN2 = ((4 * 60.0, 11 * 60.0), (11 * 60.0, 21 * 60.0 + 1))
+bassa_alta = []
+for h in range(4, 22):
+    w = 8.0 if h < 11 else 20.0
+    bassa_alta.append({"hour": float(h), "key": "x", "wind": w, "gust": w * 1.3,
+                       "lo": w - 2, "hi": w + 2, "dir": 200.0, "t2m": 20.0,
+                       "cloud": 10.0, "precip": 0.0})
+mezzo_uno = tuple(.5 if m < 11 * 60 else 1.0 for m in analogs.GRID_MIN)
+old = analogs.choose
+try:
+    analogs.choose = lambda day, lead, current=None: (
+        mezzo_uno, {"k": 3, "days": ["a", "b", "c"]})
+    senza, _ms = analogs.apply_to_profile("2026-09-17", 1, bassa_alta)
+    con, mc = analogs.apply_to_profile("2026-09-17", 1, bassa_alta, FIN2)
+    piatta = tuple(1.0 for _m in analogs.GRID_MIN)
+    analogs.choose = lambda day, lead, current=None: (
+        piatta, {"k": 3, "days": ["a", "b", "c"]})
+    piatto, _mp = analogs.apply_to_profile("2026-09-17", 1, bassa_alta, FIN2)
+finally:
+    analogs.choose = old
+
+
+def picco_mattina(p):
+    return max(r["wind"] for r in p if r["hour"] * 60 < 11 * 60)
+
+
+ok(abs(picco_mattina(senza) - 10.0) < 1e-6,
+   "col picco della giornata la mattina esce a 10 kn da una previsione di 8"
+   " (%.2f)" % picco_mattina(senza))
+ok(picco_mattina(con) < 8.5,
+   "col livello per finestra torna alla previsione del Peler (%.2f)"
+   % picco_mattina(con))
+ok(abs(max(r["wind"] for r in con) - 20.0) < 1e-9,
+   "e il picco della giornata resta ESATTAMENTE quello del motore: e' il"
+   " numero di cui parlano probabilita', bande e verifica")
+ok(mc.get("livelli_per_finestra") and len(mc["livelli_per_finestra"]) == 2,
+   "la diagnostica dichiara un livello per finestra (%s)"
+   % (mc.get("livelli_per_finestra"),))
+
+# Il raccordo: c'e', ed e' piu' corto della persistenza. Se fosse lungo come
+# lei, la fine della mattina tirata verso il livello dell'Ora potrebbe da sola
+# produrre la mezz'ora sopra soglia - un falso allarme fabbricato dal
+# raccordo, non dalla previsione.
+ok(analogs._raccordo_min() * 2 <= PERSISTENZA_MIN,
+   "il raccordo intero (%g') non supera la persistenza (%g')"
+   % (analogs._raccordo_min() * 2, PERSISTENZA_MIN))
+liv = [r["wind"] for r in piatto]
+dentro = [v for v in liv if 8.0 + 1e-9 < v < 20.0 - 1e-9]
+ok(dentro and len(dentro) <= int(PERSISTENZA_MIN / 10),
+   "con forma piatta il passaggio fra i due livelli dura pochi campioni,"
+   " meno della persistenza (%d)" % len(dentro))
+ok(dentro == sorted(dentro),
+   "e li attraversa in salita, senza gradini inventati")
+
 # Chi decide sulla DIMENSIONE del campione e' uno solo: la porta. Dentro
 # validation_report il confronto col numero congelato era un secondo giudice
 # senza tolleranza, e vinceva lui - la misura non veniva nemmeno prodotta. Il
@@ -206,6 +308,81 @@ ok('v.get("n") != len(days)' in sorgente,
 ok("EXPECTED_CONFIRM_DAYS" in inspect.getsource(analogs.benchmark_gate)
    and "TOLLERANZA_CONFERMA_GG" in inspect.getsource(analogs.benchmark_gate),
    "e il confronto col campione congelato vive nella porta, con la tolleranza")
+
+# --------------------------------------------------------------------------
+# La misura si attraversa per intero, non solo si legge
+# --------------------------------------------------------------------------
+# validation_report non era mai stato eseguito: in prova la libreria non
+# esiste, quindi esce al primo controllo e tutti i controlli restavano verdi
+# senza toccare una riga di misura. Qui si finge SOLO l'accesso ai dati -
+# archivio, curve, curve grezze - e si pretende che la misura arrivi in fondo
+# con le due finestre, il nullo e la curva liscia.
+def _finto_archivio(giorni, mattina_forte):
+    """Curve vere di forma: mattina a scelta, Ora sempre a gradino."""
+    i11 = analogs.GRID_MIN.index(11 * 60)
+    i14 = analogs.GRID_MIN.index(14 * 60)
+    era, curve, grezze = {}, {}, {}
+    for j, d in enumerate(giorni):
+        forte = mattina_forte(j)
+        y = []
+        for i, m in enumerate(analogs.GRID_MIN):
+            if i < i11:
+                y.append(13.0 if forte else 4.0)
+            elif i < i14:
+                y.append(5.0)
+            else:
+                y.append(22.0)
+        picco = max(y)
+        curve[d] = tuple(v / picco for v in y)
+        grezze[d] = tuple(y)
+        era[d] = {k: float((j * 3 + q * 5) % 40) + (10.0 if forte else 0.0)
+                  for q, k in enumerate(analogs.FEATURES)}
+    return era, curve, grezze
+
+
+gg_tr = [(_dt.date(2013, 3, 1) + _dt.timedelta(days=i)).isoformat()
+         for i in range(analogs.EXPECTED_TRAIN_DAYS)]
+gg_cf = [(_dt.date(2025, 7, 1) + _dt.timedelta(days=i)).isoformat()
+         for i in range(40)]
+era_tr, curve_tr, _gr = _finto_archivio(gg_tr, lambda j: j % 2 == 0)
+era_cf, curve_cf, grezze_cf = _finto_archivio(gg_cf, lambda j: j % 2 == 0)
+
+sa, so, sr, sc = (analogs._archive_daily, analogs._observed_curves,
+                  analogs._raw_curve, dict(analogs._CACHE))
+try:
+    analogs._CACHE.update({"library": None, "era_stats": None,
+                           "lead_stats": {}, "at": 0.0})
+    analogs._archive_daily = lambda source, a, b: (
+        era_tr if source == "era5" else era_cf)
+    analogs._observed_curves = lambda *a, **k: (
+        curve_cf if a and a[0] >= "2025" else curve_tr)
+    analogs._raw_curve = lambda day: grezze_cf.get(day)
+    rap = analogs.validation_report("2025-07-01", "2025-08-09")
+finally:
+    (analogs._archive_daily, analogs._observed_curves,
+     analogs._raw_curve) = sa, so, sr
+    analogs._CACHE.clear(); analogs._CACHE.update(sc)
+
+ok(rap.get("usable"), "la misura arriva in fondo (%s)"
+   % (rap.get("reason") or rap.get("diagnostic") or "ok"))
+ok(rap.get("n") == len(gg_cf),
+   "su tutte le giornate del campione (%s)" % rap.get("n"))
+uno = (rap.get("leads") or {}).get(1) or {}
+ok(uno.get("hits") is not None and uno.get("peler", {}).get("hits") is not None,
+   "e misura DUE finestre, non una: Ora %s, Peler %s"
+   % (uno.get("hits"), (uno.get("peler") or {}).get("hits")))
+ok((uno.get("peler") or {}).get("navigabili", 0) > 0,
+   "con giornate di Peler davvero navigabili nel campione (%s)"
+   % (uno.get("peler") or {}).get("navigabili"))
+ok(rap.get("liscia") and (rap["liscia"].get("peler") or {}).get("hits") is not None,
+   "e accanto c'e' la curva liscia, calcolata dalla libreria")
+ok(rap.get("null") is not None, "e il nullo, che resta obbligatorio")
+# La finestra del Peler NON e' quella del regime: a luglio comincia alle 06:00
+# per l'ora pratica, non alle 04:00.
+a_lug, b_lug = analogs._finestra_peler("2025-07-15")
+ok(a_lug >= 6 * 60 and b_lug <= 11 * 60,
+   "la finestra del Peler e' quella utile, non le sette ore del regime"
+   " (%02d:%02d-%02d:%02d)" % (a_lug // 60, a_lug % 60, b_lug // 60, b_lug % 60))
 
 # Il nullo resta obbligatorio: se non degrada, la porta non apre comunque.
 senza_nullo = rapporto(atteso)
