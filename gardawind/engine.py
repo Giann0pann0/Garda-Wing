@@ -468,20 +468,29 @@ def backfill_archive_features(max_years=5, chunk_days=180):
 
 _TARGET_CACHE = {}
 
+# In quale finestra si misura il bersaglio. "utile" e' il prodotto: la
+# finestra in cui si puo' davvero essere in acqua, la stessa del riquadro.
+# "regime" e' come si faceva prima, e resta SOLO come riferimento per il
+# confronto (--confronta-bersaglio): un cambio di definizione del bersaglio
+# si dichiara e si misura, non si fa in silenzio.
+BERSAGLIO = "utile"
+
 
 def _targets(spot_name, use_cache=True):
     """Bersaglio giornaliero osservato: {giorno: (valore, instaurato)}."""
+    chiave = (spot_name, BERSAGLIO)
     if use_cache:
-        hit = _TARGET_CACHE.get(spot_name)
+        hit = _TARGET_CACHE.get(chiave)
         if hit and time.time() - hit[0] < PRODUCT_TTL_S:
             return hit[1]
     result = _compute_targets(spot_name)
-    _TARGET_CACHE[spot_name] = (time.time(), result)
+    _TARGET_CACHE[chiave] = (time.time(), result)
     return result
 
 
-def _compute_targets(spot_name):
+def _compute_targets(spot_name, finestra=None):
     spot = config.SPOTS[spot_name]
+    finestra = finestra or BERSAGLIO
     out = {}
 
     if spot["target"] == "daily_gust":
@@ -492,22 +501,61 @@ def _compute_targets(spot_name):
             out[row["day"]] = (g, g >= spot["min_kn"], None, None)
         return out
 
+    # Il bersaglio si misura nella finestra UTILE del giorno, non in quella
+    # del regime. Sono la stessa cosa per l'Ora e sono molto diverse per il
+    # Peler: il regime comincia alle 04:00, la finestra utile alle 07:20
+    # d'estate e alle 08 d'inverno. Il riquadro giudica la finestra utile;
+    # se il modello imparasse sull'altra, la probabilita' risponderebbe a
+    # "entra fra le 4 e le 10?" mentre il verdetto pone "si naviga dalle
+    # 07:20?". Misurato sulle 4.995 giornate della centralina: entrato nel
+    # regime ma non nell'utile 330 su 3.015, l'11%, e d'inverno una su sei.
+    # In quelle giornate il modello imparava "si'" e la scheda diceva "no".
+    #
+    # E' lo stesso difetto dell'ancora (istantaneo contro orario), la seconda
+    # volta: il numero che il modello prevede e quello che la scheda mostra
+    # devono essere la stessa grandezza nella stessa finestra. La finestra
+    # utile ha UNA definizione, in orari.finestra_utile_del_giorno, e qui la
+    # si chiama: non se ne scrive una seconda.
+    #
+    # Un'ora della serie oraria entra se sta per almeno mezz'ora dentro la
+    # finestra utile: mezz'ora e' la persistenza, cioe' la durata minima che
+    # conta come vento, ed e' la stessa mezz'ora di tutto il resto.
+    from . import orari as _orari
     h0, h1 = spot["window"]
-    need = max(3, int(config.MIN_WINDOW_COVERAGE * (h1 - h0 + 1)))
+    _ore_utili = {}
+
+    def ore_utili(day):
+        if day not in _ore_utili:
+            try:
+                inizio, fine = _orari.finestra_utile_del_giorno(spot_name, day)
+            except (KeyError, ValueError, TypeError):
+                inizio, fine = h0 * 60.0, (h1 + 1) * 60.0
+            if finestra == "regime":            # solo per il confronto
+                inizio, fine = h0 * 60.0, (h1 + 1) * 60.0
+            ore = [h for h in range(h0, h1 + 1)
+                   if min(fine, (h + 1) * 60.0) - max(inizio, h * 60.0)
+                   >= _orari.PERSISTENZA_MIN]
+            _ore_utili[day] = ore
+        return _ore_utili[day]
+
     by_day = {}
     for row in store.obs_hours(spot["station"]):
         dt = parse_dt_any(row["hour"])
         if dt is None or row["wind_mean"] is None:
             continue
-        if not (h0 <= local_hour(dt) <= h1):
+        day = local_day(dt)
+        if local_hour(dt) not in ore_utili(day):
             continue
         # Un'ora ricostruita da pochissimi campioni non e' una media oraria.
         if (row["n_samples"] or 0) < 2:
             continue
-        by_day.setdefault(local_day(dt), []).append(
+        by_day.setdefault(day, []).append(
             (local_hour(dt), row["wind_mean"], row["dir_deg"]))
 
     for day, vals in by_day.items():
+        # La copertura richiesta segue la finestra del giorno: a dicembre la
+        # finestra utile del Peler ha tre ore, non sette.
+        need = max(2, int(config.MIN_WINDOW_COVERAGE * len(ore_utili(day))))
         if len(vals) < need:
             continue                 # copertura insufficiente: giorno ESCLUSO,
                                      # non messo a zero. Dato mancante non e'

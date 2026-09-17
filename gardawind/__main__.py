@@ -15,6 +15,7 @@
     python3 -m gardawind --addicted [N]  legge addicted-sports (N giorni indietro)
     python3 -m gardawind --nowcast-validazione  valida persistenza intraday senza attivarla
     python3 -m gardawind --analoghi-validazione  valida la forma da analoghi storici
+    python3 -m gardawind --confronta-bersaglio   bersaglio: finestra del regime vs utile
     python3 -m gardawind --export DIR    scrive il cruscotto come sito statico
 """
 
@@ -2000,6 +2001,30 @@ def cmd_nowcast_validazione():
 
 
 
+def cmd_confronta_bersaglio():
+    """Il bersaglio nella finestra del regime contro quello nella finestra utile.
+
+    Stesso archivio, stessi predittori, stessa verifica in avanti: cambia solo
+    la domanda a cui il bersaglio risponde. Il protocollo e' in
+    docs/STRADE-CHIUSE.md: sull'Ora il nuovo non deve peggiorare, sul Peler ci
+    si aspetta un guadagno d'inverno. E se il guadagno non arriva il cambio
+    resta, perche' domanda e risposta devono coincidere.
+    """
+    from . import engine
+    orari_spots = [n for n in config.SPOT_ORDER
+                   if config.SPOTS[n].get("target") == "hourly"]
+    for etichetta, finestra in (("PRIMA - finestra del REGIME", "regime"),
+                                ("DOPO - finestra UTILE del giorno", "utile")):
+        print("\n" + "#" * 78)
+        print("# %s" % etichetta)
+        print("#" * 78)
+        engine.BERSAGLIO = finestra
+        engine._TARGET_CACHE.clear()
+        cmd_validate(spots=orari_spots)
+    engine.BERSAGLIO = "utile"
+    engine._TARGET_CACHE.clear()
+
+
 def cmd_analoghi_validazione():
     r = analogs.validation_report()
     if not r.get("usable"):
@@ -2142,6 +2167,9 @@ def main(argv=None):
                          "e quelle che non devono ancora entrare nel modello")
     ap.add_argument("--nowcast-validazione", action="store_true",
                     help="valida persistenza intraday e gate del nowcast senza attivarlo")
+    ap.add_argument("--confronta-bersaglio", action="store_true",
+                    help="valida il modello con il bersaglio nella finestra del "
+                         "regime e in quella utile, uno dopo l'altro")
     ap.add_argument("--analoghi-validazione", action="store_true",
                     help="riproduce la porta della forma analogica Torbole D+1..D+3")
     ap.add_argument("--massimo", type=int, metavar="N",
@@ -2215,6 +2243,10 @@ def main(argv=None):
 
     if args.analoghi_validazione:
         cmd_analoghi_validazione()
+        return 0
+
+    if args.confronta_bersaglio:
+        cmd_confronta_bersaglio()
         return 0
 
     if args.addicted_validazione:
