@@ -14,7 +14,7 @@ import json
 import os
 import re
 
-from . import config, engine, live, store, web
+from . import config, engine, icona, live, store, web
 from .util import iso_utc, utc_now
 
 # Le azioni che esistono solo con un server dietro.
@@ -108,6 +108,17 @@ def export(directory, with_json=True):
     path = os.path.join(directory, "live.json")
     live.scrivi(path)
     written.append(path)
+
+    # L'app installabile: manifesto e icone. Generati, non copiati: l'icona
+    # nasce dallo stesso codice del sito (icona.py, libreria standard).
+    for nome, contenuto in (("manifest.webmanifest",
+                             icona.manifest(config.APP_NAME).encode("utf-8")),
+                            ("icona-192.png", icona.png(192)),
+                            ("icona-512.png", icona.png(512))):
+        path = os.path.join(directory, nome)
+        with open(path, "wb") as fh:
+            fh.write(contenuto)
+        written.append(path)
 
     if with_json:
         payload = {

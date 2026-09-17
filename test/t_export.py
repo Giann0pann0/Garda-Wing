@@ -14,11 +14,19 @@ paths = X.export("/tmp/sitotest")
 # mano: una localita' in piu' non deve fare cadere un controllo che parla
 # d'altro, e soprattutto non deve poter NON avere la sua pagina.
 from gardawind import config
-attesi = len(config.PLACES) + 3
+# I file comuni: diagnostica, live.json, manifesto, due icone, previsione.
+attesi = len(config.PLACES) + 6
 ok(len(paths) == attesi,
-   "una pagina per localita' piu' i tre file comuni, anche a database vuoto"
+   "una pagina per localita' piu' i file comuni, anche a database vuoto"
    " (%d su %d)" % (len(paths), attesi))
-ok(paths[-2].endswith("live.json"), "fra cui il dato osservato")
+ok(any(p.endswith("live.json") for p in paths), "fra cui il dato osservato")
+ok(any(p.endswith("manifest.webmanifest") for p in paths)
+   and any(p.endswith("icona-192.png") for p in paths),
+   "e il manifesto con le icone, perche' il sito si installi sul telefono")
+icona_png = open("/tmp/sitotest/icona-192.png", "rb").read()
+ok(icona_png[:8] == b"\x89PNG\r\n\x1a\n" and len(icona_png) > 200,
+   "l'icona e' un PNG vero, generato in libreria standard (%d byte)"
+   % len(icona_png))
 for place in config.PLACES:
     from gardawind import web
     nome = "/tmp/sitotest/%s.html" % web._slug(place)

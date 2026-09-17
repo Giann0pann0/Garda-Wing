@@ -181,6 +181,10 @@ header{padding-block:18px 0}
 .meglio{margin:12px 0 0;font-size:14.5px;color:var(--ink-2);line-height:1.45}
 .meglio b{color:currentColor}
 .meglio.no{color:var(--ink-3)}
+/* I motori: una riga discreta, in tabulare, che si puo' ignorare. */
+.motori{margin:6px 0 0;font-size:12.5px;color:var(--ink-3);display:flex;gap:16px;
+  flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.motori b{color:var(--ink-2);font-weight:600}
 
 /* ---------------- il grafico, che e' il pezzo grosso ---------------- */
 .grafico{margin-top:16px;background:var(--card);border:1px solid var(--line);
@@ -806,6 +810,43 @@ def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
             % (classe, E(quando), E(lab), E(parola), hhmm(num["inizio"])))
 
 
+def motori_riga(place, sessions):
+    """I due motori dei venti del lago, in una riga: DP nord-sud e contrasto termico.
+
+    E' il numero che ogni windsurfista del Garda guarda da trent'anni - il
+    "Bolzano meno Ghedi" delle tabelle di profiwetter, che ventogarda.it e
+    wwwind mostrano come primo indicatore - e noi lo avevamo gia', in forma
+    piu' generale: sei punti su 150 km invece di una coppia, piu' il contrasto
+    termico pianura-valle che e' il motore vero della brezza e che gli altri
+    non hanno. Era dentro il modello e non compariva in pagina.
+
+    Mostrarlo non e' decorazione: e' l'unico numero della pagina che chi
+    legge puo' confrontare con la propria esperienza ("con meno tre entra
+    sempre"), ed e' il modo piu' onesto di far vedere DA COSA viene la
+    previsione invece di chiedere di fidarsi.
+    """
+    feats = None
+    for name in place_spots(place).values():
+        f = (sessions.get(name) or {}).get("features")
+        if f and f.get("pgrad") is not None:
+            feats = f
+            break
+    if not feats:
+        return ""
+    pg, tg = float(feats["pgrad"]), float(feats.get("tgrad") or 0.0)
+    # pgrad > 0: pressione piu' alta a nord, spinge verso sud lungo il lago,
+    # favorisce il Peler; < 0 favorisce l'Ora (features._gradients).
+    verso = ("spinge il Pel\u00e8r" if pg > 0.3 else
+             "spinge l\u2019Ora" if pg < -0.3 else "neutro")
+    return (
+        '<p class="motori"><span title="pressione media a nord del lago meno '
+        'pressione media a sud, in hPa">\u0394P nord\u2013sud '
+        '<b>%+.1f hPa</b> \u00b7 %s</span>'
+        '<span title="temperatura in pianura meno temperatura in valle">'
+        'contrasto termico <b>%+.1f \u00b0C</b></span></p>'
+        % (pg, E(verso), tg))
+
+
 def adesso_riquadro(place, live, profile):
     """Quanto tira ADESSO in questa localita', e di quando e' il dato.
 
@@ -895,6 +936,16 @@ TRATTO = {"previsto": 2.8, "previsto_raffica": 2.0,
           "misurato": 2.2, "misurato_raffica": 1.8}
 # E quanto si sbiadisce la previsione quando accanto c'e' una misura.
 OPACITA_PREVISTO = 0.34
+
+
+def _soglie_fasce(place):
+    """Le due soglie che contano, dallo spot dell'Ora (o dal primo che c'e')."""
+    spots = place_spots(place)
+    name = spots.get("ORA") or (list(spots.values())[0] if spots else None)
+    if not name:
+        return []
+    spot = config.SPOTS[name]
+    return [(spot["min_kn"], "si esce"), (spot["planing_kn"], "si plana")]
 
 
 def _curva(punti):
@@ -1055,6 +1106,20 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
                              'fill="var(--ink-3)">%s</text>'
                              % (x(ua) + 5, pt + 27, E(testo)))
 
+    # Le fasce dei nodi, dietro a tutto: le soglie che decidono - regime
+    # entrato, planata - vengono dallo spot, non da una scala di Beaufort
+    # scritta a mano. Due righe sottili, non un arcobaleno: dicono "da qui
+    # si esce" e "da qui si plana", che sono le uniche due cose che un
+    # rider cerca con l'occhio prima di leggere qualunque numero.
+    for soglia, nome in _soglie_fasce(place):
+        if soglia < top:
+            p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" '
+                     'stroke="var(--good)" stroke-width="1" opacity=".38" '
+                     'stroke-dasharray="1 4"/>'
+                     % (pl, y(soglia), W - pr, y(soglia)))
+            p.append('<text x="%g" y="%.1f" text-anchor="end" class="t-xs" '
+                     'fill="var(--good)" opacity=".8">%s</text>'
+                     % (W - pr - 3, y(soglia) - 3, E(nome)))
     for v in range(0, int(top) + 1, step):
         yy = y(v)
         p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" stroke="var(--grid)" '
@@ -1324,7 +1389,7 @@ def sezione_giorno(place, entry, visible):
     profile = pl.get("profile") or []
     return (
         '<section class="giorno" data-day="%d"%s>'
-        '%s%s'
+        '%s%s%s'
         '<div class="grafico">%s</div>'
         '%s</section>'
         % (entry["_i"], "" if visible else " hidden",
@@ -1332,6 +1397,7 @@ def sezione_giorno(place, entry, visible):
                     live, today),
            riga_meglio(place, profile, entry["sessions"], entry.get("day"),
                        live, today),
+           motori_riga(place, entry["sessions"]),
            place_chart(place, profile,
                        regime_bands(place, entry.get("day")),
                        "c%s%d" % (_slug(place), entry["_i"]),
@@ -1696,6 +1762,45 @@ def dettagli_panel(place, days):
         % (giudizio.scala_parole(spot), "".join(righe)))
 
 
+def anteprima_link(place, days):
+    """I tag che una chat legge per fare l'anteprima del link.
+
+    Una previsione si condivide: "guarda domenica" in un gruppo WhatsApp e'
+    il modo in cui un sito del genere gira, e un link che arriva con scritto
+    sotto "Torbole - oggi Ora fantastico, 18-22 kn, dalle 11:00" e' un link
+    che si apre. Uno che arriva nudo no. Il titolo e' il verdetto di OGGI,
+    quindi si riscrive a ogni ricostruzione, quattro volte al giorno.
+    """
+    if not days:
+        return ""
+    entry = days[0]
+    pl = entry["places"].get(place) or {}
+    profile = pl.get("profile") or []
+    pezzi = []
+    for key, lab, _quando in META_REGIME:
+        name = place_spots(place).get(key)
+        if not name or name not in entry["sessions"]:
+            continue
+        num = sessione_numeri(name, profile, entry.get("day"))
+        if not num:
+            continue
+        parola, _c = giudizio.voto(num["kn"], num["minuti"], num["spot"])
+        if parola:
+            pezzi.append("%s %s, %.0f\u2013%.0f kn" % (lab, parola, num["lo"],
+                                                      num["hi"]))
+    titolo = "%s \u00b7 oggi: %s" % (place, " \u00b7 ".join(pezzi) or "vento")
+    descr = ("Pel\u00e8r e Ora previsti sulla centralina, con il vento misurato "
+             "adesso. Cinque giorni, affidabilit\u00e0 misurata.")
+    base = (config.SITE_URL or "").rstrip("/")
+    img = ('<meta property="og:image" content="%s/icona-512.png">\n'
+           % E(base)) if base else ""
+    return ('<meta property="og:type" content="website">\n'
+            '<meta property="og:title" content="%s">\n'
+            '<meta property="og:description" content="%s">\n%s'
+            '<meta name="twitter:card" content="summary">\n'
+            % (E(titolo), E(descr), img))
+
+
 def page_luogo(place=None):
     """La pagina di UNA localita'.
 
@@ -1727,6 +1832,7 @@ def page_luogo(place=None):
         "title": "%s \u00b7 vento" % place,
         "css": CSS, "place": E(place),
         "pcls": "p%d" % (config.PLACES.index(place) + 1),
+        "anteprima": anteprima_link(place, days),
         "luoghi": nav_luoghi(place),
         "live": E(live_txt), "livecls": live_cls,
         "body": body,
@@ -1956,7 +2062,7 @@ def page_diagnostics():
     text, _cls = status_line()
     valori = {
         "title": "Diagnostica",
-        "css": CSS, "place": "Diagnostica", "pcls": "",
+        "css": CSS, "place": "Diagnostica", "pcls": "", "anteprima": "",
         "luoghi": nav_luoghi(None),
         "live": E(text), "livecls": "",
         "body": sources_panel() + "".join(r),
@@ -1977,7 +2083,13 @@ Riaprila quando vuoi dall’icona dell’app.</p></body></html>"""
 TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>%(title)s</title><style>%(css)s</style></head>
+<meta name="theme-color" content="#0a121c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icona-192.png">
+<link rel="icon" type="image/png" href="icona-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+%(anteprima)s<title>%(title)s</title><style>%(css)s</style></head>
 <body class="%(pcls)s">
 <header><div class="wrap">
 <div class="hbar">%(luoghi)s
@@ -2240,6 +2352,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/diagnostica":
             return self._send(200, page_diagnostics())
+        if u.path == "/manifest.webmanifest":
+            from . import icona
+            return self._send(200, icona.manifest(config.APP_NAME),
+                              "application/manifest+json; charset=utf-8")
+        if u.path in ("/icona-192.png", "/icona-512.png"):
+            from . import icona
+            lato = 192 if "192" in u.path else 512
+            data = icona.png(lato)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if u.path == "/live.json":
             from . import live as live_mod
             return self._send(200, json.dumps(live_mod.snapshot(), default=str,
