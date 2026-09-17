@@ -2243,6 +2243,10 @@ def main(argv=None):
                      "-" if v["gust_rec"] is None else "%.1f kn" % v["gust_rec"],
                      v["gust_rec_stato"]))
         print("scritto %s" % args.live_json)
+        # E gli avvisi, dallo stesso giro: la misura e' appena stata fatta.
+        from . import avvisi
+        for line in avvisi.esegui():
+            print(line)
         return 0
 
     if args.ci:

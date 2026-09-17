@@ -55,9 +55,17 @@ jobs:
           restore-keys: |
             gardawind-adesso-
 
+      # Gli avvisi Telegram ("l'Ora e' arrivata") partono dallo stesso giro,
+      # se il bot e' configurato: TELEGRAM_BOT_TOKEN e' un SEGRETO del
+      # repository (Settings > Secrets and variables > Actions > Secrets),
+      # TELEGRAM_CHAT una VARIABILE (stessa pagina, scheda Variables), tipo
+      # "@nomecanale". Senza, il passo scrive "avvisi: non configurati" e
+      # prosegue: live.json si aggiorna comunque.
       - name: Leggi le centraline e scrivi live.json
         env:
           GARDAWIND_HOME: dati-adesso
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT: ${{ vars.TELEGRAM_CHAT }}
         run: |
           mkdir -p dati-adesso
           python3 -m gardawind --live-json pubblica/live.json
