@@ -1461,10 +1461,13 @@ def day_profile(place, day, sessions):
             "precip": hours[k].get("precip"),
         })
 
-    # A Torbole, D+1..D+3, la forma validata viene dalle tre giornate
-    # storiche analoghe. L'ampiezza resta ESATTAMENTE quella del profilo che
-    # avremmo mostrato senza analoghi: cambia solo la forma. La libreria
-    # restituisce 10 minuti, cosi' il gradino non viene ricreato e poi
+    # A Torbole, sulle scadenze in analogs.LEADS, la forma validata viene dalle
+    # giornate storiche analoghe (quante, lo dice analogs.K). Il LIVELLO resta
+    # esattamente quello del profilo che avremmo mostrato senza analoghi, e
+    # "livello" vuol dire il massimo delle medie orarie, che e' la grandezza su
+    # cui il modello e' addestrato: non il massimo istantaneo della curva a
+    # dieci minuti, che sta piu' in alto e che il modello non prevede. La
+    # libreria restituisce 10 minuti, cosi' il gradino non viene ricreato e poi
     # distrutto da un ricampionamento orario.
     if place == "Torbole" and analogs.promoted():
         leads = [int(e.get("lead")) for e in sessions.values()

@@ -88,14 +88,24 @@ ok(any(abs(h - round(h)) > 1e-9 for h in ore),
 ok(abs(ore[1] - ore[0] - 1.0 / 6.0) < 1e-9,
    "il passo e' dieci minuti (%.4f h)" % (ore[1] - ore[0]))
 
-# Il picco: la forma cambia, il livello no.
-picco_prima = max(r["wind"] for r in base)
-picco_dopo = max(r["wind"] for r in forma)
-ok(abs(picco_prima - picco_dopo) < 1e-9,
-   "il picco del motore resta identico (%.2f -> %.2f)"
-   % (picco_prima, picco_dopo))
-ok(meta.get("peak_preserved") == picco_prima,
-   "e la diagnostica lo dichiara, invece di lasciarlo da verificare")
+# Il LIVELLO: la forma cambia, il livello no - e "livello" e' il massimo delle
+# medie ORARIE, che e' la grandezza che il motore prevede. Il picco istantaneo
+# della curva a dieci minuti puo' e deve stare piu' alto: una raffica di
+# mezz'ora non e' la media dell'ora. Prima qui si pretendeva che i due
+# coincidessero, e quella pretesa era il difetto: metteva il numero previsto
+# per una grandezza al posto di un'altra, l'11% piu' bassa.
+livello_prima = max(r["wind"] for r in base)     # il base ha un punto per ora
+livello_dopo = analogs.livello_orario(
+    [(float(r["hour"]) * 60.0, float(r["wind"])) for r in forma],
+    analogs.GRID_MIN[0], analogs.GRID_MIN[-1] + 1)
+ok(livello_dopo is not None and abs(livello_prima - livello_dopo) < 1e-6,
+   "il livello del motore resta identico (%.2f -> %.2f)"
+   % (livello_prima, livello_dopo or -1))
+ok(max(r["wind"] for r in forma) >= livello_prima - 1e-9,
+   "e il picco istantaneo non sta SOTTO il livello (%.2f, livello %.2f)"
+   % (max(r["wind"] for r in forma), livello_prima))
+ok(meta.get("livello_orario_preservato") == livello_prima,
+   "e la diagnostica dichiara il livello, invece di lasciarlo da verificare")
 
 # La ripidezza: e' il numero per cui tutto questo esiste. Va misurata sulla
 # stessa mezz'ora di orologio per entrambe, altrimenti si confrontano due

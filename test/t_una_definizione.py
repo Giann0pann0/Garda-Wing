@@ -22,6 +22,7 @@ dice prima che lo dica un utente guardando una curva sbagliata.
 
 Un numero scritto due volte prima o poi diventa due numeri.
 """
+import inspect
 import os
 import re
 import sys
@@ -169,6 +170,40 @@ ok(max(analogs.LEADS) in analogs.BENCHMARK,
 ok(set(analogs.BENCHMARK) == set(analogs.LEADS),
    "ne' piu' ne' meno - un benchmark senza scadenza sarebbe un numero morto,"
    " una scadenza senza benchmark sarebbe una forma non misurata")
+
+# Ogni banda deve avere un numero misurato sotto: una tolleranza su una
+# grandezza che nessuno misura e' un cancello che non si apre mai, e il
+# messaggio dice "atteso None".
+senza_misura = [(lead, chiave) for chiave in analogs.TOLLERANZA_BENCHMARK
+                for lead in analogs.BENCHMARK
+                if chiave not in analogs.BENCHMARK[lead]]
+ok(not senza_misura,
+   "ogni banda dichiarata ha il suo numero misurato (%s)" % senza_misura[:2])
+
+# --------------------------------------------------------------------------
+# 5-bis. La scalatura della sagoma e' UN percorso, e la porta passa da la'
+# --------------------------------------------------------------------------
+# E' il difetto piu' costoso di questa settimana, tre volte: la persistenza,
+# la ripidezza e la normalizzazione avevano ciascuna due implementazioni che
+# si credevano uguali. Qui il rischio e' il peggiore di tutti, perche' e' la
+# porta a misurare: se il prodotto scalasse la sagoma in un modo e la porta in
+# un altro, la porta darebbe il permesso a una configurazione che non si
+# spedisce. Il modo di esserne certi non e' rileggere il codice: e' che sia lo
+# stesso codice.
+for funzione in ("apply_to_profile", "validation_report"):
+    ok("scala_sagoma(" in inspect.getsource(getattr(analogs, funzione)),
+       "%s porta la sagoma al livello chiamando scala_sagoma, non un calcolo"
+       " che le assomiglia" % funzione)
+# E l'ancora vive dentro scala_sagoma, in un posto solo. apply_to_profile non
+# chiama livello_orario e non deve: il profilo del motore ha un punto per ora,
+# quindi il suo massimo nella finestra E' GIA' il massimo delle medie orarie.
+# Chiamarla la' sarebbe una seconda definizione della stessa cosa.
+ok("livello_orario(" in inspect.getsource(analogs.scala_sagoma),
+   "l'ancora - il massimo delle medie orarie - si calcola dentro"
+   " scala_sagoma, e da nessun'altra parte")
+fuori = [n for n, t in sorgenti()
+         if "def livello_orario" not in t and "medie_orarie" in t]
+ok(not fuori, "e nessun modulo se la riscrive (%s)" % fuori[:2])
 
 # --------------------------------------------------------------------------
 # 6. Il raccordo del livello non puo' fabbricare una giornata

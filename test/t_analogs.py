@@ -22,23 +22,42 @@ z = analogs._z(v, st)
 ok(z is not None and all(abs(x - 1.0) < 1e-9 for x in z),
    "z-score usa le statistiche passate, non valori assoluti")
 
-# k deve restare 3: e' un iperparametro scelto prima sul 2024.
-ok(analogs.K == 3, "k=3 e' bloccato dal protocollo validato")
+# k e' un iperparametro scelto sul 2024 con un criterio scritto PRIMA, e
+# confermato una volta sola sul 2025-2026. Il 2026-09-17 e' passato da 3 a 9,
+# perche' il 3 era stato scelto con l'ancora sbagliata (vedi il commento su K).
+ok(analogs.K == 9, "k=9 e' bloccato dal protocollo validato")
 
-# La mediana di 3 gradini conserva un gradino maggioritario.
+# La mediana di k gradini conserva un gradino maggioritario. Le curve finte
+# sono K, non tre scritte a mano: _median_template pretende esattamente K
+# vicini, e con tre copie fisse questo controllo e' diventato muto il giorno
+# in cui k e' cambiato - restituiva None e l'asserzione non se ne accorgeva.
 n = len(analogs.GRID_MIN)
-c1 = tuple(0.2 if i < 50 else 1.0 for i in range(n))
-c2 = tuple(0.2 if i < 51 else 1.0 for i in range(n))
-c3 = tuple(0.2 if i < 80 else 1.0 for i in range(n))
-t = analogs._median_template([{"curve": c1}, {"curve": c2}, {"curve": c3}])
-ok(t[50] < .5 and t[51] > .9, "mediana k=3 conserva il gradino")
+
+
+def _gradino(i0):
+    return {"curve": tuple(0.2 if i < i0 else 1.0 for i in range(n))}
+
+
+def _k_vicini(*curve):
+    """Le curve date, ripetute fino a fare esattamente K vicini."""
+    fuori = [dict(c) for c in curve]
+    while len(fuori) < analogs.K:
+        fuori += [dict(c) for c in curve][:analogs.K - len(fuori)]
+    return fuori[:analogs.K]
+
+
+meta_finta = {"k": analogs.K, "days": ["a"] * analogs.K}
+t = analogs._median_template(_k_vicini(_gradino(50), _gradino(51),
+                                       _gradino(80)))
+ok(t is not None and t[50] < .5 and t[51] > .9,
+   "la mediana di k vicini conserva il gradino maggioritario")
 
 # Nessun onset alignment: la doppia gobba deve rimanere sulla griglia assoluta.
-left = tuple(1.0 if i < 35 else .2 for i in range(n))
-right = tuple(.2 if i < 70 else 1.0 for i in range(n))
-both = tuple(1.0 if i < 35 or i >= 70 else .2 for i in range(n))
-t2 = analogs._median_template([{"curve": left}, {"curve": right}, {"curve": both}])
-ok(t2[20] > .9 and t2[55] < .3 and t2[80] > .9,
+left = {"curve": tuple(1.0 if i < 35 else .2 for i in range(n))}
+right = {"curve": tuple(.2 if i < 70 else 1.0 for i in range(n))}
+both = {"curve": tuple(1.0 if i < 35 or i >= 70 else .2 for i in range(n))}
+t2 = analogs._median_template(_k_vicini(left, right, both))
+ok(t2 is not None and t2[20] > .9 and t2[55] < .3 and t2[80] > .9,
    "nessun allineamento dell'ingresso: Peler e Ora non si sovrappongono")
 
 # Applicazione: 10 minuti, stesso picco, nessuna modifica D+0.
@@ -50,17 +69,50 @@ for h in range(4, 22):
 old = analogs.choose
 try:
     analogs.choose = lambda day, lead, current=None: (
-        tuple(.25 if i < 55 else 1.0 for i in range(n)),
-        {"k": 3, "days": ["a", "b", "c"]})
+        tuple(.25 if i < 55 else 1.0 for i in range(n)), dict(meta_finta))
     shaped, meta = analogs.apply_to_profile("2026-09-16", 1, base)
 finally:
     analogs.choose = old
 ok(len(shaped) == 103 and abs(shaped[1]["hour"] - shaped[0]["hour"] - 1/6) < 1e-9,
    "profilo analogico resta sulla griglia reale di 10 minuti")
 ok(abs(max(r["wind"] for r in shaped) - 8.0) < 1e-9,
-   "il picco del motore corrente resta invariato")
+   "su una sagoma con un plateau lungo un'ora, il livello e il picco"
+   " coincidono e restano quelli del motore")
 ok(meta and meta["grid_minutes"] == 10,
    "diagnostica dichiara la griglia da 10 minuti")
+
+# --------------------------------------------------------------------------
+# Cosa resta invariato: il LIVELLO, non il picco istantaneo
+# --------------------------------------------------------------------------
+# E' il difetto piu' costoso di questo modulo, e il controllo che lo avrebbe
+# preso non c'era. Il motore prevede il massimo delle medie ORARIE; la curva
+# mostrata ha un punto ogni dieci minuti e il suo massimo istantaneo e' piu'
+# alto - deve esserlo, una raffica di mezz'ora non e' la media dell'ora.
+# Imponendo il massimo istantaneo si metteva il numero previsto per una
+# grandezza al posto di un'altra, l'11% piu' bassa, e la curva prometteva due
+# ore di vento dove ce n'erano dieci minuti (falsi allarmi 36% invece di 6%).
+#
+# La sagoma qui ha una PUNTA di dieci minuti: il suo massimo istantaneo e'
+# molto piu' alto delle sue medie orarie, quindi le due ancore danno numeri
+# diversi e il controllo distingue.
+punta = tuple(1.0 if i == 60 else .3 for i in range(n))
+old = analogs.choose
+try:
+    analogs.choose = lambda day, lead, current=None: (punta, dict(meta_finta))
+    con_punta, meta_p = analogs.apply_to_profile("2026-09-16", 1, base)
+finally:
+    analogs.choose = old
+liv = analogs.livello_orario([(r["hour"] * 60.0, r["wind"]) for r in con_punta],
+                             analogs.GRID_MIN[0], analogs.GRID_MIN[-1] + 1)
+picco = max(r["wind"] for r in con_punta)
+ok(liv is not None and abs(liv - 8.0) < 1e-6,
+   "il LIVELLO del motore resta esattamente quello: massimo delle medie"
+   " orarie %.3f su 8.00" % (liv or -1))
+ok(picco > 8.0 + 1e-6,
+   "e il picco istantaneo lo SUPERA, come fa una curva a dieci minuti"
+   " (%.2f kn): imporglielo uguale era l'errore" % picco)
+ok(meta_p and abs(meta_p.get("livello_orario_preservato", 0) - 8.0) < 1e-9,
+   "e la diagnostica dichiara il livello conservato, non il picco")
 unchanged, m0 = analogs.apply_to_profile("2026-09-15", 0, base)
 ok(unchanged == base and m0 is None, "D+0 non usa implicitamente il modello D+1")
 
@@ -69,16 +121,49 @@ curve = tuple(3.0 if i < 60 else 10.0 for i in range(n))
 ok(abs(analogs._steepness(curve) - 7.0) < 1e-9,
    "metrica di ripidezza protegge le transizioni in 30 minuti")
 
-# Il gate di regressione deve aprire solo vicino ai numeri congelati.
-rep = {"usable": True, "n": analogs.EXPECTED_CONFIRM_DAYS, "leads": {},
-       "null": {"hits": .54, "false_alarms": .25}}
-for lead, vals in analogs.BENCHMARK.items():
-    row = dict(vals); row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
-    row["peler"] = {"bias_minutes": 7.5, "steepness": 3.59,
-                    "true_steepness": 3.89, "hits": .685, "false_alarms": .448}
-    rep["leads"][lead] = row
-gate, why = analogs.benchmark_gate(rep)
-ok(gate and not why, "gate apre sui numeri del benchmark congelato")
+# --------------------------------------------------------------------------
+# Il banco della porta: UN rapporto finto, costruito dai numeri congelati
+# --------------------------------------------------------------------------
+# Era scritto due volte, e le due copie si sono subito disallineate. Qui e'
+# uno: parte da BENCHMARK, cosi' se i numeri congelati cambiano il banco li
+# segue invece di contraddirli, e porta accanto la curva liscia e il nullo
+# MISURATI - perche' la porta nuova confronta relazioni, non solo valori, e un
+# rapporto senza il riferimento non e' un rapporto.
+def rapporto(n_giorni=None):
+    if n_giorni is None:
+        n_giorni = analogs.EXPECTED_CONFIRM_DAYS
+    r = {
+        "usable": True, "n": n_giorni, "leads": {},
+        # Il nullo misurato: PAREGGIA col modello nell'Ora (93,8% di colpi
+        # contro 93,3%). E' il numero che ha cambiato la porta.
+        "null": {"hits": .938, "false_alarms": .070, "minute_error": 72.9,
+                 "bias_minutes": -3.7, "steepness": 5.57,
+                 "true_steepness": 6.99, "steepness_gap": 2.43},
+        # La curva liscia misurata: vince sul binario e sbaglia la durata di
+        # quarantadue minuti.
+        "liscia": {"hits": .981, "false_alarms": .065, "minute_error": 67.0,
+                   "bias_minutes": 42.4, "steepness": 1.86,
+                   "true_steepness": 6.99, "steepness_gap": 4.97,
+                   "peler": {"hits": .973, "false_alarms": .114,
+                             "minute_error": 34.4, "bias_minutes": 23.1,
+                             "steepness": .56, "true_steepness": 3.89,
+                             "steepness_gap": 3.19}},
+    }
+    for lead, vals in analogs.BENCHMARK.items():
+        row = dict(vals)
+        row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
+        row["steepness_gap"] = 2.2
+        row["peler"] = {"hits": .929, "false_alarms": .043,
+                        "minute_error": 25.0, "bias_minutes": 1.0,
+                        "steepness": 2.51, "true_steepness": 3.89,
+                        "steepness_gap": 1.58}
+        r["leads"][lead] = row
+    return r
+
+
+gate, why = analogs.benchmark_gate(rapporto())
+ok(gate and not why, "gate apre sui numeri del benchmark congelato: %s" % why[:1])
+rep = rapporto()
 rep["leads"][1]["steepness"] = 3.0
 gate, why = analogs.benchmark_gate(rep)
 ok(not gate and why, "gate chiude se la curva torna liscia")
@@ -123,19 +208,6 @@ ok(analogs._minutes_above(con_tratto(4)) == 40,
 # nell'archivio - un buco di centralina che si chiude, una run in piu' -
 # chiudeva la porta per sempre con un messaggio che non diceva niente. La
 # tolleranza e' dichiarata, e il conteggio vero si stampa sempre.
-def rapporto(n_giorni):
-    r = {"usable": True, "n": n_giorni, "leads": {},
-         "null": {"hits": .54, "false_alarms": .25}}
-    for lead, vals in analogs.BENCHMARK.items():
-        row = dict(vals)
-        row["true_steepness"] = analogs.RIPIDEZZA_VERA_ORA
-        row["peler"] = {"bias_minutes": 7.5, "steepness": 3.59,
-                        "true_steepness": 3.89, "hits": .685,
-                        "false_alarms": .448}
-        r["leads"][lead] = row
-    return r
-
-
 # --------------------------------------------------------------------------
 # La porta guarda anche la MATTINA, e sa cosa pretendere
 # --------------------------------------------------------------------------
@@ -386,35 +458,104 @@ ok(a_lug >= 6 * 60 and b_lug <= 11 * 60,
    " (%02d:%02d-%02d:%02d)" % (a_lug // 60, a_lug % 60, b_lug // 60, b_lug % 60))
 
 # --------------------------------------------------------------------------
-# Il nullo si giudica sul VANTAGGIO, non sui colpi
+# Il nullo e' un controllo di SANITA', non una gara da vincere
 # --------------------------------------------------------------------------
-# Con la sagoma riportata a picco 1 - che e' giusto, perche' il prodotto
-# conserva il picco del motore - qualunque mediana promette vento, anche
-# quella di tre giornate a caso: il nullo prende l'84% di colpi ed e' normale.
-# La porta chiedeva che restasse sotto il 65%, quindi si chiudeva sempre.
-nullo_forte = rapporto(atteso)
-nullo_forte["null"] = {"hits": .844, "false_alarms": .473}
-g4, w4 = analogs.benchmark_gate(nullo_forte)
+# Con l'ancora oraria il nullo - le stesse sagome assegnate al giorno
+# sbagliato - pareggia col modello nella finestra dell'Ora: vantaggio +1,0
+# punti, intervallo da -2,7 a +5,0, cioe' zero. La scelta dei vicini non
+# discrimina meglio del caso, e la mattina lo diceva gia'.
+#
+# Quindi la porta non puo' pretendere un vantaggio sul nullo: pretenderebbe un
+# merito che il metodo non ha mai avuto, e si chiuderebbe per sempre. Quello
+# che si pretende e' che il nullo non sia MEGLIO: se rimescolare le giornate
+# migliora le previsioni, il legame fra condizioni e sagoma e' rotto.
+nullo_pari = rapporto()
+nullo_pari["null"] = dict(nullo_pari["null"], hits=.938, false_alarms=.070)
+g4, w4 = analogs.benchmark_gate(nullo_pari)
 ok(g4 and not w4,
-   "un nullo con l'84% di colpi non chiude piu' la porta, se perde sui falsi")
+   "un nullo che PAREGGIA non chiude la porta: e' il risultato misurato,"
+   " non un difetto (%s)" % w4[:1])
 
-nullo_bravo = rapporto(atteso)
-nullo_bravo["null"] = {"hits": .88, "false_alarms": .37}
+nullo_bravo = rapporto()
+nullo_bravo["null"] = dict(nullo_bravo["null"], hits=.99, false_alarms=.01)
 g5, w5 = analogs.benchmark_gate(nullo_bravo)
-ok(not g5 and any("vantaggio sul nullo" in x for x in w5),
-   "ma un nullo che sceglie come il modello la chiude, dicendo i punti: %s"
-   % w5[:1])
+ok(not g5 and any("nullo fa" in x and "MEGLIO" in x for x in w5),
+   "ma un nullo chiaramente migliore la chiude, dicendo i punti: %s" % w5[:1])
 
-v_mod = 100 * (analogs.BENCHMARK[1]["hits"]
-               - analogs.BENCHMARK[1]["false_alarms"])
-ok(v_mod - 100 * (.844 - .473) >= analogs.GUADAGNO_MIN_SU_NULLO,
-   "il vantaggio misurato (%.1f punti) supera la soglia dichiarata (%.1f)"
-   % (v_mod - 100 * (.844 - .473), analogs.GUADAGNO_MIN_SU_NULLO))
-
-senza_nullo = rapporto(atteso)
+senza_nullo = rapporto()
 senza_nullo["null"] = {}
 g6, w6 = analogs.benchmark_gate(senza_nullo)
 ok(not g6 and any("nullo non misurato" in x for x in w6),
    "e senza nullo la porta non apre per fiducia")
+
+# --------------------------------------------------------------------------
+# La curva liscia e' il riferimento, e la porta la pretende
+# --------------------------------------------------------------------------
+# Senza di lei "93% di colpi" non e' un numero che vuol dire qualcosa: la
+# liscia ne fa 98, e lo paga promettendo quarantadue minuti di troppo. E'
+# l'unico modo di dire cosa la forma guadagna e cosa costa.
+senza_liscia = rapporto()
+senza_liscia.pop("liscia")
+g7, w7 = analogs.benchmark_gate(senza_liscia)
+ok(not g7 and any("liscia non misurata" in x for x in w7),
+   "senza la curva liscia la porta non apre: %s" % w7[:1])
+
+# Il non-degrado sul binario: la forma sta 3,8 punti sotto la liscia e va
+# bene, perche' il merito e' altrove. Un crollo no - e il valore scelto qui
+# sta DENTRO la banda dei numeri congelati, altrimenti il controllo passerebbe
+# per un'altra ragione e non proverebbe niente.
+crollo = rapporto()
+crollo["leads"][1] = dict(crollo["leads"][1], hits=.875)
+g8, w8 = analogs.benchmark_gate(crollo)
+ok(not g8 and any("crollo" in x for x in w8),
+   "una forma che crolla sul binario chiude la porta, e lo dice cosi': %s"
+   % w8[:1])
+
+# La calibrazione: e' l'unica cosa che la porta pretende come VANTAGGIO,
+# perche' e' l'unica che la forma ha davvero. E si pretende come DIFFERENZA:
+# se un giorno la curva liscia fosse calibrata - fosse un altro modello, o
+# cambiasse il lago - la forma dovrebbe riguadagnarsi il suo merito, non
+# ereditarlo da un confronto vinto nel 2026.
+liscia_brava = rapporto()
+liscia_brava["liscia"] = dict(liscia_brava["liscia"], bias_minutes=20.0)
+g9, w9 = analogs.benchmark_gate(liscia_brava)
+ok(not g9 and any("sulla durata la forma guadagna solo" in x for x in w9),
+   "contro una liscia calibrata il merito va riguadagnato: %s" % w9[:1])
+
+# E lo scarto di ripidezza, che e' diverso dalla ripidezza mediana: una curva
+# sempre ripida ha la mediana giusta e sbaglia tutti i giorni piatti.
+sempre_ripida = rapporto()
+sempre_ripida["leads"][1] = dict(sempre_ripida["leads"][1], steepness_gap=4.9)
+g10, w10 = analogs.benchmark_gate(sempre_ripida)
+ok(not g10 and any("piu' vicina al vero" in x for x in w10),
+   "e una ripidezza che non e' piu' vicina al vero della liscia la chiude: %s"
+   % w10[:1])
+
+# Sui falsi allarmi il requisito e' il BUDGET, e sta da solo: una banda
+# centrata sul 5,5% misurato sarebbe piu' stretta del budget, quindi il budget
+# non potrebbe mai scattare - due guardie sullo stesso numero, di cui una muta.
+ok("false_alarms" not in analogs.TOLLERANZA_BENCHMARK,
+   "i falsi allarmi non hanno una banda: hanno un budget, e uno solo")
+ok(analogs.BUDGET_FALSI > analogs.BENCHMARK[1]["false_alarms"],
+   "il budget dei falsi (%.0f%%) e' sopra il misurato (%.1f%%): e' un limite,"
+   " non una taratura"
+   % (100 * analogs.BUDGET_FALSI, 100 * analogs.BENCHMARK[1]["false_alarms"]))
+oltre = rapporto()
+oltre["leads"][1] = dict(oltre["leads"][1], false_alarms=.20)
+g11, w11 = analogs.benchmark_gate(oltre)
+ok(not g11 and any("budget" in x for x in w11),
+   "e oltre il budget la porta si chiude dicendo il budget: %s"
+   % [x for x in w11 if "budget" in x][:1])
+
+# La mattina, sulla durata, DEVE battere la liscia: e' il posto dove k=9 ha
+# guadagnato di piu' (25 minuti di errore contro 34).
+mattina_lunga = rapporto()
+for row in mattina_lunga["leads"].values():
+    row["peler"] = dict(row["peler"], minute_error=33.0)
+g12, w12 = analogs.benchmark_gate(mattina_lunga)
+ok(not g12 and any("sulla mattina la forma non batte la liscia" in x
+                   for x in w12),
+   "una mattina che sbaglia la durata come la liscia chiude la porta: %s"
+   % w12[:1])
 
 print("%d controlli analoghi" % passati)
