@@ -166,9 +166,10 @@ ok(dentro is not base and m_dentro is not None,
    "l'ultima scadenza promossa (D+%d) riceve la forma analogica" % ultima)
 ok(fuori is base and m_fuori is None,
    "la prima NON promossa (D+%d) resta quella del motore" % (ultima + 1))
-ok(ultima == 4,
-   "e l'ultima promossa oggi e' D+4: D+5 e' fuori per un criterio dichiarato,"
-   " lo sbilanciamento del Peler a +26 minuti contro i 25 ammessi")
+ok(ultima == 5,
+   "e l'ultima promossa oggi e' D+5, entrata il 2026-09-17 passando i sette"
+   " criteri che il codice pretende dalle altre - non perche' il limite sia"
+   " stato allargato: e' stato stretto, da 25 a 12 minuti")
 
 # --------------------------------------------------------------------------
 # 2. La pagina regge il profilo a dieci minuti

@@ -95,13 +95,27 @@ K = 9
 # peggiora con la scadenza - le condizioni che la decidono, stagione e
 # gradiente e radiazione, sono piu' prevedibili del vento stesso.
 #
-# D+5 e' RIMASTO FUORI, e va detto perche': passa tutto tranne un criterio,
-# lo sbilanciamento della durata del Peler, +26 minuti contro i 25 ammessi.
-# Un minuto. Il limite era dichiarato prima, e spostarlo perche' un caso ci
-# cade appena fuori e' la definizione di spostare il bersaglio. Se un giorno
-# si vuole D+5, si ricava quel limite da un principio e si rimisura tutto,
-# non si cambia il 25 in 30.
-LEADS = (1, 2, 3, 4)
+# D+5 era rimasto fuori per UN numero: lo sbilanciamento della durata del
+# Peler, +26 minuti contro i 25 ammessi. Un minuto. Allora non si e' spostato
+# il limite, perche' spostare un limite dichiarato prima perche' un caso ci
+# cade appena fuori e' la definizione di spostare il bersaglio.
+#
+# E' entrato il 2026-09-17, e non perche' il limite sia stato spostato - il
+# limite e' stato STRETTO, da 25 a 12 - ma perche' e' cambiata l'ancora. Con
+# il livello orario e k=9 quello sbilanciamento e' +6,9 minuti. Il criterio
+# non e' nuovo ed e' quello che questo file pretende gia' dalle altre: budget
+# dei falsi, non-degrado sul binario contro la liscia, il nullo non sopra,
+# calibrazione nell'Ora, e le tre condizioni sulla mattina. Sette controlli,
+# tutti passati, sulle stesse 617 giornate del blocco cieco.
+#
+# La cosa notevole: D+5 ha lo sbilanciamento della durata piu' piccolo di
+# tutte (+1,1 minuti nell'Ora, contro +13,1 di D+4) e la ripidezza piu' alta
+# (5,46). La forma non peggiora con la scadenza, e a cinque giorni peggiora
+# meno che a quattro - perche' le condizioni che la scelgono (stagione,
+# gradiente, radiazione, nuvolosita') sono piu' prevedibili del vento, e a
+# D+5 l'ensemble e' anche piu' regolare, quindi la sagoma che ne esce e' meno
+# influenzata dal rumore di una singola run.
+LEADS = (1, 2, 3, 4, 5)
 GRID_MIN = tuple(range(4 * 60, 21 * 60 + 1, 10))
 MIN_COVERAGE = 0.90
 MIN_PEAK = 6.0
@@ -109,7 +123,7 @@ MAX_INTERP_GAP_MIN = 30.0
 CACHE_S = 12 * 60 * 60
 CURRENT_SOURCE = "analog_live"
 GATE_KEY = "analog_shape_gate_v1"
-GATE_SIGNATURE = "torbole-analogs-k9-20260917"
+GATE_SIGNATURE = "torbole-analogs-k9-d5-20260917"
 # Numeri del blocco cieco 2025-2026 con k=9 e l'ancora oraria, rimisurati il
 # 2026-09-17. Non servono a ottimizzare nulla: sono una firma di regressione,
 # e le tolleranze sono BANDE, non riproduzioni a cifre decimali. Il motivo di
@@ -138,6 +152,8 @@ BENCHMARK = {
         "bias_minutes": 13.0, "steepness": 5.35},
     4: {"hits": .962, "false_alarms": .050, "minute_error": 61.0,
         "bias_minutes": 13.0, "steepness": 5.29},
+    5: {"hits": .945, "false_alarms": .060, "minute_error": 58.0,
+        "bias_minutes": 1.0, "steepness": 5.46},
 }
 # Le bande, dichiarate qui e non sparse nella porta. La porta controlla le
 # chiavi di QUESTO dizionario, non quelle di BENCHMARK: cosi' un numero puo'

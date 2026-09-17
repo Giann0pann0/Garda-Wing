@@ -152,12 +152,13 @@ ok(analogs._punti_persistenza() == int(orari.PERSISTENZA_MIN / passo) + 1,
 # scadenza voleva dire trovarle tutte, e dimenticarne una avrebbe prodotto la
 # peggiore delle incoerenze: un giorno con la forma nuova che la porta non
 # misura, o misurato e non mostrato.
-ok(isinstance(analogs.LEADS, tuple) and analogs.LEADS == (1, 2, 3, 4),
+ok(isinstance(analogs.LEADS, tuple) and analogs.LEADS == (1, 2, 3, 4, 5),
    "le scadenze promosse sono una tupla dichiarata: %s" % (analogs.LEADS,))
 copie_leads = []
 for nome, testo in sorgenti():
     for riga in righe_di_codice(testo):
-        if re.search(r"\(\s*1\s*,\s*2\s*,\s*3\s*(,\s*4\s*)?\)", riga) \
+        if re.search(r"\(\s*1\s*,\s*2\s*,\s*3\s*(,\s*4\s*(,\s*5\s*)?)?\)",
+                     riga) \
                 and "LEADS" not in riga and "VERIFY_LEADS" not in riga:
             copie_leads.append((nome, riga.strip()[:70]))
 ok(not copie_leads,
