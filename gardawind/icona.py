@@ -67,11 +67,11 @@ def png(lato=180):
             + _chunk(b"IDAT", idat) + _chunk(b"IEND", b""))
 
 
-def manifest(nome, colore="#0a121c"):
+def manifest(nome, corto=None, colore="#0a121c"):
     """Il manifesto dell'app installabile, come testo JSON."""
     import json
     return json.dumps({
-        "name": nome, "short_name": nome, "display": "standalone",
+        "name": nome, "short_name": corto or nome, "display": "standalone",
         "start_url": "index.html", "background_color": colore,
         "theme_color": colore,
         "icons": [{"src": "icona-192.png", "sizes": "192x192",

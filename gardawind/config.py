@@ -7,13 +7,16 @@ avviene solo in presentazione e nel calcolo del "giorno locale".
 import math
 import os
 
-APP_NAME = "Garda Wind"
 APP_VERSION = "3.7"
-# Il nome del prodotto, in un posto solo: compare nel manifesto dell'app
-# installata e nell'anteprima dei link. "Garda Wind" risulta gia' usato da
-# un altro sito sullo stesso lago; il nome nuovo lo sceglie Gian, e quando lo
-# sceglie si cambia qui e in nessun altro posto.
-APP_NAME = "Garda Wind"
+# Il nome del prodotto, in un posto solo: manifesto dell'app installata,
+# titolo delle pagine, anteprima dei link. Scelto da Gian il 2026-09-17:
+# "Garda Wind" risultava gia' usato da un altro sito sullo stesso lago.
+#
+# E' una frase, ed e' la frase giusta: e' quello che si dice al telefono
+# quando la scheda ha avuto ragione. Il nome corto e' per l'icona sul
+# telefono, dove sedici caratteri non stanno.
+APP_NAME = "L\u2019Ora \u00e8 arrivata"
+APP_SHORT_NAME = "L\u2019Ora"
 DB_FILENAME = "gardawind_v3.sqlite"
 
 TZ_LOCAL = "Europe/Rome"

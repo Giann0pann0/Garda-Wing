@@ -97,6 +97,11 @@ a{color:var(--s1)}
 
 /* ---------------- testa: il nome del posto, e basta ---------------- */
 header{padding-block:18px 0}
+/* Il marchio: una riga sola, piccola, in maiuscoletto. Il posto grande e'
+   della localita', perche' e' quella la domanda; il nome del sito e' la
+   risposta, e la si riconosce senza gridarla. */
+.marchio{margin:0 0 2px;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:700}
 .hbar{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;
   flex-wrap:wrap;border-bottom:1px solid var(--line)}
 .hbar .live{padding-bottom:12px}
@@ -1797,8 +1802,9 @@ def anteprima_link(place, days):
     return ('<meta property="og:type" content="website">\n'
             '<meta property="og:title" content="%s">\n'
             '<meta property="og:description" content="%s">\n%s'
+            '<meta property="og:site_name" content="%s">\n'
             '<meta name="twitter:card" content="summary">\n'
-            % (E(titolo), E(descr), img))
+            % (E(titolo), E(descr), img, E(config.APP_NAME)))
 
 
 def page_luogo(place=None):
@@ -1829,8 +1835,8 @@ def page_luogo(place=None):
                 + dettagli_panel(place, days))
 
     valori = {
-        "title": "%s \u00b7 vento" % place,
-        "css": CSS, "place": E(place),
+        "title": "%s \u00b7 %s" % (place, config.APP_NAME),
+        "css": CSS, "place": E(place), "marchio": E(config.APP_NAME),
         "pcls": "p%d" % (config.PLACES.index(place) + 1),
         "anteprima": anteprima_link(place, days),
         "luoghi": nav_luoghi(place),
@@ -2061,8 +2067,9 @@ def page_diagnostics():
 
     text, _cls = status_line()
     valori = {
-        "title": "Diagnostica",
+        "title": "Diagnostica \u00b7 %s" % config.APP_NAME,
         "css": CSS, "place": "Diagnostica", "pcls": "", "anteprima": "",
+        "marchio": E(config.APP_NAME),
         "luoghi": nav_luoghi(None),
         "live": E(text), "livecls": "",
         "body": sources_panel() + "".join(r),
@@ -2074,9 +2081,9 @@ def page_diagnostics():
 
 
 SHUTDOWN_PAGE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
-<title>Garda Wind</title><style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;
+<title>%(nome)s</title><style>body{font:16px/1.6 system-ui,-apple-system,sans-serif;
 padding:70px 20px;text-align:center;color:#0c1722;background:#dbe9f4}</style></head><body>
-<h2>Garda Wind è chiusa.</h2><p>I dati raccolti restano salvati.<br>
+<h2>%(nome)s: app chiusa.</h2><p>I dati raccolti restano salvati.<br>
 Riaprila quando vuoi dall’icona dell’app.</p></body></html>"""
 
 
@@ -2092,6 +2099,7 @@ TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 %(anteprima)s<title>%(title)s</title><style>%(css)s</style></head>
 <body class="%(pcls)s">
 <header><div class="wrap">
+<p class="marchio">%(marchio)s</p>
 <div class="hbar">%(luoghi)s
 <span class="live"><span class="dot %(livecls)s" id="gwdot"></span
 ><span id="gwlive">%(live)s</span></span>
@@ -2347,14 +2355,14 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if u.path == "/spegni":
-            self._send(200, SHUTDOWN_PAGE)
+            self._send(200, SHUTDOWN_PAGE % {"nome": E(config.APP_NAME)})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if u.path == "/diagnostica":
             return self._send(200, page_diagnostics())
         if u.path == "/manifest.webmanifest":
             from . import icona
-            return self._send(200, icona.manifest(config.APP_NAME),
+            return self._send(200, icona.manifest(config.APP_NAME, config.APP_SHORT_NAME),
                               "application/manifest+json; charset=utf-8")
         if u.path in ("/icona-192.png", "/icona-512.png"):
             from . import icona

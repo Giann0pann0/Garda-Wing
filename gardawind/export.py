@@ -112,7 +112,7 @@ def export(directory, with_json=True):
     # L'app installabile: manifesto e icone. Generati, non copiati: l'icona
     # nasce dallo stesso codice del sito (icona.py, libreria standard).
     for nome, contenuto in (("manifest.webmanifest",
-                             icona.manifest(config.APP_NAME).encode("utf-8")),
+                             icona.manifest(config.APP_NAME, config.APP_SHORT_NAME).encode("utf-8")),
                             ("icona-192.png", icona.png(192)),
                             ("icona-512.png", icona.png(512))):
         path = os.path.join(directory, nome)

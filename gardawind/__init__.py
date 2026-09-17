@@ -1,4 +1,4 @@
-"""Garda Wind: previsione locale del vento per Torbole e Malcesine."""
+"""L'Ora e' arrivata: previsione locale del vento per Torbole e Malcesine."""
 
 from .config import APP_NAME, APP_VERSION
 
