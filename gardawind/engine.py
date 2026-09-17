@@ -1336,16 +1336,41 @@ def _osservato_fine(station, day):
     serie oraria e della scheda: il massimo dei dieci minuti sarebbe piu' alto
     e piu' nervoso, e due righe con lo stesso nome e due definizioni sono il
     modo piu' sicuro di far leggere un numero per un altro.
+
+    E UNA FONTE SOLA per giornata, che e' la stessa regola della raffica qui
+    sopra applicata a un'altra dimensione. La stessa giornata arriva da due
+    canali - il tempo reale e il recupero d'archivio - e non sono la stessa
+    misura: possono avere cadenze diverse, finestre di media diverse,
+    arrotondamenti diversi. Tenerne una per istante non basta, perche' il
+    risultato e' una serie che cambia definizione a meta' strada: un tratto da
+    un canale, un tratto dall'altro, e in mezzo un salto verticale che non e'
+    vento - e' un cambio di fonte. Guardando la pagina vera si vedeva
+    esattamente questo: gradini di dieci nodi in dieci minuti, "un gran
+    casino".
+
+    Quindi si sceglie il canale che copre meglio la giornata e si tiene solo
+    quello. Preferire il piu' abbondante non e' arbitrario: e' il canale che
+    la giornata ha davvero, e gli altri sono frammenti.
     """
     campioni = store.samples_since(station, day_shift(day, -1) + "T00:00:00Z")
-    per_ist = {}
+    del_giorno = []
     for r in campioni:
         dt = parse_dt_any(r["ts"])
         if dt is None or local_day(dt) != day:
             continue
-        # Lo stesso istante puo' arrivare da due fonti: si tiene una lettura
-        # sola per istante, e la prima in ordine di fonte e' stabile.
-        per_ist.setdefault(iso_utc(dt), r)
+        del_giorno.append((iso_utc(dt), r))
+    quante = {}
+    for _k, r in del_giorno:
+        if r.get("wind_kn") is not None:
+            quante[r.get("source") or ""] = quante.get(r.get("source") or "", 0) + 1
+    if not quante:
+        return []
+    fonte = max(sorted(quante), key=lambda f: quante[f])
+    per_ist = {}
+    for k, r in del_giorno:
+        if (r.get("source") or "") != fonte:
+            continue
+        per_ist.setdefault(k, r)
     if len(per_ist) < 12:
         return []
     ordinati = sorted(per_ist.items())

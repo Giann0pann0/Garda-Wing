@@ -309,10 +309,13 @@ with sync_playwright() as pw:
     pg, _ = apri(ctx, json_nuovo(ADESSO - dt.timedelta(minutes=5), 14.0, 20.0))
     oggi_n = len(pg.query_selector_all('svg.chart[data-today="1"]'))
     altri_n = len(pg.query_selector_all('svg.chart[data-today="0"]'))
-    ok(oggi_n == len(config.PLACES),
-       "adesso: un segno per luogo sul grafico di oggi (%d)" % oggi_n)
-    ok(altri_n == 2 * len(config.PLACES),
-       "adesso: i due giorni successivi non lo hanno (%d grafici senza segno)"
+    # Una pagina, una localita': un solo grafico di oggi, e uno per ognuno
+    # degli altri giorni. Prima la pagina teneva dentro tutte le localita' e
+    # questi conteggi si moltiplicavano per due.
+    ok(oggi_n == 1,
+       "adesso: un solo segno, sul grafico di oggi (%d)" % oggi_n)
+    ok(altri_n >= 2,
+       "adesso: i giorni successivi non lo hanno (%d grafici senza segno)"
        % altri_n)
     ok(len(pg.query_selector_all('line[id$="-now"]')) == oggi_n,
        "adesso: e l'elemento esiste solo dove serve")

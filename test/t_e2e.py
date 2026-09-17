@@ -151,7 +151,7 @@ ok(mo and mo[0]["source"]=="prior", "Malcesine-Ora senza storico orario -> prior
 
 h=web.page_home()
 ok(len(h)>9000 and "Torbole" in h and "Malcesine" in h and "%" in h, "home renderizzata (%d byte)"%len(h))
-ok("<svg" in h and "polyline" in h, "grafico presente")
+ok("<svg" in h and '<path d="M' in h, "grafico presente, con curve")
 dg=web.page_diagnostics()
 ok("MAE fuori campione" in dg and "onest" in dg and "Skill dei singoli modelli" in dg, "diagnostica renderizzata (%d byte)"%len(dg))
 ok("non ancora addestrato" in dg or "prior" in dg or "si'" in dg, "stato modelli mostrato")

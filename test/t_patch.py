@@ -49,5 +49,6 @@ ok([g[0] for g in got]==[2014], "ripresa da from_year: scaricato solo %s"%[g[0] 
 # spegnimento
 ok("/spegni" in web.Handler.do_GET.__doc__ if web.Handler.do_GET.__doc__ else True, "")
 src=open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','gardawind','web.py'),encoding='utf-8').read()
-ok('u.path == "/spegni"' in src and 'chiudi Garda Wind' in src, "endpoint di spegnimento e link nel piede")
+ok('u.path == "/spegni"' in src and '>chiudi</a>' in src,
+   "endpoint di spegnimento e link nel piede")
 ok('LSUIElement' in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','mac','Info.plist')).read(), "Info.plist: niente rimbalzo nel Dock")

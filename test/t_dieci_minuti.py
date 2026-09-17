@@ -219,17 +219,26 @@ H = web.page_home()
 ok(len(H) > 40000, "la pagina si costruisce (%d byte)" % len(H))
 
 # Il grafico deve avere i 103 vertici, non diciassette.
-poli = re.findall(r'<polyline points="([^"]+)" fill="none" stroke="var\(--pc\)"', H)
-vertici = [len(p.split()) for p in poli]
+# Le curve sono percorsi cubici: i vertici sono i punti di arrivo dei
+# segmenti C (piu' la M iniziale), che per costruzione sono i dati.
+poli = re.findall(r'<path d="([^"]+)" fill="none" stroke="var\(--pc\)"', H)
+vertici = [len([1 for pezzo in d.replace("M", " ").split("C") if pezzo.strip()])
+           for d in poli]
 ok(any(v >= 100 for v in vertici),
    "la curva disegnata ha tutti i punti dei dieci minuti (%s)" % vertici[:4])
 
-# La scheda del Peler continua a trovare la sua finestra e le sue soglie.
-ok('class="peler-card"' in H and "Finestra utile" in H,
-   "la scheda del Peler sopravvive al profilo fine")
-fin = re.search(r"<span>Finestra utile</span><b>(\d\d):(\d\d)", H)
+# I due riquadri continuano a trovare le loro finestre e le loro soglie. Non
+# c'e' piu' una scheda del Peler diversa da quella dell'Ora: e' lo stesso
+# riquadro chiamato due volte, ed e' il motivo per cui possono avere la
+# stessa dimensione.
+ok(H.count('class="rq ') == 2 * len(GG),
+   "due riquadri per giornata, uno per regime (%d su %d giornate)"
+   % (H.count('class="rq '), len(GG)))
+ok("finestra" in H and "affidabilit" in H,
+   "i riquadri sopravvivono al profilo fine")
+fin = re.search(r"<dd>(\d\d):(\d\d)\u2013", H)
 ok(fin is not None and int(fin.group(1)) >= 6,
-   "e la finestra utile resta un'ora vera, non 04:00 (%s)"
+   "e la prima finestra utile resta un'ora vera, non 04:00 (%s)"
    % (fin.group(0)[-5:] if fin else "assente"))
 
 # La riga dello scarto cerca l'ora ESATTA del campione osservato: con la
@@ -259,8 +268,11 @@ ok(len(ore_intere) == 18,
 # e il tooltip arrivava a scrivere "13.166666666666666:00". Nessuno di questi
 # rompe la pagina - e' peggio, la pagina resta in piedi e dice il falso.
 tabelle = re.findall(r'<details class="tbl">.*?</details>', H, re.S)
-ok(len(tabelle) == 2 * len(GG),
-   "una tabella per luogo per giornata (%d)" % len(tabelle))
+# Una pagina, una localita': una tabella per giornata, non due. Prima la
+# pagina teneva dentro tutte le localita' e i conteggi si moltiplicavano.
+ok(len(tabelle) == len(GG),
+   "una tabella per giornata, su una pagina di una localita' (%d)"
+   % len(tabelle))
 orari_tab = [t for t, _v in
              re.findall(r"<tr><td>(\d\d:\d\d)</td><td class='num'>([\d.]+)</td>",
                         "".join(tabelle))]
@@ -273,7 +285,10 @@ for t in tabelle:
 ok(not doppi,
    "e DENTRO una tabella nessun orario si ripete: con il troncamento le"
    " righe dei dieci minuti dicevano sei volte la stessa ora (%s)" % doppi[:3])
-ok("i numeri, passo per passo" in H and "i numeri, ora per ora" in H,
+# Su una pagina sola compaiono solo i profili di QUELLA localita': il titolo
+# dice il passo di ciascuno, e con la forma analogica su D+1..D+5 e il
+# profilo orario oltre, la pagina di Torbole porta entrambe le diciture.
+ok("i numeri, passo per passo" in H,
    "il titolo della tabella dice quale passo ha il profilo che mostra")
 
 # Il tooltip: l'ora si ricava dai minuti, non si concatena a ':00'.
