@@ -1621,6 +1621,23 @@ BANNER_PAROLE = (
     (None, "dati reali non aggiornati", "bad", None),
 )
 
+# E quando e' la RILETTURA a non arrivare, non il dato a mancare.
+#
+# Senza questa frase i due guasti si presentano identici - un numero che
+# invecchia - e sono due cose diverse da fare: se le centraline sono zitte non
+# c'e' niente da aggiustare e "ultimo dato reale cinque ore fa" e' la verita';
+# se invece e' la pagina che non raggiunge il file del dato osservato, il dato
+# fresco esiste e non arriva, e chi guarda non ha modo di saperlo. Ha
+# incolpato la centralina, o ha pensato che il sito fosse fermo.
+#
+# Succede anche per cose fuori dal nostro controllo - una rete che blocca
+# raw.githubusercontent, un proxy aziendale - e proprio per quelle serve
+# dirlo: sono le uniche che non possiamo scoprire da soli.
+BANNER_NON_RAGGIUNGIBILE = "dati reali non raggiungibili da questa pagina"
+# Dopo quante riletture mancate di fila si dichiara. Una puo' essere un
+# passaggio di rete; tre di fila, a cinque minuti l'una, sono un guasto.
+LIVE_MANCATE_PRIMA_DI_DIRLO = 3
+
 
 def banner_parole(minuti):
     """(frase, classe) per l'eta' del dato piu' fresco. None = nessuna lettura."""
@@ -1680,6 +1697,8 @@ def _live_vars(attivo=True):
         "etawords": json.dumps([[lim, parola] for lim, parola in ETA_PAROLE]),
         "bannerwords": json.dumps([[lim, frase, classe, unita]
                                    for lim, frase, classe, unita in BANNER_PAROLE]),
+        "noreach": json.dumps(BANNER_NON_RAGGIUNGIBILE),
+        "mancate": LIVE_MANCATE_PRIMA_DI_DIRLO,
         "stale": ETA_STANTIA_MIN,
     }
 
@@ -2039,7 +2058,8 @@ document.addEventListener('click',function(ev){
    due copie della stessa frase prima o poi dicono due cose diverse.
    ---------------------------------------------------------------------- */
 var GW_LIVE_URLS=%(liveurls)s, GW_LIVE_MS=%(livems)d, GW_ETA=%(etawords)s,
-    GW_BANNER=%(bannerwords)s;
+    GW_BANNER=%(bannerwords)s, GW_NOREACH=%(noreach)s,
+    GW_MANCATE_MAX=%(mancate)d, gwMancate=0;
 function gwEtaParole(min){
   if(min===null||isNaN(min)) return 'orario sconosciuto';
   for(var i=0;i<GW_ETA.length;i++){
@@ -2052,6 +2072,14 @@ function gwEtaParole(min){
 function gwBanner(min){
   var el=document.getElementById('gwlive'), dot=document.getElementById('gwdot');
   if(!el) return;
+  /* La rilettura mancata viene PRIMA dell'eta': se il file non arriva, dire
+     "ultimo dato reale cinque ore fa" e' vero e fuorviante - sembra che le
+     centraline siano zitte, mentre il dato fresco c'e' e non arriva qui. */
+  if(GW_LIVE_MS>0&&gwMancate>=GW_MANCATE_MAX){
+    el.textContent=GW_NOREACH;
+    if(dot) dot.className='dot bad';
+    return;
+  }
   if(min===null){ el.textContent='nessuna lettura dalle centraline';
                   if(dot) dot.className='dot bad'; return; }
   for(var i=0;i<GW_BANNER.length;i++){
@@ -2143,14 +2171,18 @@ function gwApplyLive(d){
 }
 function gwFetchLive(i){
   i=i||0;
-  if(!window.fetch||i>=GW_LIVE_URLS.length) return;
+  if(!window.fetch||i>=GW_LIVE_URLS.length){
+    /* Esauriti tutti gli indirizzi: questa rilettura non e' arrivata. */
+    if(window.fetch){ gwMancate++; gwPaintAge(); }
+    return;
+  }
   var b=GW_LIVE_URLS[i];
   var u=b+(b.indexOf('?')<0?'?':'&')+'t='+Math.floor(Date.now()/60000);
   fetch(u,{cache:'no-store'}).then(function(r){
     if(!r.ok) throw new Error('http');
     return r.json();
   }).then(function(d){
-    if(d&&d.luoghi) gwApplyLive(d); else gwFetchLive(i+1);
+    if(d&&d.luoghi){ gwMancate=0; gwApplyLive(d); } else gwFetchLive(i+1);
   }).catch(function(){ gwFetchLive(i+1); });
 }
 gwPaintAge();

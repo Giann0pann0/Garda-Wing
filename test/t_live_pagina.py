@@ -352,3 +352,37 @@ with sync_playwright() as pw:
     pg.close()
 
     browser.close()
+
+# --------------------------------------------------------------------------
+# Una rilettura mancata deve DIRSI, non farsi confondere con una centralina zitta
+# --------------------------------------------------------------------------
+# Domanda di Gian: "il nostro sito e' fermo". Tutta la catena era a posto - il
+# processo veloce girava, live.json era fresco e ben formato, la pagina aveva
+# l'indirizzo giusto - e l'unico anello non verificabile da qui era la
+# richiesta dal SUO browser. Il problema e' che quell'anello, rompendosi, si
+# presentava identico a un guasto delle centraline: un numero che invecchia.
+#
+# Sono due cose diverse da fare: se le centraline sono zitte non c'e' niente
+# da aggiustare; se e' la pagina che non raggiunge il file, il dato fresco
+# esiste e non arriva, e chi guarda non ha modo di saperlo.
+import re as _re
+
+_H = web.page_home()
+ok("GW_NOREACH" in _H and web.BANNER_NON_RAGGIUNGIBILE in _H,
+   "la pagina porta con se' la frase per la rilettura mancata")
+ok("gwMancate=0" in _H.replace(" ", ""),
+   "e un contatore dei tentativi mancati, che parte da zero")
+ok(_re.search(r"gwMancate\s*\+\+", _H) is not None,
+   "che cresce quando gli indirizzi sono esauriti")
+ok(_re.search(r"gwMancate\s*=\s*0;\s*gwApplyLive", _H) is not None,
+   "e si azzera appena una rilettura riesce")
+# L'ordine conta: la frase della rilettura mancata deve stare PRIMA del
+# controllo sull'eta', altrimenti vince "ultimo dato reale cinque ore fa" -
+# che e' vero e fuorviante, perche' sembra che le centraline siano zitte.
+_corpo = _H.split("function gwBanner(")[1].split("function ")[0]
+ok(_corpo.index("GW_NOREACH") < _corpo.index("nessuna lettura"),
+   "e la dice PRIMA di parlare di eta': un dato che non arriva non e' un"
+   " dato che manca")
+ok(web.LIVE_MANCATE_PRIMA_DI_DIRLO >= 2,
+   "una sola rilettura mancata non basta a dirlo: puo' essere un passaggio"
+   " di rete (%d)" % web.LIVE_MANCATE_PRIMA_DI_DIRLO)
