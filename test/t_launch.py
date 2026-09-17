@@ -2,6 +2,7 @@ import os, sys, subprocess, time, urllib.request, shutil
 BASE=os.path.dirname(os.path.abspath(__file__))
 RES=os.path.join(os.path.dirname(os.path.abspath(__file__)),'..')
 sys.path.insert(0,RES)
+from gardawind import config
 ok=lambda c,m: print(("PASS " if c else "FAIL ")+m)
 
 # 1) --no-browser esiste e viene rispettato dal lanciatore
@@ -31,7 +32,11 @@ for _ in range(40):
 ok(up, "il server risponde su /health dopo l'avvio")
 if up:
     body=urllib.request.urlopen("http://127.0.0.1:8802/", timeout=30).read().decode()
-    ok("Garda Wind" in body and "chiudi Garda Wind" in body, "home servita, con il link di chiusura")
+    # Il piede non ripete piu' il nome del prodotto: la pagina ha il nome
+    # del POSTO in cima, e "chiudi Garda Wind" era una delle scritte che
+    # Gian ha chiesto di togliere. Resta il collegamento, che serve.
+    ok(config.PLACES[0] in body and '>chiudi</a>' in body,
+       "pagina servita, col nome del posto e il collegamento di chiusura")
     urllib.request.urlopen("http://127.0.0.1:8802/spegni", timeout=10).read()
     time.sleep(1.5)
     down=False

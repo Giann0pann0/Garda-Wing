@@ -19,7 +19,8 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import config, confidence, engine, orari, store, verify
+from . import (config, confidence, engine, giudizio, orari, store,
+               verify)
 from .util import (angle_diff, clamp, local_day, parse_dt_any,
                    sampling_cadence, sustained_onset, time_above,
                    to_local, utc_now)
@@ -49,28 +50,29 @@ CSS = """
   --ink:#e9f1f8; --ink-2:#9db0c4; --ink-3:#6d8098;
   --line:#1e2c3b; --grid:#1a2734; --axis:#33455a;
 
-  /* Identita' dei due luoghi: colore categorico, assegnato una volta e mai
-     riciclato. Validati con lo script sui sei controlli, su questa superficie
-     (#101a26), modalita' scura: tutti PASS, banda di luminosita' compresa.
+  /* Identita' delle localita': colore categorico, assegnato una volta e mai
+     riciclato. Validati col validatore sui sei controlli su questa superficie
+     (#101a26), modalita' scura: tutti PASS.
        Torbole  #2e86e0   Malcesine #de7326 */
   --s1:#2e86e0; --s2:#de7326;
   --s1-soft:#1b3f63; --s2-soft:#4a2a12;
   --s1-glow:rgba(46,134,224,.22); --s2-glow:rgba(222,115,38,.20);
+  --pc:var(--s1); --pc-soft:var(--s1-soft); --pc-glow:var(--s1-glow);
 
-  /* La raffica non e' un terzo luogo: e' una seconda misura dello stesso posto.
-     Ha un colore suo perche' compare in entrambi i grafici e deve dire sempre
+  /* La raffica non e' una terza localita': e' una seconda misura dello stesso
+     posto. Ha un colore suo perche' compare in ogni grafico e deve dire sempre
      la stessa cosa, ma la distinzione dalla media NON dipende dal colore:
-     tratteggio piu' etichetta diretta. Contro l'arancione di Malcesine la
-     separazione in tritanopia e' debole (dE 3.7), ed e' esattamente il caso
-     che il tratteggio copre. */
+     tratteggio piu' etichetta diretta. */
   --gust:#e0559b;
 
   /* Stati: riservati, mai riusati per una serie, sempre con la parola scritta. */
-  --good:#35c97a; --warn:#f0b429; --crit:#f2564d;
+  --good:#35c97a; --warn:#f0b429; --crit:#f2564d; --big:#5ad2ff;
 
   --shadow:0 1px 2px rgba(0,0,0,.55),0 14px 38px rgba(0,0,0,.45);
-  --ring:inset 0 0 0 1px var(--line);
 }
+/* Una localita' per pagina: il suo colore si sceglie una volta, sul corpo,
+   invece di essere ripetuto su ogni sezione. */
+body.p2{--pc:var(--s2); --pc-soft:var(--s2-soft); --pc-glow:var(--s2-glow)}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 img{max-width:100%}
@@ -91,91 +93,115 @@ body{
   font-weight:700;letter-spacing:-.02em;
 }
 a{color:var(--s1)}
-.wrap{max-width:1180px;margin:0 auto;padding-left:16px;padding-right:16px}
+.wrap{max-width:1040px;margin:0 auto;padding-left:16px;padding-right:16px}
 
-/* ---------------- testa ---------------- */
-header{padding-block:20px 6px}
-.hbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px;min-width:0}
-.brand h1{margin:0;font-size:27px;line-height:1}
-.brand h1 em{font-style:normal;color:var(--s1)}
-.brand .sub{display:block;font-family:system-ui,sans-serif;font-weight:500;font-size:10.5px;
-  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-top:6px}
-.status{font-size:12.5px;color:var(--ink-2);text-align:right;line-height:1.5}
-.status .when{display:block;color:var(--ink);font-weight:600}
-.status .live{display:inline-flex;align-items:center;gap:7px}
+/* ---------------- testa: il nome del posto, e basta ---------------- */
+header{padding-block:18px 0}
+.hbar{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;
+  flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.hbar .live{padding-bottom:12px}
+.live{font-size:12px;color:var(--ink-2);display:inline-flex;align-items:center;gap:7px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
 .dot.warn{background:var(--warn)}.dot.bad{background:var(--crit)}
+/* Le localita' come linguette. Aggiungerne una e' una riga di config: qui non
+   si tocca niente, e per questo la navigazione non puo' restare indietro. */
+.luoghi{display:flex;gap:6px;margin-bottom:-1px}
+.luoghi a{padding:6px 2px 10px;margin-right:18px;font-size:27px;font-weight:700;
+  letter-spacing:-.02em;text-decoration:none;color:var(--ink-3);
+  font-family:"Avenir Next","Avenir",Futura,"Gill Sans",system-ui,sans-serif;
+  border-bottom:3px solid transparent;margin-bottom:-1px}
+.luoghi a[aria-current="page"]{color:var(--pc);border-bottom-color:var(--pc)}
 
-/* ---------------- sezione di un luogo ---------------- */
-/* Torbole e Malcesine non si distinguono per posizione ma per cornice: bordo e
-   alone del proprio colore, nome grande in alto a sinistra. Cosi' nessun
-   grafico puo' essere attribuito al posto sbagliato, che era il rischio piu'
-   concreto del mostrarli insieme. */
-.place{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
-  box-shadow:var(--shadow);border:1px solid var(--line);position:relative;overflow:hidden}
-.place::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--pc)}
-.place.p1{--pc:var(--s1);--pc-soft:var(--s1-soft);--pc-glow:var(--s1-glow)}
-.place.p2{--pc:var(--s2);--pc-soft:var(--s2-soft);--pc-glow:var(--s2-glow)}
-.place{box-shadow:var(--shadow),0 0 0 1px var(--pc-glow)}
-.pgrid{display:grid;grid-template-columns:1fr;gap:16px}
-@media (min-width:1000px){
-  /* Il grafico e' il contenuto principale; dati e giudizio gli stanno accanto. */
-  .pgrid{grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}
-}
-
-/* --- condizioni attuali: un solo riquadro in cima, solo per oggi --- */
-.current{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
-  box-shadow:var(--shadow);border:1px solid var(--line)}
-.current-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  flex-wrap:wrap;margin-bottom:12px}
-.current-head h2{margin:0;font-size:21px}
-.current-grid{display:grid;grid-template-columns:1fr;gap:12px}
-@media (min-width:760px){.current-grid{grid-template-columns:1fr 1fr}}
-.current-place{border-radius:15px;padding:14px 15px;background:var(--card-2);
-  border:1px solid var(--line);position:relative;overflow:hidden}
-.current-place::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--pc)}
-.current-place.p1{--pc:var(--s1);--pc-soft:var(--s1-soft);--pc-glow:var(--s1-glow)}
-.current-place.p2{--pc:var(--s2);--pc-soft:var(--s2-soft);--pc-glow:var(--s2-glow)}
-.placehead{margin-bottom:12px}
-
-/* --- adesso --- */
-.pname{display:flex;align-items:center;gap:10px;margin-bottom:2px}
-.pname h2{margin:0;font-size:26px;line-height:1}
-.pname .mark{width:30px;height:30px;border-radius:9px;flex:none;
-  background:var(--pc-soft);display:grid;place-items:center}
-.pregimi{font-size:12px;color:var(--ink-3);margin:0 0 14px}
+/* ---------------- adesso ---------------- */
+.adesso{padding:16px 0 4px}
 .lbl{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
   margin:0 0 6px}
 .nowbig{display:flex;align-items:center;gap:14px}
-.nowbig .v{font-size:44px;line-height:.95;font-weight:700;
-  font-family:"Avenir Next",system-ui,sans-serif;letter-spacing:-.03em}
+.nowbig .v{font-size:46px;line-height:.95;font-weight:700;
+  font-family:"Avenir Next",system-ui,sans-serif;letter-spacing:-.03em;color:var(--pc)}
 .nowbig .v small{font-size:17px;font-weight:600;color:var(--ink-2);letter-spacing:0}
 .nowbig .compass{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
 .nowbig .compass b{color:var(--ink);font-size:16px;display:block;line-height:1.15}
 .nowbig .compass small{font-size:12px;color:var(--ink-3)}
 .nowgust{font-size:14px;color:var(--ink-2);margin-top:4px}
 .nowgust b{color:var(--ink)}
-.nowmeta{font-size:12px;color:var(--ink-3);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap}
+.nowmeta{font-size:12px;color:var(--ink-3);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
 .nowmeta.stale{color:var(--warn)}
-.nowcond{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;
-  border-top:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.nowcond{font-size:13px;color:var(--ink-2);margin-top:8px}
 .nowcond b{color:var(--ink);font-weight:600}
 .novalue{font-size:20px;color:var(--ink-3)}
 
-/* --- colonna 2: il grafico, che viene prima di ogni card --- */
-.pchart .lbl{margin-bottom:2px}
-.pchart h3{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--ink-2)}
-svg.chart{display:block;width:100%;height:auto}
+/* ---------------- i cinque giorni ---------------- */
+/* Una striscia, non cinque schede grandi: la scelta del giorno e' un gesto,
+   non una lettura. I dettagli del giorno scelto stanno sotto. */
+.giorni{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:18px 0 16px}
+.gcard{appearance:none;font:inherit;color:inherit;cursor:pointer;text-align:center;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:9px 4px 10px;display:grid;gap:1px;transition:border-color .15s,background .15s}
+.gcard:hover{border-color:var(--axis)}
+.gcard[aria-current="true"]{border-color:var(--pc);
+  background:color-mix(in srgb,var(--pc) 13%,var(--card))}
+.gcard .gg{font-size:12px;font-weight:700;text-transform:capitalize}
+.gcard .gd{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.gcard .gk{font-size:20px;font-weight:700;margin-top:5px;
+  font-family:"Avenir Next",system-ui,sans-serif}
+.gcard .gk small{font-size:11px;color:var(--ink-2);font-weight:600}
+.gcard .gv{font-size:11px;font-weight:700;text-transform:capitalize}
+
+/* ---------------- i due riquadri, identici ---------------- */
+/* Stessa griglia, stessa struttura, stessa altezza: i due regimi contano
+   uguale, e due riquadri di dimensioni diverse direbbero il contrario prima
+   di qualunque numero. Restano affiancati anche sul telefono. */
+.rqgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch}
+.rq{background:var(--card);border:1px solid var(--line);border-radius:16px;
+  padding:14px 15px 12px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  display:flex;flex-direction:column}
+.rq::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:currentColor}
+.rq-t{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;
+  color:var(--ink-2)}
+.rq-t span{color:var(--ink-3);font-weight:600;letter-spacing:.04em}
+.rq-v{font-size:26px;font-weight:800;line-height:1.05;margin-top:7px;
+  font-family:"Avenir Next",system-ui,sans-serif;text-transform:capitalize}
+.rq-kn{font-size:19px;font-weight:700;color:var(--ink);margin-top:2px;
+  font-family:"Avenir Next",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+.rq-kn small{font-size:12px;color:var(--ink-2);font-weight:600}
+.rq-d{margin:11px 0 0;padding-top:10px;border-top:1px solid var(--line);
+  display:grid;gap:5px;font-size:12.5px}
+.rq-d div{display:flex;justify-content:space-between;gap:8px}
+.rq-d dt{color:var(--ink-3);margin:0}
+.rq-d dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.rq-n{margin:8px 0 0;font-size:12px;color:var(--ink-3)}
+/* Il voto porta il colore, e la parola c'e' sempre: il colore non e' mai
+   l'unico portatore dell'informazione. */
+.q-no{color:var(--crit)}.q-meh{color:var(--warn)}
+.q-go{color:var(--good)}.q-big{color:var(--big)}.q-off{color:var(--ink-3)}
+.rq.q-off .rq-v{color:var(--ink-3);font-size:22px}
+
+/* ---------------- la riga del meglio ---------------- */
+.meglio{margin:12px 0 0;font-size:14.5px;color:var(--ink-2);line-height:1.45}
+.meglio b{color:currentColor}
+.meglio.no{color:var(--ink-3)}
+
+/* ---------------- il grafico, che e' il pezzo grosso ---------------- */
+.grafico{margin-top:16px;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;padding:14px 12px 12px;box-shadow:var(--shadow)}
+svg.chart{display:block;width:100%;height:auto;
+  /* Le scritte del grafico in unita' di viewBox: su schermo grande il disegno
+     e' scalato 2,4 volte, quindi il numero va ridotto della stessa quantita'
+     perche' la scritta arrivi all'occhio della misura giusta. Un font scelto
+     per il telefono, su desktop diventa un titolo. */
+  --fs-xs:10; --fs-s:11; --fs-m:12.5}
+@media (min-width:760px){svg.chart{--fs-xs:5.4; --fs-s:5.9; --fs-m:6.8}}
+svg.chart .t-xs{font-size:calc(var(--fs-xs) * 1px)}
+svg.chart .t-s{font-size:calc(var(--fs-s) * 1px)}
+svg.chart .t-m{font-size:calc(var(--fs-m) * 1px)}
 .chartwrap{position:relative}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
   background:var(--card-3);border:1px solid var(--line);border-radius:10px;padding:7px 10px;
   font-size:12px;box-shadow:var(--shadow);white-space:nowrap;z-index:3;color:var(--ink)}
 .legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-top:8px}
-/* La riga dello scarto: sta fra il grafico e la legenda perche' e' la
-   lettura del grafico, non una didascalia. */
 .scarto{margin:10px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
-.scarto b{color:var(--ink-1)}
+.scarto b{color:var(--ink)}
 .legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;
   margin-right:6px;vertical-align:middle}
 .legend i.dash{border-top-style:dashed}
@@ -183,94 +209,20 @@ svg.chart{display:block;width:100%;height:auto}
 details.tbl{margin-top:10px;font-size:13px}
 details.tbl summary{cursor:pointer;color:var(--ink-3);font-size:12px}
 details.tbl .scroller{overflow-x:auto}
+.snote{font-size:12px;color:var(--warn);margin:10px 0 0;line-height:1.4}
 
-/* --- colonna 3: quanto fidarsi e quando andare --- */
-.ringrow{display:flex;align-items:center;gap:14px;margin-bottom:14px}
-.ringrow .lbl{margin:0 0 2px}
-.ringrow .rword{font-size:16px;font-weight:800;line-height:1.1;margin:1px 0 2px}
-.ringrow .rtxt{font-size:12.5px;color:var(--ink-3);line-height:1.4}
-.ring{flex:none}
-.snote{font-size:12px;color:var(--warn);margin:-4px 0 12px;line-height:1.4}
-.callout{border-radius:14px;padding:13px 15px;background:var(--card-2);
-  border:1px solid var(--line);border-left:3px solid var(--ink-3);margin-bottom:12px}
-.callout.go{border-left-color:var(--good);background:color-mix(in srgb,var(--good) 9%,var(--card-2))}
-.callout.meh{border-left-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--card-2))}
-.callout.no{border-left-color:var(--ink-3)}
-.callout .big{font-size:17px;font-weight:700;line-height:1.2;margin-bottom:3px}
-.callout .big.go{color:var(--good)}.callout .big.meh{color:var(--warn)}
-.callout .big.no{color:var(--ink-2)}
-.callout p{margin:0;font-size:13px;color:var(--ink-2);line-height:1.45}
-.halves{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.half{border-radius:12px;padding:11px 12px;background:var(--card-2);border:1px solid var(--line)}
-.half .h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
-.half .when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-top:1px}
-.half .q{display:flex;align-items:center;gap:7px;margin-top:8px;font-weight:700;font-size:14px}
-.half .q i{width:9px;height:9px;border-radius:50%;flex:none}
-.half .kn{font-size:17px;font-weight:700;margin-top:5px;
-  font-family:"Avenir Next",system-ui,sans-serif}
-.half .kn small{font-size:12px;color:var(--ink-2);font-weight:600}
-.half .win{font-size:12px;color:var(--ink-3);margin-top:3px}
-.halves.single{grid-template-columns:1fr}
-.probline{font-size:12px;color:var(--ink-3);margin-top:6px}
-.probline b{color:var(--ink);font-variant-numeric:tabular-nums}
-.peler-card{border-radius:14px;padding:13px 14px;background:var(--card-2);
-  border:1px solid var(--line);margin:0 0 12px}
-.peler-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
-.peler-head .title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--ink-3);font-weight:700}
-.peler-head .q{margin-top:0}
-.peler-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
-.peler-metric{min-width:0;border-radius:10px;padding:9px 10px;background:var(--card-3);
-  border:1px solid var(--line)}
-.peler-metric span{display:block;font-size:10px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--ink-3);line-height:1.25}
-.peler-metric b{display:block;margin-top:4px;color:var(--ink);font-size:15px;
-  line-height:1.2;font-variant-numeric:tabular-nums}
-.peler-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
-  margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
-  font-size:12px;color:var(--ink-2)}
-.peler-foot b{color:var(--ink);font-variant-numeric:tabular-nums}
-.peler-note{margin:8px 0 0;font-size:11px;color:var(--ink-3);line-height:1.35}
-.q-go i{background:var(--good)}.q-go{color:var(--good)}
-.q-meh i{background:var(--warn)}.q-meh{color:var(--warn)}
-.q-no i{background:var(--crit)}.q-no{color:var(--crit)}
-.q-off i{background:var(--ink-3)}.q-off{color:var(--ink-3)}
-.tmline{margin-top:12px;font-size:12.5px;color:var(--ink-2);display:flex;
-  align-items:flex-start;gap:8px}
-.tmline i{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor;
-  margin-top:6px}
-.tmline span{flex:1;min-width:0}
-.tm-3{color:var(--good)}.tm-2{color:var(--s1)}.tm-1{color:var(--warn)}.tm-0{color:var(--ink-3)}
-.tmline b{color:var(--ink)}
+/* ---------------- il cassetto dei dettagli ---------------- */
+/* Tutte le spiegazioni stanno qui. Chi non tocca non legge niente. */
+.dettagli{margin:22px 0 10px;border-top:1px solid var(--line);padding-top:12px}
+.dettagli summary{cursor:pointer;font-size:13px;color:var(--ink-3);
+  letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+.dcont{padding-top:6px;max-width:66ch}
+.dcont h3{margin:16px 0 2px;font-size:13.5px;color:var(--ink)}
+.dcont p,.dcont li{color:var(--ink-2);font-size:13px;line-height:1.55;margin:4px 0 8px}
+.dcont ul{margin:4px 0 8px;padding-left:18px}
+.dcont b{color:var(--ink)}
 
-/* ---------------- striscia dei cinque giorni ---------------- */
-.week{background:var(--card);border-radius:22px;padding:18px;margin-bottom:18px;
-  box-shadow:var(--shadow);border:1px solid var(--line)}
-.whead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
-  flex-wrap:wrap;margin-bottom:14px}
-.whead h2{margin:0;font-size:21px}
-.wlegend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);flex-wrap:wrap}
-.wlegend span{display:inline-flex;align-items:center;gap:6px}
-.wlegend i{width:9px;height:9px;border-radius:50%}
-.days{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.dcard{appearance:none;text-align:left;font:inherit;color:inherit;cursor:pointer;
-  background:var(--card-2);border:1px solid var(--line);border-radius:14px;padding:12px;
-  display:block;transition:border-color .15s,background .15s}
-.dcard:hover{border-color:var(--axis)}
-.dcard[aria-current="true"]{border-color:var(--s1);background:color-mix(in srgb,var(--s1) 12%,var(--card-2))}
-.dcard .dd{font-size:13px;font-weight:700}
-.dcard .dl{font-size:11px;color:var(--ink-3);margin-top:1px}
-.dcard .dk{font-size:21px;font-weight:700;margin-top:9px;
-  font-family:"Avenir Next",system-ui,sans-serif}
-.dcard .dk small{font-size:12px;color:var(--ink-2);font-weight:600}
-.dcard .dbest{font-size:12px;color:var(--ink-2);margin-top:2px}
-.dcard .dconf{margin-top:9px;display:grid;gap:4px}
-.dcard .dconf div{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-3)}
-.dcard .dconf i{width:7px;height:7px;border-radius:50%;flex:none}
-.cfd-3{background:var(--good)}.cfd-2{background:var(--s1)}
-.cfd-1{background:var(--warn)}.cfd-0{background:var(--ink-3)}
-
-/* ---------------- pannelli condivisi con la diagnostica ---------------- */
+/* ---------------- pannelli della diagnostica ---------------- */
 .panel{background:var(--card);border-radius:20px;padding:18px;margin-bottom:18px;
   box-shadow:var(--shadow);border:1px solid var(--line)}
 .panel h2{margin:0 0 8px;font-size:20px}
@@ -291,29 +243,27 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .cf-out{background:color-mix(in srgb,var(--ink-3) 16%,transparent);color:var(--ink-2)}
 .cfline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
 .cf-why{font-size:12.5px;color:var(--ink-3)}
-footer{padding-block:6px 40px;font-size:12px;color:var(--ink-3);text-align:center}
+footer{padding-block:18px 40px;font-size:12px;color:var(--ink-3);text-align:center}
 footer a{color:var(--ink-2)}
 
 @media (max-width:700px){
-  .brand h1{font-size:23px}
-  .status{text-align:left}
-  .place,.week,.panel{padding:14px;border-radius:18px}
-  .pname h2{font-size:23px}
-  /* Su telefono la parte "adesso" si stringe: e' un dato solo, non merita
-     mezzo schermo prima di arrivare al grafico. */
-  .nowbig .v{font-size:34px}
-  .nowgust{display:inline-block;margin-right:12px}
-  .nowmeta{margin-top:4px}
-  .nowcond{margin-top:10px;padding-top:10px}
-  .pgrid{gap:14px}
-  .halves{grid-template-columns:1fr 1fr;gap:10px}
-  .half .kn{font-size:16px}
-  .days{grid-template-columns:1fr 1fr}
-  .whead h2{font-size:18px}
-}
-@media (max-width:380px){
-  .halves{grid-template-columns:1fr}
-  .days{grid-template-columns:1fr}
+  .luoghi a{font-size:22px;margin-right:14px}
+  .wrap{padding-left:14px;padding-right:14px}
+  .nowbig .v{font-size:38px}
+  .giorni{gap:5px;margin:14px 0 14px}
+  .gcard{padding:8px 2px 9px;border-radius:10px}
+  .gcard .gg{font-size:11px}
+  .gcard .gk{font-size:17px;margin-top:4px}
+  .gcard .gv{font-size:10px}
+  .rqgrid{gap:9px}
+  .rq{padding:12px 12px 10px;border-radius:14px}
+  .rq-v{font-size:21px}
+  .rq-kn{font-size:17px}
+  .rq-d{font-size:11.5px}
+  .rq-d div{display:grid;gap:0}
+  .rq-d dd{text-align:left}
+  .grafico{padding:10px 6px 10px;border-radius:14px}
+  .panel{padding:14px;border-radius:16px}
 }
 """
 
@@ -640,34 +590,6 @@ def now_observed_html(live):
            ("ultimo dato %s" % hhmm_txt) if hhmm_txt else ""))
 
 
-def place_head(place):
-    """Nome del luogo e regimi: identita' della scheda, non dato live."""
-    spots = place_spots(place)
-    regimi = " · ".join(
-        "%s (%s)" % (lab, when) for key, lab, when in META_REGIME if key in spots)
-    return (
-        '<div class="pname"><span class="mark">%s</span>'
-        '<h2 class="display">%s</h2></div>'
-        '<p class="pregimi">%s</p>'
-        % ('<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">'
-           '<path d="M2 11 L8 3 L14 11 Z" fill="var(--pc)"/></svg>',
-           E(place), E(regimi)))
-
-
-def current_conditions_panel(entry):
-    """Vento attuale e meteo in alto. Esiste solo per il giorno di oggi."""
-    cards = []
-    for index, place in enumerate(config.PLACES):
-        pl = entry["places"].get(place) or {}
-        cards.append(
-            '<div class="current-place p%d">%s</div>'
-            % (index + 1, now_column(place, index, pl.get("live"), pl.get("profile") or [])))
-    return (
-        '<section class="current" id="current-panel">'
-        '<div class="current-head"><h2 class="display">Vento adesso</h2></div>'
-        '<div class="current-grid">%s</div></section>' % "".join(cards))
-
-
 # La finestra utile non e' la finestra del regime, e non e' la finestra del
 # vento migliore previsto: e' quella in cui si puo' davvero essere in acqua.
 # Tre vincoli, il piu' stretto vince - finestra del regime, ora pratica, luce -
@@ -759,116 +681,157 @@ def _durata_parole(minuti, limite=False):
     return "%s%d min" % (pre, m)
 
 
-def peler_card(place, profile, sessions, giorno=None, live=None, today=False):
-    """La sessione utile del Peler: sostituisce la vecchia card mattina.
+def sessione_numeri(name, profile, giorno, live=None, today=False):
+    """I numeri di UNA sessione dentro la sua finestra utile.
 
-    Cinque numeri, e sono quelli che decidono se alzarsi: quando si puo'
-    essere in acqua, quanto vento ci sara' dentro quella finestra, per quanto
-    tempo sopra le due soglie che contano, quanto e' continuo, e quanto ci si
-    puo' fidare della previsione a questa scadenza.
+    Un solo percorso per i due regimi. Prima ce n'erano due - peler_card per
+    la mattina, half_cards per il pomeriggio - e dicevano la stessa giornata
+    con due livelli di dettaglio diversi: il Peler aveva quattro numeri e
+    l'Ora ne aveva due, e nessuno dei due era confrontabile con l'altro. Gian
+    ha chiesto riquadri della stessa dimensione perche' i due regimi contano
+    uguale; per essere della stessa dimensione devono prima dire le stesse
+    cose, e per dire le stesse cose devono venire dalla stessa funzione.
 
-    Gli 8 kn restano nel calcolo del report ma non qui: qualificano due
-    giornate su tre e non discriminano niente. La soglia che separa e' 10; i
-    12 dicono se il Peler e' di quelli consistenti.
+    Tutto viene dalla FINESTRA UTILE, cioe' da quando si puo' davvero essere
+    in acqua: regime, ora pratica e luce, il vincolo piu' stretto vince. Il
+    picco della finestra del regime - che al Peler comincia alle 04:00 -
+    scriveva "12-16 kn" accanto a "sopra 10 kn: -", perche' i dodici nodi
+    c'erano alle cinque del mattino, al buio.
     """
-    O = orari
-
-    name = place_spots(place).get("PELER")
-    if not name or name not in sessions:
-        return ""
-    data = sessions[name]
     spot = config.SPOTS[name]
     giorno = giorno or local_day(utc_now())
-    inizio, fine = O.finestra_utile_del_giorno(name, giorno)
+    try:
+        inizio, fine = orari.finestra_utile_del_giorno(name, giorno)
+    except (KeyError, ValueError, TypeError):
+        return None
     if fine <= inizio:
-        return ""
+        return None
     serie = _serie_finestra(profile, inizio, fine)
     if not serie:
-        return ""
-
-    d10, lim10 = _durata_soglia(serie, 10.0)
-    d12, lim12 = _durata_soglia(serie, 12.0)
-    ampiezza = max(1.0, fine - inizio)
-    # La continuita' e' una QUOTA della finestra, e per questo non e'
-    # censurata: la finestra e' il denominatore, non un taglio. E' l'unico
-    # modo di dire "quanto a lungo" che si puo' confrontare fra dicembre, che
-    # ha due ore e mezza di luce utile, e luglio, che ne ha cinque.
-    continuita = int(round(100.0 * min(time_above(serie, 10.0, PASSO_CARD_MIN),
-                                       ampiezza) / ampiezza))
-
-    # Tutto nella scheda deve venire dalla STESSA finestra, altrimenti dice
-    # due cose che si contraddicono nello stesso riquadro. Il picco della
-    # sessione che sta in `data` e' quello della finestra del REGIME, che al
-    # Peler comincia alle 04:00: con quello la scheda scriveva "Intensita'
-    # 10-14 kn" accanto a "Sopra 10 kn: -", perche' i dieci nodi c'erano alle
-    # cinque del mattino, al buio, fuori da dove si puo' navigare.
+        return None
+    minuti, limite = _durata_soglia(serie, spot["min_kn"])
     dentro = [r for r in profile
               if r.get("hour") is not None and r.get("wind") is not None
               and inizio <= float(r["hour"]) * 60.0 <= fine]
     migliore = max(dentro, key=lambda r: float(r["wind"])) if dentro else None
-    picco = float(migliore["wind"]) if migliore else max(v for _m, v in serie)
-    # Anche il giudizio: le soglie restano quelle dello spot, ma la velocita'
-    # su cui si applicano e' quella della finestra utile.
-    cls, word = quality(dict(data, speed=picco), spot, live, today)
+    kn = float(migliore["wind"]) if migliore else max(v for _m, v in serie)
     lo = (migliore or {}).get("lo")
     hi = (migliore or {}).get("hi")
     if lo is None or hi is None:
-        lo = hi = picco
-    intensita = "%.0f–%.0f kn" % (lo, hi)
-    conf = confidence.sintesi_giorno([data.get("affidabilita")])
-    liv = int((conf or {}).get("livello") or 0)
+        lo = hi = kn
+    # Oggi il dato MISURATO ha la precedenza sul giudizio emesso stanotte: se
+    # la centralina sta leggendo diciassette nodi di Ora, la scheda non puo'
+    # continuare a dire "mediocre" perche' la previsione di stanotte era piu'
+    # bassa. Non e' un nowcast - la curva futura non si tocca, quel banco e'
+    # chiuso - e' solo il divieto di contraddire un anemometro.
+    misurato = live_regime_state(live, spot, today)
+    if misurato:
+        kn = max(kn, misurato["wind"])
+    return {"nome": name, "spot": spot, "inizio": inizio, "fine": fine,
+            "kn": kn, "lo": lo, "hi": hi, "minuti": minuti, "limite": limite,
+            "misurato": bool(misurato)}
+
+
+def card_regime(place, regime, label, quando, profile, sessions,
+                giorno=None, live=None, today=False):
+    """Un riquadro. I due regimi ne hanno uno identico, per costruzione."""
+    name = place_spots(place).get(regime)
+    data = sessions.get(name) if name else None
+    num = sessione_numeri(name, profile, giorno, live, today) if name else None
+    if not name or data is None or num is None:
+        return ('<div class="rq rq-off"><div class="rq-t">%s</div>'
+                '<div class="rq-v">\u2014</div>'
+                '<p class="rq-n">nessuna previsione</p></div>'
+                % E(label.upper()))
+    parola, classe = giudizio.voto(num["kn"], num["minuti"], num["spot"])
+    conf = data.get("affidabilita")
+    pct = giudizio.affidabilita(data.get("prob"), conf)
     return (
-        '<div class="peler-card">'
-        '<div class="peler-head"><div class="title">Pelèr · mattina</div>'
-        '<div class="q q-%s"><i></i>%s</div></div>'
-        '<div class="peler-grid">'
-        '<div class="peler-metric"><span>Finestra utile</span><b>%s–%s</b></div>'
-        '<div class="peler-metric"><span>Intensità</span><b>%s</b></div>'
-        '<div class="peler-metric"><span>Sopra 10 kn</span><b>%s</b></div>'
-        '<div class="peler-metric"><span>Sopra 12 kn</span><b>%s</b></div>'
-        '</div>'
-        '<div class="peler-foot"><span>Continuità <b>%d%%</b></span>'
-        '<span>Affidabilità <b>%s</b></span></div>'
-        '<p class="peler-note">Valutazione sul vento medio: la raffica '
-        'ricorrente a 30′ è ancora in validazione, quindi con il wing '
-        'si plana anche sotto questi numeri.</p></div>'
-        % (cls, E(word), hhmm(inizio), hhmm(fine), E(intensita),
-           _durata_parole(d10, lim10), _durata_parole(d12, lim12),
-           continuita, E(RING_WORD[liv].lower())))
+        '<div class="rq q-%s">'
+        '<div class="rq-t">%s <span>%s</span></div>'
+        '<div class="rq-v">%s</div>'
+        '<div class="rq-kn">%.0f\u2013%.0f <small>kn</small></div>'
+        '<dl class="rq-d">'
+        '<div><dt>finestra</dt><dd>%s\u2013%s</dd></div>'
+        '<div><dt>sopra %.0f kn</dt><dd>%s</dd></div>'
+        '<div><dt>affidabilit\u00e0</dt><dd>%s</dd></div>'
+        '</dl></div>'
+        % (classe, E(label.upper()), E(quando), E(parola),
+           num["lo"], num["hi"], hhmm(num["inizio"]), hhmm(num["fine"]),
+           num["spot"]["min_kn"], _durata_parole(num["minuti"], num["limite"]),
+           ("<b>%d%%</b>" % pct) if pct is not None else "\u2014"))
 
 
-def now_column(place, index, live, profile):
-    """Colonna di sinistra: quanto tira ADESSO, con l'ora del dato.
+def riquadri(place, profile, sessions, giorno=None, live=None, today=False):
+    """I due riquadri, nella stessa griglia e della stessa larghezza."""
+    cards = [card_regime(place, key, lab, quando, profile, sessions,
+                         giorno, live, today)
+             for key, lab, quando in META_REGIME]
+    return '<div class="rqgrid">%s</div>' % "".join(cards)
 
-    L'orario dell'ultima lettura non e' un dettaglio tecnico: senza di esso
-    "14 kn" e' un numero senza tempo, e a Torbole fra le 11 e le 12 il vento
-    cambia del doppio. Quando il dato invecchia, lo diciamo in giallo.
 
-    Il blocco porta con se' il nome del luogo e l'orario del campione: sono le
-    due cose che servono per aggiornarlo dopo, nel browser, senza rifare la
-    pagina. La previsione si rifa' quattro volte al giorno, il dato osservato
-    ogni dieci minuti: tenerli insieme voleva dire far invecchiare l'"adesso"
-    alla velocita' della previsione.
+def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
+    """Quando la giornata e' migliore: una riga, e solo se c'e' una differenza.
+
+    Confronta le due sessioni sul VOTO, non su un punteggio continuo: il voto
+    e' quello che la pagina mostra, e una riga che dicesse "meglio il
+    pomeriggio" accanto a due riquadri che dicono la stessa parola sarebbe una
+    contraddizione a dieci centimetri di distanza.
     """
-    head = place_head(place)
+    ordine = {p: i for i, p in enumerate(giudizio.VOTI)}
+    voti = []
+    for key, lab, quando in META_REGIME:
+        name = place_spots(place).get(key)
+        if not name or name not in sessions:
+            continue
+        num = sessione_numeri(name, profile, giorno, live, today)
+        if not num:
+            continue
+        parola, classe = giudizio.voto(num["kn"], num["minuti"], num["spot"])
+        if parola:
+            voti.append((ordine[parola], parola, classe, lab, quando, num))
+    if not voti:
+        return ""
+    voti.sort(reverse=True)
+    top = voti[0]
+    if top[0] == 0:                  # il voto piu' basso di giudizio.VOTI
+        return ('<p class="meglio no">Niente da fare: n\u00e9 la mattina '
+                'n\u00e9 il pomeriggio arrivano a vento navigabile.</p>')
+    if len(voti) > 1 and voti[1][0] == top[0]:
+        return ('<p class="meglio %s">Mattina e pomeriggio si equivalgono: '
+                '<b>%s</b> in entrambe.</p>' % (top[2], E(top[1])))
+    _o, parola, classe, lab, quando, num = top
+    return ('<p class="meglio %s">Meglio <b>%s</b>: %s %s, '
+            'dalle <b>%s</b>.</p>'
+            % (classe, E(quando), E(lab), E(parola), hhmm(num["inizio"])))
+
+
+def adesso_riquadro(place, live, profile):
+    """Quanto tira ADESSO in questa localita', e di quando e' il dato.
+
+    Vale per Torbole e per Malcesine allo stesso modo: la centralina della
+    Fraglia Vela e' letta e salvata da sempre, e non compariva in pagina per
+    una ragione che non era una ragione - la vecchia impaginazione teneva le
+    due localita' nella stessa schermata e il riquadro dell'adesso era uno per
+    entrambe. Con una pagina per localita' la domanda "quanto tira qui" ha una
+    risposta sola, e ce l'hanno tutte e due.
+    """
     cond = sky_words(profile)
     bits = []
     if cond.get("tmax") is not None:
-        bits.append("<b>%.0f \u00b0C</b> aria" % cond["tmax"])
+        bits.append("<b>%.0f \u00b0C</b>" % cond["tmax"])
     if cond.get("sky"):
         bits.append(E(cond["sky"]))
-    # Il cielo e la temperatura vengono dai modelli, non dalla centralina:
-    # stanno FUORI dal blocco che il processo veloce sostituisce, altrimenti
-    # un aggiornamento del dato osservato li cancellerebbe.
     return (
-        head +
+        '<section class="adesso">'
         '<div class="nowblock" data-live-place="%s" data-ts="%s">'
-        '<p class="lbl">Condizioni attuali</p>'
+        '<p class="lbl">Adesso</p>'
         '<div class="nowobs">%s</div></div>'
-        '%s'
+        '%s</section>'
         % (E(place), E((live or {}).get("ts") or ""),
            now_observed_html(live),
-           ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits)) if bits else ""))
+           ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits))
+           if bits else ""))
 
 
 def scarto_line(profile, osservato):
@@ -916,6 +879,70 @@ def scarto_words(sc):
             "stabile": ", stabile"}.get(sc["tendenza"] or "", "")
     return ("alle %02d:00 previsti <b>%.0f kn</b>, misurati <b>%.0f kn</b>: %s%s"
             % (sc["hour"], sc["previsto"], sc["misurato"], verso, coda))
+
+
+# Lo spessore delle quattro curve, in un posto solo.
+#
+# Serve perche' il rapporto fra questi numeri E' l'informazione: quale linea
+# si legge per prima non e' decorazione. Il misurato deve stare davanti al
+# previsto, e la raffica dietro alla media, ma nessuno dei quattro deve essere
+# grosso: su una serie a dieci minuti una linea spessa non e' marcata, e'
+# una lama - il vento reale oscilla, e ogni oscillazione diventa uno spigolo.
+# L'evidenza si prende col CONTRASTO, cioe' sbiadendo la previsione, non
+# ingrossando la misura. Scritto qui una volta, i controlli lo leggono da qui
+# invece di inseguire dei numeri magici.
+TRATTO = {"previsto": 2.8, "previsto_raffica": 2.0,
+          "misurato": 2.2, "misurato_raffica": 1.8}
+# E quanto si sbiadisce la previsione quando accanto c'e' una misura.
+OPACITA_PREVISTO = 0.34
+
+
+def _curva(punti):
+    """Un percorso CURVO che passa per tutti i punti e non inventa massimi.
+
+    Gian: "preferibilmente che sia una curva non una serie di rette
+    spezzate". La tentazione, per ottenerla, e' una spline morbida qualunque -
+    e sarebbe il difetto peggiore che questo grafico potrebbe avere, perche'
+    una spline morbida OLTREPASSA i punti: fra un 16 e un 20 disegna un 21 che
+    nessun modello ha previsto e nessuna centralina ha misurato. Su una pagina
+    che serve a decidere se andare in acqua, un picco inventato e' la cosa
+    peggiore da disegnare.
+
+    Quindi si usa l'interpolazione cubica MONOTONA (Fritsch-Carlson): passa
+    esattamente per ogni punto, e su ogni tratto resta monotona, cioe' non
+    puo' creare un massimo o un minimo che non ci sia nei dati. Dove i dati
+    cambiano verso, la pendenza viene messa a zero e la curva ha il suo
+    estremo esattamente nel punto misurato.
+
+    E il gradino dell'Ora sopravvive: i punti sono onorati uno per uno, quindi
+    una salita di sette nodi in mezz'ora resta una salita di sette nodi in
+    mezz'ora - arrotondata negli spigoli, non spianata.
+    """
+    pts = [(float(x), float(y)) for x, y in punti]
+    if len(pts) < 2:
+        return ""
+    if len(pts) == 2:
+        return "M%.1f,%.1f L%.1f,%.1f" % (pts[0][0], pts[0][1],
+                                          pts[1][0], pts[1][1])
+    n = len(pts)
+    h = [pts[i + 1][0] - pts[i][0] for i in range(n - 1)]
+    d = [((pts[i + 1][1] - pts[i][1]) / h[i] if h[i] else 0.0)
+         for i in range(n - 1)]
+    m = [d[0]] + [0.0] * (n - 2) + [d[-1]]
+    for i in range(1, n - 1):
+        if d[i - 1] * d[i] <= 0:
+            m[i] = 0.0                     # un estremo resta dove e' misurato
+        else:
+            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i])
+    out = ["M%.1f,%.1f" % pts[0]]
+    for i in range(n - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        out.append("C%.1f,%.1f %.1f,%.1f %.1f,%.1f"
+                   % (x0 + h[i] / 3.0, y0 + m[i] * h[i] / 3.0,
+                      x1 - h[i] / 3.0, y1 - m[i + 1] * h[i] / 3.0, x1, y1))
+    return " ".join(out)
 
 
 def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
@@ -988,10 +1015,10 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         p.append('<line x1="%.1f" y1="%g" x2="%.1f" y2="%g" stroke="var(--axis)" '
                  'stroke-width="1" stroke-dasharray="3 4" opacity=".7"/>'
                  % (x(a), pt, x(a), H - pb))
-        p.append('<text x="%.1f" y="%g" font-size="10.5" font-weight="800" '
+        p.append('<text x="%.1f" y="%g" class="t-s" font-weight="800" '
                  'letter-spacing=".1em" fill="var(--ink-2)">%s</text>'
                  % (x(a) + 7, pt - 9, E(band["label"].upper())))
-        p.append('<text x="%.1f" y="%g" font-size="10" fill="var(--ink-3)">'
+        p.append('<text x="%.1f" y="%g" class="t-xs" fill="var(--ink-3)">'
                  '%02d\u2013%02d</text>'
                  % (x(a) + 7, pt + 14, band["from"], band["to"]))
         # Dentro la banda del regime, la fetta in cui si puo' davvero uscire.
@@ -1024,7 +1051,7 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
                 elif largo >= 34:
                     testo = hhmm(utile[0])
                 if testo:
-                    p.append('<text x="%.1f" y="%g" font-size="9.5" '
+                    p.append('<text x="%.1f" y="%g" class="t-xs" '
                              'fill="var(--ink-3)">%s</text>'
                              % (x(ua) + 5, pt + 27, E(testo)))
 
@@ -1038,23 +1065,25 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         # dalla scala, e una scritta in meno non toglie niente.
         if v == 0:
             continue
-        p.append('<text x="%g" y="%.1f" text-anchor="end" font-size="11" '
+        p.append('<text x="%g" y="%.1f" text-anchor="end" class="t-s" '
                  'fill="var(--ink-3)">%d</text>' % (pl - 7, yy + 4, v))
 
-    area = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["wind"])) for r in rows)
-    p.append('<polygon points="%.1f,%.1f %s %.1f,%.1f" fill="url(#%s-g)"%s/>'
-             % (x(hours[0]), H - pb, area, x(hours[-1]), H - pb, chart_id,
+    curva_w = _curva([(x(r["hour"]), y(r["wind"])) for r in rows])
+    p.append('<path d="%s L%.1f,%.1f L%.1f,%.1f Z" fill="url(#%s-g)"%s/>'
+             % (curva_w, x(hours[-1]), H - pb, x(hours[0]), H - pb, chart_id,
                 ' opacity=".45"' if oss_righe else ""))
 
     # Con l'osservato in scena la previsione si fa piu' tenue: le due linee
     # dicono cose diverse - una e' un'ipotesi, l'altra e' una misura - e la
     # misura deve essere quella che si legge per prima.
-    tenue = ' opacity=".5"' if oss_righe else ""
-    gust = " ".join("%.1f,%.1f" % (x(r["hour"]), y(r["gust"])) for r in rows)
-    p.append('<polyline points="%s" fill="none" stroke="var(--gust)" stroke-width="2" '
-             'stroke-dasharray="7 5" stroke-linecap="round"%s/>' % (gust, tenue))
-    p.append('<polyline points="%s" fill="none" stroke="var(--pc)" stroke-width="2.8" '
-             'stroke-linejoin="round" stroke-linecap="round"%s/>' % (area, tenue))
+    tenue = (' opacity="%g"' % OPACITA_PREVISTO) if oss_righe else ""
+    curva_g = _curva([(x(r["hour"]), y(r["gust"])) for r in rows])
+    p.append('<path d="%s" fill="none" stroke="var(--gust)" stroke-width="%g" '
+             'stroke-dasharray="7 5" stroke-linecap="round"%s/>'
+             % (curva_g, TRATTO["previsto_raffica"], tenue))
+    p.append('<path d="%s" fill="none" stroke="var(--pc)" stroke-width="%g" '
+             'stroke-linecap="round"%s/>'
+             % (curva_w, TRATTO["previsto"], tenue))
 
     # L'OSSERVATO: piu' marcato, e si ferma dove finisce il dato. Non viene
     # prolungato fino a "adesso" ne' interpolato sui buchi: il senso di questa
@@ -1072,31 +1101,40 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         w_oss = [(r["hour"], r["wind"]) for r in serie if r.get("wind") is not None]
         g_oss = [(r["hour"], r["gust"]) for r in serie if r.get("gust") is not None]
         if len(g_oss) >= 2:
-            p.append('<polyline points="%s" fill="none" stroke="var(--gust)" '
-                     'stroke-width="2.6" stroke-dasharray="3 3" '
+            p.append('<path d="%s" fill="none" stroke="var(--gust)" '
+                     'stroke-width="%g" stroke-dasharray="4 3" '
                      'stroke-linecap="round"/>'
-                     % " ".join("%.1f,%.1f" % (x(h), y(v)) for h, v in g_oss))
+                     % (_curva([(x(h), y(v)) for h, v in g_oss]),
+                        TRATTO["misurato_raffica"]))
         if len(w_oss) >= 2:
-            p.append('<polyline points="%s" fill="none" stroke="var(--pc)" '
-                     'stroke-width="3.6" stroke-linejoin="round" '
-                     'stroke-linecap="round"/>'
-                     % " ".join("%.1f,%.1f" % (x(h), y(v)) for h, v in w_oss))
+            p.append('<path d="%s" fill="none" stroke="var(--pc)" '
+                     'stroke-width="%g" stroke-linecap="round"/>'
+                     % (_curva([(x(h), y(v)) for h, v in w_oss]),
+                        TRATTO["misurato"]))
         # Un punto pieno sull'ultima misura: e' il "fin qui" della realta'.
         if w_oss:
             hh, vv = w_oss[-1]
             p.append('<circle cx="%.1f" cy="%.1f" r="3.6" fill="var(--pc)" '
                      'stroke="var(--card)" stroke-width="2"/>' % (x(hh), y(vv)))
-            p.append('<text x="%.1f" y="%.1f" font-size="10.5" font-weight="800" '
-                     'fill="var(--pc)" text-anchor="%s">misurato</text>'
-                     % (x(hh) + (7 if hh < hours[-1] - 2 else -7), y(vv) + 16,
-                        "start" if hh < hours[-1] - 2 else "end"))
+            # Sopra il punto, non accanto: a destra ci sono le etichette di
+            # fine linea, e due scritte sovrapposte non dicono nessuna delle
+            # due. Verso l'alto c'e' sempre spazio, perche' sopra l'ultimo
+            # misurato non passa nessuna curva.
+            # Sotto il punto se sta nella meta' alta della tela, sopra
+            # altrimenti: cosi' non finisce mai addosso al picco previsto,
+            # che porta la sua scritta sopra di se'.
+            alto = y(vv) < (pt + H - pb) / 2.0
+            p.append('<text x="%.1f" y="%.1f" class="t-s" font-weight="800" '
+                     'fill="var(--pc)" text-anchor="middle">misurato</text>'
+                     % (min(max(x(hh), pl + 24), W - pr - 24),
+                        y(vv) + (19 if alto else -11)))
 
     hi = max(rows, key=lambda r: r["wind"])
     op_picco = ' opacity=".55"' if oss_righe else ""
     p.append('<circle cx="%.1f" cy="%.1f" r="4.5" fill="var(--pc)" '
              'stroke="var(--card)" stroke-width="2.5"%s/>'
              % (x(hi["hour"]), y(hi["wind"]), op_picco))
-    p.append('<text x="%.1f" y="%.1f" font-size="12.5" font-weight="800" '
+    p.append('<text x="%.1f" y="%.1f" class="t-m" font-weight="800" '
              'fill="var(--pc)"%s>%.0f kn</text>'
              % (x(hi["hour"]) + 8, y(hi["wind"]) - 8, op_picco, hi["wind"]))
     # Etichette dirette a fine linea. A fine giornata medio e raffica possono
@@ -1109,9 +1147,9 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         mid = (ly_w + ly_g) / 2.0
         ly_g, ly_w = mid - 6.5, mid + 6.5
     lx = x(last["hour"]) + 6
-    p.append('<text x="%.1f" y="%.1f" font-size="11" font-weight="700" '
+    p.append('<text x="%.1f" y="%.1f" class="t-s" font-weight="700" '
              'fill="var(--pc)">medio</text>' % (lx, ly_w))
-    p.append('<text x="%.1f" y="%.1f" font-size="11" font-weight="700" '
+    p.append('<text x="%.1f" y="%.1f" class="t-s" font-weight="700" '
              'fill="var(--gust)">raffica</text>' % (lx, ly_g))
 
     ay = H - pb + 22
@@ -1126,7 +1164,7 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
 
     for h in hours:
         if h % 2 == 0:
-            p.append('<text x="%.1f" y="%g" text-anchor="middle" font-size="11" '
+            p.append('<text x="%.1f" y="%g" text-anchor="middle" class="t-s" '
                      'fill="var(--ink-3)">%02d</text>' % (x(h), H - pb + 4, h))
 
     p.append('<line id="%s-cross" x1="0" y1="%g" x2="0" y2="%g" stroke="var(--axis)" '
@@ -1141,12 +1179,11 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
                  'stroke="var(--ink-2)" stroke-width="1.5" '
                  'stroke-dasharray="2 3" opacity="0"/>' % (chart_id, pt, H - pb))
         p.append('<text id="%s-nowlab" x="0" y="%g" text-anchor="middle" '
-                 'font-size="10" font-weight="800" letter-spacing=".08em" '
+                 'class="t-xs" font-weight="800" letter-spacing=".08em" '
                  'fill="var(--ink-2)" opacity="0">ADESSO</text>'
                  % (chart_id, H - pb + 36))
 
     _sc = scarto_line(rows, osservato) if oss_righe else None
-    _fonte = (osservato or {}).get("raffica_fonte") or "massimo dell'ora"
     payload = [{"h": r["hour"],
                 place: [round(r["wind"], 1), round(r["gust"], 1),
                         compass(r.get("dir"))]} for r in rows]
@@ -1175,8 +1212,7 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
         '<span style="color:var(--ink-3)"><i class="box" '
         'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
-        '%s'
-        '<span>frecce: da dove viene</span>%s</div>'
+        '%s%s</div>'
         '<details class="tbl"><summary>i numeri, %s</summary>'
         '<div class="scroller"><table><tr><th>Ora</th><th class="num">Medio</th>'
         '<th class="num">Raffica</th><th class="num">Da</th></tr>%s</table></div>'
@@ -1200,103 +1236,13 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
            ('<span style="color:var(--ink-3)"><i class="box" '
             'style="background:currentColor;opacity:1"></i>finestra utile'
             '</span>') if disegnata_utile else "",
-           ('<span>linea piena spessa: misurato (raffica: %s) &middot; '
-            'linea tenue: previsto</span>' % E(_fonte)) if oss_righe else "",
+           # Corto: la definizione della raffica misurata sta nel cassetto
+           # dei dettagli, non in legenda.
+           ('<span>pieno: misurato &middot; tenue: previsto</span>')
+           if oss_righe else "",
            "passo per passo" if passo_fine else "ora per ora",
            body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
-
-
-def half_cards(place, sessions, live=None, today=False):
-    """La card compatta dell'Ora. Il Peler ha la sua, sopra.
-
-    Non e' una scelta grafica: la vecchia card mattina diceva meno di quello
-    che sappiamo adesso sul Peler, e tenere entrambe sarebbe stato scrivere
-    due volte la stessa giornata con due livelli di dettaglio diversi.
-    """
-    spots = place_spots(place)
-    cards = []
-    for key, lab, when in META_REGIME:
-        if key == "PELER":
-            continue
-        name = spots.get(key)
-        data = sessions.get(name) if name else None
-        if not data:
-            continue
-        spot = config.SPOTS[name]
-        cls, word = quality(data, spot, live, today)
-        h0, h1 = spot["window"]
-        win = data.get("window")
-        # I minuti compaiono SOLO se esiste una finestra di ingresso con
-        # copertura misurata a questa scadenza. Senza quella misura si scrive
-        # l'ora piena: e' meno preciso ed e' vero, mentre "meglio 14:20-17:40"
-        # senza copertura nota e' preciso e non si sa se e' vero.
-        ing = data.get("ingresso")
-        if win and ing and win.get("from_min") is not None:
-            wtxt = "meglio %s\u2013%s" % (hhmm(win["from_min"]), hhmm(win["to_min"]))
-        elif win:
-            wtxt = "meglio fra le %02d e le %02d" % (win["from"], win["to"])
-        else:
-            wtxt = "nessuna finestra"
-        prob = int(round(100.0 * clamp(data.get("prob") or 0.0, 0.0, 1.0)))
-        cards.append(
-            '<div class="half"><div class="h">%s \u00b7 %s</div>'
-            '<div class="when">%02d:00 \u2013 %02d:00</div>'
-            '<div class="q q-%s"><i></i>%s</div>'
-            '<div class="kn">%.0f\u2013%.0f <small>kn</small></div>'
-            '<div class="win">%s</div>'
-            '<div class="probline">Probabilit\u00e0 <b>%d%%</b></div></div>'
-            % (E(when.upper()), E(lab), h0, h1 + 1, cls, E(word),
-               data["lo"], data["hi"], E(wtxt), prob))
-    return '<div class="halves single">%s</div>' % "".join(cards) if cards else ""
-
-
-def best_callout(place, sessions, live=None, today=False):
-    """Una frase: dove sta la giornata. E se non c'e', lo dice."""
-    spots = place_spots(place)
-
-    # Oggi la realta' ha la precedenza sul giudizio emesso stanotte. E' solo
-    # stato corrente: non corregge la curva futura, che sarebbe il nowcast -
-    # e quel banco e' chiuso, perche' contro la persistenza pura non guadagna.
-    for key, lab, _when in META_REGIME:
-        name = spots.get(key)
-        if not name or name not in sessions:
-            continue
-        misurato = live_regime_state(live, config.SPOTS[name], today)
-        if misurato:
-            return ('<div class="callout %s"><div class="big %s">'
-                    '%s adesso \u00b7 %.0f kn</div></div>'
-                    % (misurato["cls"], misurato["cls"], E(lab),
-                       misurato["wind"]))
-
-    best = None
-    for key, lab, when in META_REGIME:
-        name = spots.get(key)
-        data = sessions.get(name) if name else None
-        if not data:
-            continue
-        spot = config.SPOTS[name]
-        cls, _word = quality(data, spot)
-        score = (data.get("prob") or 0.0) * min(
-            (data.get("speed") or 0.0) / spot["planing_kn"], 1.6)
-        if best is None or score > best[0]:
-            best = (score, cls, lab, when, data, spot)
-    if best is None:
-        return ('<div class="callout no"><div class="big no">Nessun dato</div>'
-                '<p>Per questo giorno non c\u2019\u00e8 ancora una previsione.</p></div>')
-    _score, cls, lab, when, data, spot = best
-    if cls == "no":
-        return ('<div class="callout no"><div class="big no">Niente da fare</div>'
-                '<p>N\u00e9 la mattina n\u00e9 il pomeriggio arrivano a vento '
-                'navigabile.</p></div>')
-    win = data.get("window") or {}
-    gust = (" \u00b7 raffiche fino a <b>%.0f kn</b>" % win["gust"]) if win.get("gust") else ""
-    hint = engine.wing_hint(data.get("speed") or 0.0)
-    wing = (" \u00b7 wing %s" % E(hint)) if hint and (data.get("prob") or 0) >= 0.4 else ""
-    return ('<div class="callout %s"><div class="big %s">Meglio %s</div>'
-            '<p>%s fino a <b>%.0f kn</b>%s%s</p></div>'
-            % (cls, cls, E("la mattina" if when == "mattina" else "nel pomeriggio"),
-               E(lab), data.get("speed") or 0.0, gust, wing))
 
 
 # La finestra si mostra con i suoi estremi in orologio, non come "±35 min", e
@@ -1314,42 +1260,6 @@ def timing_words(half_min):
         if half_min <= soglia:
             return parola
     return None
-
-
-def timing_line(place, sessions):
-    """La seconda voce, indipendente dalla prima: a che ora entra.
-
-    Qui NON compare l'errore medio del modello. Un "\u00b180 min" e' una
-    misura vera che come informazione operativa non serve a niente: chi deve
-    decidere se partire da casa non sa cosa farne. Al suo posto c'e' la
-    finestra di ingresso con la sua COPERTURA misurata - quanti ingressi reali
-    cadono davvero dentro - e quando quella misura non esiste, o non batte il
-    climatologico, si dichiara la fascia larga e si dice che l'orario e'
-    incerto. L'errore medio resta in diagnostica, che e' il posto dove serve.
-    """
-    spots = place_spots(place)
-    best = None
-    for key, _lab, _when in META_REGIME:
-        name = spots.get(key)
-        data = sessions.get(name) if name else None
-        if not data:
-            continue
-        ing = data.get("ingresso")
-        if ing and (best is None or ing["half_min"] < best[0]["half_min"]):
-            best = (ing, name)
-    if best:
-        ing = best[0]
-        parola = timing_words(ing["half_min"])
-        if parola:
-            return ('<div class="tmline tm-%d"><i></i><span>Ingresso pi\u00f9 probabile '
-                    '<b>%s</b> \u00b7 finestra %s\u2013%s \u00b7 affidabilit\u00e0 timing '
-                    '<b>%s</b></span></div>'
-                    % (3 if ing["half_min"] <= TIMING_PAROLA[0][0] else 2,
-                       hhmm(ing["min"], 5),
-                       hhmm(ing["min"] - ing["half_min"], 5),
-                       hhmm(ing["min"] + ing["half_min"], 5), E(parola)))
-    return ('<div class="tmline tm-1"><i></i><span>Orario <b>incerto</b> \u2014 '
-            'vale la fascia, non un\u2019ora precisa</span></div>')
 
 
 def regime_bands(place, giorno=None):
@@ -1400,101 +1310,85 @@ def source_note(place, sessions):
     return ""
 
 
-def place_section(place, index, entry, visible):
-    """Una sezione per luogo: adesso, poi il grafico, poi il giudizio."""
-    sessions = entry["sessions"]
+def sezione_giorno(place, entry, visible):
+    """Un giorno: i due riquadri, la riga del meglio, poi il grafico grande.
+
+    L'ordine non e' casuale. Prima il verdetto, perche' e' quello che si legge
+    stando in piedi col telefono in mano; poi il grafico, che e' l'elemento
+    piu' grande della pagina e quello che risponde alla domanda dopo - non "si
+    naviga" ma "a che ora, e per quanto".
+    """
     pl = entry["places"][place]
     today = (entry.get("day") == local_day(utc_now()))
     live = pl.get("live")
+    profile = pl.get("profile") or []
     return (
-        '<section class="place p%d" data-day="%d" data-place="%s"%s>'
-        '<div class="placehead">%s</div>'
-        '<div class="pgrid">'
-        '<div class="pchart"><p class="lbl">Previsione vento</p>'
-        '<h3>%s</h3>%s</div>'
-        '<div class="pjudge">%s%s%s%s</div></div></section>'
-        % (index + 1, entry["_i"], E(place), "" if visible else " hidden",
-           place_head(place),
-           E(day_title(entry["day"], entry["lead"])[1]),
-           place_chart(place, pl.get("profile") or [],
+        '<section class="giorno" data-day="%d"%s>'
+        '%s%s'
+        '<div class="grafico">%s</div>'
+        '%s</section>'
+        % (entry["_i"], "" if visible else " hidden",
+           riquadri(place, profile, entry["sessions"], entry.get("day"),
+                    live, today),
+           riga_meglio(place, profile, entry["sessions"], entry.get("day"),
+                       live, today),
+           place_chart(place, profile,
                        regime_bands(place, entry.get("day")),
-                       "c%d%d" % (entry["_i"], index),
-                       oggi=today,
-                       osservato=pl.get("osservato")),
-           # source_note NON e' prosa tecnica: in esercizio normale e' una
-           # stringa vuota, perche' parla solo quando la previsione NON e'
-           # calibrata su quella centralina - a macchina fredda, dove i
-           # numeri vengono da una stima fisica e non da un modello
-           # addestrato. Togliendola, il primo avvio mostrerebbe numeri
-           # senza dire che non sono ancora tarati.
-           source_note(place, sessions),
-           best_callout(place, sessions, live, today),
-           peler_card(place, pl.get("profile") or [], sessions,
-                      entry.get("day"), live, today),
-           half_cards(place, sessions, live, today)))
+                       "c%s%d" % (_slug(place), entry["_i"]),
+                       oggi=today, osservato=pl.get("osservato")),
+           source_note(place, entry["sessions"])))
 
 
-def week_strip(days):
-    """Cinque giorni, compatti. Cliccando si cambia il giorno mostrato sopra."""
+def _data_breve(day):
+    """sab 20/09. Niente "domani" e niente "dopodomani".
+
+    Era la scritta piu' letta della pagina ed era la meno utile: "domani" lo
+    sa gia' chi guarda, e a due giorni di distanza "dopodomani" costringe a
+    fare il conto per capire se e' il sabato in cui si e' liberi. La data lo
+    dice e non chiede niente. "Oggi" resta, perche' quello e' un ancoraggio:
+    dice da dove si conta.
+    """
+    dt = parse_dt_any(day + " 12:00:00")
+    oggi = local_day(utc_now())
+    if day == oggi:
+        return "oggi", "%02d/%02d" % (dt.day, dt.month)
+    return (GIORNI[dt.weekday()][:3], "%02d/%02d" % (dt.day, dt.month))
+
+
+def striscia_giorni(place, days):
+    """I cinque giorni, con la data. Cliccando si cambia il giorno mostrato."""
     cards = []
     for i, entry in enumerate(days):
-        sessions = entry["sessions"]
-        name, date = day_title(entry["day"], entry["lead"])
-        dt = parse_dt_any(entry["day"] + " 12:00:00")
-        best = None
-        for place in config.PLACES:
-            for n in place_spots(place).values():
-                d = sessions.get(n)
-                if not d:
-                    continue
-                spot = config.SPOTS[n]
-                score = (d.get("prob") or 0) * min(
-                    (d.get("speed") or 0) / spot["planing_kn"], 1.6)
-                if best is None or score > best[0]:
-                    best = (score, d, spot, config.SPOTS[n]["regime"])
-        if best:
-            _s, d, spot, regime = best
-            kn = ('%.0f <small>/ %.0f kn</small>'
-                  % (d.get("speed") or 0, (d.get("window") or {}).get("gust")
-                     or (d.get("speed") or 0) * 1.35))
-            # Il numero e' il migliore dei due luoghi: senza dire QUALE, la
-            # riga sarebbe una media di niente.
-            bestxt = "%s \u00b7 %s" % (
-                spot["place"],
-                "meglio la mattina" if regime == "PELER" else "meglio il pomeriggio")
-            if quality(d, spot)[0] == "no":
-                bestxt = "nessuna finestra"
-        else:
-            kn, bestxt = "\u2014", ""
-        # Nella striscia va la probabilita' del regime, che e' un numero che
-        # esiste; l'affidabilita' alla scadenza resta una parola e sta dentro
-        # la scheda, dove si guarda dopo aver scelto il giorno. Sono due cose
-        # diverse e nessuna delle due e' una percentuale di "quanto ci
-        # azzecchiamo": quella non la misuriamo e non la scriviamo.
-        confs = []
-        for place in config.PLACES:
-            vals = [sessions[n].get("prob")
-                    for n in place_spots(place).values()
-                    if n in sessions and sessions[n].get("prob") is not None]
-            if vals:
-                pct = int(round(100.0 * clamp(max(vals), 0.0, 1.0)))
-                confs.append('<div>%s \u00b7 %d%%</div>' % (E(place), pct))
+        pl = entry["places"][place]
+        profile = pl.get("profile") or []
+        today = (entry.get("day") == local_day(utc_now()))
+        migliore, kn = None, None
+        for key, _lab, _quando in META_REGIME:
+            name = place_spots(place).get(key)
+            if not name or name not in entry["sessions"]:
+                continue
+            num = sessione_numeri(name, profile, entry.get("day"),
+                                  pl.get("live"), today)
+            if not num:
+                continue
+            parola, classe = giudizio.voto(num["kn"], num["minuti"],
+                                           num["spot"])
+            rango = giudizio.VOTI.index(parola) if parola else -1
+            if migliore is None or rango > migliore[0]:
+                migliore, kn = (rango, parola, classe), num["kn"]
+        giorno_txt, data_txt = _data_breve(entry["day"])
         cards.append(
-            '<button class="dcard" type="button" data-goto="%d" aria-current="%s">'
-            '<div class="dd">%s</div><div class="dl">%s</div>'
-            '<div class="dk">%s</div><div class="dbest">%s</div>'
-            '<div class="dconf">%s</div></button>'
-            % (i, "true" if i == 0 else "false", E(name),
-               "%s %d" % (GIORNI[dt.weekday()][:3], dt.day),
-               kn, E(bestxt), "".join(confs)))
-    return ('<section class="week"><div class="whead">'
-            '<h2 class="display">Previsione 5 giorni</h2>'
-            '<div class="wlegend">'
-            '<span><i style="background:var(--good)"></i>buono per wing</span>'
-            '<span><i style="background:var(--warn)"></i>discreto</span>'
-            '<span><i style="background:var(--crit)"></i>scarso</span>'
-            '</div></div><div class="days">%s</div></section>'
-            % "".join(cards))
+            '<button class="gcard%s" type="button" data-goto="%d" '
+            'aria-current="%s"><span class="gg">%s</span>'
+            '<span class="gd">%s</span>'
+            '<span class="gk">%s</span>'
+            '<span class="gv q-%s">%s</span></button>'
+            % (" oggi" if today else "", i, "true" if i == 0 else "false",
+               E(giorno_txt), E(data_txt),
+               ("%.0f <small>kn</small>" % kn) if kn is not None else "\u2014",
+               migliore[2] if migliore else "off",
+               E(migliore[1]) if migliore else "\u2014"))
+    return '<nav class="giorni" aria-label="giorni">%s</nav>' % "".join(cards)
 
 
 def sources_panel():
@@ -1703,34 +1597,149 @@ def _live_vars(attivo=True):
     }
 
 
-def page_home():
+def _slug(place):
+    """Il nome del file di una localita'. Torbole -> index, le altre -> nome.
+
+    La prima di config.PLACES e' la pagina d'ingresso: aggiungere una
+    localita' vuol dire aggiungere una riga a config.PLACES, e la pagina, la
+    navigazione e il file nascono da la'. Era il senso della richiesta di
+    Gian - "cosi' se volessimo aumentare il numero di localita' sarebbe piu'
+    facile" - e non e' una comodita' di scrittura: e' che una localita' in
+    piu' non deve poter comparire in navigazione e non avere una pagina, o
+    avere una pagina che nessun collegamento raggiunge.
+    """
+    if place == config.PLACES[0]:
+        return "index"
+    return (place.lower().replace(" ", "-")
+            .replace("\u00e0", "a").replace("\u00e8", "e").replace("\u00ec", "i")
+            .replace("\u00f2", "o").replace("\u00f9", "u"))
+
+
+def nav_luoghi(corrente, suffisso=""):
+    """Le localita' come linguette. Una sola riga, nessuna parola in piu'."""
+    voci = []
+    for place in config.PLACES:
+        href = ("/" if _slug(place) == "index"
+                else "/" + _slug(place)) if not suffisso else (
+            _slug(place) + suffisso)
+        voci.append('<a href="%s"%s>%s</a>'
+                    % (E(href),
+                       ' aria-current="page"' if place == corrente else "",
+                       E(place)))
+    return '<nav class="luoghi">%s</nav>' % "".join(voci)
+
+
+def dettagli_panel(place, days):
+    """Tutto quello che prima stava sparso nella pagina, chiuso in un cassetto.
+
+    Gian: "eliminiamo tutte le scritte inutili, sono troppe". Aveva ragione, e
+    il modo di dargliela non e' cancellare: le frasi che tenevano in piedi la
+    fiducia - da dove vengono i numeri, quanto valgono, perche' la mattina si
+    giudica in un altro modo - erano le stesse che rendevano la pagina un
+    muro. Qui stanno dietro una riga sola: chi non tocca non legge niente, chi
+    vuole sapere trova tutto.
+    """
+    entry = days[0] if days else None
+    righe = []
+    for key, lab, _quando in META_REGIME:
+        name = place_spots(place).get(key)
+        data = (entry or {}).get("sessions", {}).get(name) if name else None
+        if not data:
+            continue
+        conf = data.get("affidabilita")
+        pct = giudizio.affidabilita(data.get("prob"), conf)
+        righe.append("<li><b>%s</b>: %s</li>"
+                     % (E(lab), giudizio.affidabilita_parole(pct, conf)))
+    spot = config.SPOTS[place_spots(place).get("ORA")
+                        or list(place_spots(place).values())[0]]
+    return (
+        '<details class="dettagli"><summary>dettagli</summary>'
+        '<div class="dcont">'
+        '<h3>Il voto</h3>'
+        '<p>Viene da due cose: quanti nodi e per quanto tempo, dentro la '
+        'finestra in cui si pu\u00f2 davvero essere in acqua \u2014 regime, ora '
+        'praticabile e luce, il vincolo pi\u00f9 stretto vince. '
+        '%s '
+        'La rafficosit\u00e0 non entra nel voto: il rapporto raffica/media non '
+        '\u00e8 ancora validato su questo lago, e un ingrediente non validato '
+        'che sposta un voto \u00e8 un voto che non sappiamo difendere.</p>'
+        '<h3>L\u2019affidabilit\u00e0</h3>'
+        '<p>Non \u00e8 \u201cquanto \u00e8 giusta la previsione\u201d, che non '
+        '\u00e8 nemmeno una domanda ben posta. \u00c8 la probabilit\u00e0 che il '
+        'verdetto <i>si naviga / non si naviga</i> sia quello giusto, e viene '
+        'dalla probabilit\u00e0 del regime \u2014 che \u00e8 addestrata sullo '
+        'storico della centralina e verificata fuori campione \u2014 meno '
+        'l\u2019errore di calibrazione misurato a quella scadenza. Dove non '
+        'c\u2019\u00e8 verifica non scriviamo un numero.</p>'
+        '<ul>%s</ul>'
+        '<h3>La mattina e il pomeriggio</h3>'
+        '<p>Il Pel\u00e8r e l\u2019Ora sono due venti diversi con due modelli '
+        'diversi, e nella pagina hanno riquadri uguali perch\u00e9 contano '
+        'uguale. Quello che li distingue \u00e8 che la <i>forma</i> della curva '
+        'dice com\u2019\u00e8 fatta una giornata, non quale giornata sar\u00e0: '
+        'quella la decide il livello.</p>'
+        '<h3>Il misurato</h3>'
+        '<p>Nel grafico di oggi la linea piena \u00e8 la centralina, campione '
+        'per campione; la previsione dietro si sbiadisce. La raffica misurata '
+        '\u00e8 quella <i>ricorrente</i> sui trenta minuti \u2014 la raffica che '
+        'torna, non il colpo singolo \u2014 perch\u00e9 \u00e8 la stessa grandezza '
+        'della scheda, e due righe con lo stesso nome e due definizioni fanno '
+        'leggere un numero per un altro. Si usa una fonte sola per giornata: '
+        'un cambio di canale a met\u00e0 giornata si vede come un salto che '
+        'non \u00e8 vento.</p>'
+        '<h3>Da dove arrivano i numeri</h3>'
+        '<p>Nessuna previsione altrui viene ricopiata: i modelli grezzi entrano '
+        'come ingredienti, e la previsione \u00e8 ricalcolata e corretta con lo '
+        'storico misurato delle centraline. Centraline, modelli, pesi e '
+        'quanto sbaglia: <a href="/diagnostica">dati e modelli</a>.</p>'
+        '</div></details>'
+        % (giudizio.scala_parole(spot), "".join(righe)))
+
+
+def page_luogo(place=None):
+    """La pagina di UNA localita'.
+
+    Prima era una pagina sola con dentro tutte le localita', una sotto
+    l'altra, e ogni giorno moltiplicava le sezioni: cinque giorni per due
+    luoghi erano dieci sezioni nello stesso documento, di cui nove nascoste.
+    Con una pagina per localita' restano cinque, e la terza localita' non
+    raddoppia niente.
+    """
+    place = place or config.PLACES[0]
     engine.ensure_update(False)
     days = engine.by_day()[:MAX_GIORNI]
     for i, entry in enumerate(days):
         entry["_i"] = i
-    text, cls = status_line()
     live_txt, live_cls = live_summary(days)
 
     if not days:
-        body = ('<div class="panel"><div class="empty">Sto raccogliendo i dati\u2026'
-                '</div></div>')
+        body = ('<div class="panel"><div class="empty">Sto raccogliendo i '
+                'dati\u2026</div></div>')
     else:
-        sezioni = "".join(
-            place_section(place, pi, entry, visible=(entry["_i"] == 0))
-            for entry in days
-            for pi, place in enumerate(config.PLACES))
-        body = current_conditions_panel(days[0]) + sezioni + week_strip(days)
+        pl = days[0]["places"][place]
+        body = (adesso_riquadro(place, pl.get("live"), pl.get("profile") or [])
+                + striscia_giorni(place, days)
+                + "".join(sezione_giorno(place, entry, visible=(i == 0))
+                          for i, entry in enumerate(days))
+                + dettagli_panel(place, days))
 
     valori = {
-        "title": "Garda Wind",
-        "css": CSS, "status": E(text), "dotcls": cls,
+        "title": "%s \u00b7 vento" % place,
+        "css": CSS, "place": E(place),
+        "pcls": "p%d" % (config.PLACES.index(place) + 1),
+        "luoghi": nav_luoghi(place),
         "live": E(live_txt), "livecls": live_cls,
-        "nav": '<a href="/diagnostica">dati e modelli</a> · <a href="/aggiorna">aggiorna</a>',
         "body": body,
         "reload": 8000 if engine.STATE["running"] else 900000,
     }
     valori.update(_live_vars(True))
     return TEMPLATE % valori
+
+
+# Il nome vecchio resta come porta d'ingresso: la prima localita'.
+def page_home():
+    return page_luogo(config.PLACES[0])
+
 
 # --------------------------------------------------------------------------
 # Diagnostica
@@ -1944,12 +1953,12 @@ def page_diagnostics():
                     E(e["level"] or ""), E(e["scope"] or ""), E(e["message"] or "")))
     r.append("</table></div>")
 
-    text, cls = status_line()
+    text, _cls = status_line()
     valori = {
         "title": "Diagnostica",
-        "css": CSS, "status": E(text), "dotcls": cls,
-        "live": "diagnostica", "livecls": "",
-        "nav": '<a href="/">previsione</a> · <a href="/aggiorna?deep=1">ricalcola</a>',
+        "css": CSS, "place": "Diagnostica", "pcls": "",
+        "luoghi": nav_luoghi(None),
+        "live": E(text), "livecls": "",
         "body": sources_panel() + "".join(r),
         "reload": 600000,
     }
@@ -1968,25 +1977,17 @@ Riaprila quando vuoi dall’icona dell’app.</p></body></html>"""
 TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>%(title)s</title><style>%(css)s</style></head><body>
-<header><div class="wrap"><div class="hbar">
-<div class="brand">
-<svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
-<path d="M3 27 L13 9 L23 27 Z" fill="var(--s1)"/>
-<path d="M17 27 L25 13 L33 27 Z" fill="var(--s2)" opacity=".9"/>
-<path d="M2 31 C9 28 14 34 20 31 C26 28 31 33 36 30" fill="none" stroke="var(--ink-3)"
- stroke-width="2" stroke-linecap="round"/></svg>
-<h1 class="display">Garda<em>Wind</em><span class="sub">Lago di Garda &middot;
-previsioni vento per wing</span></h1>
-</div>
-<div class="status"><span class="when">%(status)s</span>
+<title>%(title)s</title><style>%(css)s</style></head>
+<body class="%(pcls)s">
+<header><div class="wrap">
+<div class="hbar">%(luoghi)s
 <span class="live"><span class="dot %(livecls)s" id="gwdot"></span
-><span id="gwlive">%(live)s</span></span><br>%(nav)s</div>
-</div></div></header>
+><span id="gwlive">%(live)s</span></span>
+</div>
+</div></header>
 <main class="wrap">%(body)s</main>
-<footer class="wrap">Previsione corretta sullo storico delle centraline di Torbole e
-Malcesine. &nbsp;&middot;&nbsp; <a href="/diagnostica">quanto sbaglia</a>
-&nbsp;·&nbsp; <a href="/spegni">chiudi Garda Wind</a></footer>
+<footer class="wrap"><a href="/diagnostica">dati e modelli</a>
+&nbsp;·&nbsp; <a href="/spegni">chiudi</a></footer>
 <script>
 function gwChart(id,data,W,pl,pr,h0,h1){
   var svg=document.getElementById(id); if(!svg||!data.length) return;
@@ -2023,22 +2024,18 @@ function gwChart(id,data,W,pl,pr,h0,h1){
    successive come se la funzione fosse sempre stata li'. */
 (window.gwq||[]).forEach(function(a){gwChart.apply(null,a)});
 window.gwq={push:function(a){gwChart.apply(null,a)}};
-/* La striscia dei giorni cambia il giorno mostrato sopra. Tutti i giorni sono
-   gia' nella pagina: nessuna richiesta, funziona anche senza rete. */
+/* La striscia dei giorni scopre la sezione di quel giorno. Tutti i giorni
+   sono gia' nella pagina: nessuna richiesta, funziona anche senza rete. */
 document.addEventListener('click',function(ev){
-  var b=ev.target.closest ? ev.target.closest('.dcard') : null;
+  var b=ev.target.closest ? ev.target.closest('.gcard') : null;
   if(!b) return;
   var i=b.getAttribute('data-goto');
-  var cards=document.querySelectorAll('.dcard');
+  var cards=document.querySelectorAll('.gcard');
   for(var c=0;c<cards.length;c++)
     cards[c].setAttribute('aria-current', cards[c]===b ? 'true':'false');
-  var secs=document.querySelectorAll('.place');
+  var secs=document.querySelectorAll('.giorno');
   for(var s=0;s<secs.length;s++)
     secs[s].hidden = (secs[s].getAttribute('data-day')!==i);
-  var current=document.getElementById('current-panel');
-  if(current) current.hidden = (i!=='0');
-  var first=(i==='0' && current) ? current : document.querySelector('.place:not([hidden])');
-  if(first) first.scrollIntoView({block:'start',behavior:'smooth'});
 });
 /* ----------------------------------------------------------------------
    L'ADESSO, separato dalla previsione.
@@ -2252,7 +2249,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, json.dumps(engine.full_product(), default=str),
                               "application/json; charset=utf-8")
         if u.path == "/":
-            return self._send(200, page_home())
+            return self._send(200, page_luogo(config.PLACES[0]))
+        # Una rotta per localita', ricavata da config.PLACES come tutto il
+        # resto: aggiungerne una non richiede di aggiungere un indirizzo.
+        for place in config.PLACES:
+            if u.path == "/" + _slug(place):
+                return self._send(200, page_luogo(place))
         return self._send(404, "non trovato", "text/plain; charset=utf-8")
 
 

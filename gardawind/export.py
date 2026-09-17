@@ -35,6 +35,14 @@ def _staticize(html_text):
         html_text = pattern.sub(repl, html_text)
     for a, b in _LINKS:
         html_text = html_text.replace(a, b)
+    # La navigazione fra localita' diventa relativa. Si ricava da
+    # config.PLACES, come la navigazione stessa: se un giorno si aggiunge una
+    # localita', qui non c'e' niente da ricordarsi di cambiare - ed e' il
+    # punto della richiesta, perche' una voce di menu senza pagina dietro e'
+    # un vicolo cieco che nessun controllo prenderebbe.
+    for place in config.PLACES:
+        slug = web._slug(place)
+        html_text = html_text.replace('href="/%s"' % slug, 'href="%s.html"' % slug)
     return html_text
 
 
@@ -71,14 +79,22 @@ def export(directory, with_json=True):
     url_prima = web.LIVE_URL
     web.LIVE_URL = config.LIVE_JSON_URL or web.LIVE_URL
     try:
-        home = _staticize(web.page_home())
+        # Una pagina per localita', e i nomi dei file li decide web._slug:
+        # la prima di config.PLACES e' index.html, le altre portano il proprio
+        # nome. Cosi' la navigazione e i file vengono dalla stessa lista, e non
+        # possono raccontare due strutture diverse.
+        pagine = [(web._slug(place) + ".html",
+                   _staticize(web.page_luogo(place)))
+                  for place in config.PLACES]
     finally:
         web.LIVE_URL = url_prima
-    home = home.replace('<main class="wrap">', '<main class="wrap">' + _banner(built_local))
+    pagine = [(nome, testo.replace('<main class="wrap">',
+                                   '<main class="wrap">' + _banner(built_local)))
+              for nome, testo in pagine]
     diag = _staticize(web.page_diagnostics())
 
     written = []
-    for name, content in (("index.html", home), ("diagnostica.html", diag)):
+    for name, content in pagine + [("diagnostica.html", diag)]:
         path = os.path.join(directory, name)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(content)

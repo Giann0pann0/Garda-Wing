@@ -9,13 +9,25 @@ store.init()
 
 # esportazione a freddo: non deve esplodere con il database vuoto
 paths = X.export("/tmp/sitotest")
-# index.html, diagnostica.html, live.json, previsione.json. live.json e' il
-# dato osservato, che dalla Fase 2 sta in un file suo: la pagina lo rilegge da
-# sola invece di invecchiare insieme alla previsione.
-ok(len(paths) == 4, "quattro file scritti anche a database vuoto (%d)" % len(paths))
+# Una pagina per localita', piu' diagnostica.html, live.json e
+# previsione.json. Il conteggio si ricava da config.PLACES e non e' scritto a
+# mano: una localita' in piu' non deve fare cadere un controllo che parla
+# d'altro, e soprattutto non deve poter NON avere la sua pagina.
+from gardawind import config
+attesi = len(config.PLACES) + 3
+ok(len(paths) == attesi,
+   "una pagina per localita' piu' i tre file comuni, anche a database vuoto"
+   " (%d su %d)" % (len(paths), attesi))
 ok(paths[-2].endswith("live.json"), "fra cui il dato osservato")
+for place in config.PLACES:
+    from gardawind import web
+    nome = "/tmp/sitotest/%s.html" % web._slug(place)
+    ok(os.path.exists(nome), "la pagina di %s esiste (%s)"
+       % (place, os.path.basename(nome)))
 h=open("/tmp/sitotest/index.html",encoding='utf-8').read()
-ok("Garda Wind" in h and "raccogliendo" in h, "home a freddo, senza eccezioni")
+ok("raccogliendo" in h, "prima pagina a freddo, senza eccezioni")
+ok(config.PLACES[0] in h and config.PLACES[1] in h,
+   "e porta la navigazione verso le altre localita'")
 ok("/spegni" not in h and "/aggiorna" not in h, "nessuna azione che richiede un server")
 ok("location.reload" not in h, "nessun auto-reload in una pagina statica")
 ok('href="diagnostica.html"' in h, "collegamenti relativi")

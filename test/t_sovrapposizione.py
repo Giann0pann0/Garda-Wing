@@ -163,8 +163,13 @@ oss_alto = {"raffica_fonte": "ricorrente 30'", "ultima_ora": 8,
 svg = web.place_chart("Torbole", previsione, bande, "cx", oggi=True,
                       osservato=oss_alto)
 import re
+# Le scritte del grafico portano una CLASSE e non un font-size scritto a
+# mano: la loro dimensione dipende dalla larghezza dello schermo (un viewBox
+# solo non puo' servire telefono e desktop), quindi il numero vive nel CSS.
+# Questo controllo cercava il font-size e non trovava piu' niente: passava a
+# "max None" e diceva che la scala non arrivava, mentre ci arrivava.
 etichette = [float(v) for v in re.findall(
-    r'text-anchor="end" font-size="11" fill="var\(--ink-3\)">(\d+)</text>', svg)]
+    r'text-anchor="end" class="t-s" fill="var\(--ink-3\)">(\d+)</text>', svg)]
 ok(etichette and max(etichette) >= 40.0,
    "la scala arriva oltre la raffica misurata di 40 kn (max %s)"
    % (max(etichette) if etichette else None))
@@ -172,25 +177,54 @@ ok(etichette and max(etichette) >= 40.0,
 senza = web.place_chart("Torbole", previsione, bande, "cy", oggi=True)
 ok("misurato" in svg and "misurato" not in senza,
    "la curva misurata compare solo quando c'e' l'osservato")
-ok('stroke-width="3.6"' in svg, "ed e' la linea piu' marcata del grafico")
-ok('opacity=".5"' in svg and 'opacity=".5"' not in senza,
+# Gli spessori si leggono da web.TRATTO: il rapporto fra le linee e'
+# l'informazione, e un controllo che inseguisse numeri magici si romperebbe a
+# ogni ritocco senza dire niente di vero.
+W_MIS = 'stroke-width="%g"' % web.TRATTO["misurato"]
+W_PREV = 'stroke-width="%g"' % web.TRATTO["previsto"]
+OP = 'opacity="%g"' % web.OPACITA_PREVISTO
+ok(W_MIS in svg, "la linea misurata c'e', con lo spessore dichiarato")
+ok(web.TRATTO["misurato"] < web.TRATTO["previsto"]
+   and web.OPACITA_PREVISTO < 0.5,
+   "e non e' la piu' GROSSA: e' la piu' evidente perche' la previsione si"
+   " sbiadisce (opacita' %g), non perche' la misura si ingrossa"
+   % web.OPACITA_PREVISTO)
+ok(OP in svg and OP not in senza,
    "la previsione si fa piu' tenue solo quando c'e' qualcosa con cui confrontarla")
-# L'apostrofo passa dall'escape HTML, quindi si cerca la parte che non cambia.
-ok("ricorrente 30" in svg and "linea piena spessa: misurato" in svg,
-   "la legenda dichiara quale raffica si sta guardando")
-ok(svg.count('stroke-width="3.6"') == 1,
+# La legenda dice solo pieno/tenue: la definizione della raffica misurata
+# (ricorrente a 30') sta nel cassetto dei dettagli della pagina, dove la
+# spiegazione ha spazio. Qui si controlla che la legenda non sia tornata
+# prolissa e che la distinzione misurato/previsto ci sia.
+ok("pieno: misurato" in svg and "tenue: previsto" in svg,
+   "la legenda distingue misurato e previsto, in quattro parole")
+ok("ricorrente" not in svg,
+   "e la definizione della raffica non sta piu' in legenda")
+ok("ricorrente" in web.dettagli_panel("Torbole", []),
+   "ma nel cassetto dei dettagli, dove ha spazio")
+ok(svg.count(W_MIS) == 1,
    "una sola curva misurata del vento medio, non una per ora")
 
 # L'osservato si ferma: nessun punto della curva misurata oltre le 8.
+#
+# Le curve sono percorsi cubici monotoni e non spezzate, quindi i vertici si
+# leggono dai punti di ARRIVO dei segmenti (il terzo di ogni C, piu' la M
+# iniziale): sono esattamente i punti dei dati, perche' questa interpolazione
+# ci passa per forza. I due punti di controllo in mezzo non sono dati e non
+# vanno contati.
 def punti(sv, largh):
-    for pl in re.findall(r'<polyline points="([^"]+)" fill="none" '
-                         r'stroke="var\(--pc\)" stroke-width="%s"' % largh, sv):
-        return [tuple(float(x) for x in p.split(",")) for p in pl.split()]
+    for d in re.findall(r'<path d="([^"]+)" fill="none" '
+                        r'stroke="var\(--pc\)" stroke-width="%s"' % largh, sv):
+        fuori = []
+        for pezzo in d.replace("M", " ").replace("L", " ").split("C"):
+            coppie = pezzo.split()
+            if coppie:
+                fuori.append(tuple(float(v) for v in coppie[-1].split(",")))
+        return fuori
     return []
 
 
-pm = punti(svg, "3.6")
-pp = punti(svg, "2.8")
+pm = punti(svg, "%g" % web.TRATTO["misurato"])
+pp = punti(svg, "%g" % web.TRATTO["previsto"])
 ok(len(pm) == 3 and len(pp) == len(previsione),
    "tre punti misurati contro diciassette previsti (%d / %d)" % (len(pm), len(pp)))
 ok(max(p[0] for p in pm) < max(p[0] for p in pp),

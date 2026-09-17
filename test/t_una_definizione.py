@@ -207,6 +207,65 @@ fuori = [n for n, t in sorgenti()
 ok(not fuori, "e nessun modulo se la riscrive (%s)" % fuori[:2])
 
 # --------------------------------------------------------------------------
+# 5-ter. Il voto e l'affidabilita' vivono FUORI dalla pagina
+# --------------------------------------------------------------------------
+# La pagina traduce, non decide: e' la stessa separazione per cui la
+# persistenza vive in orari.py e non in tre grafici. Se le parole del voto
+# fossero scritte in web.py, la prossima pagina - o un'app, o una notifica -
+# ne avrebbe una seconda copia, e il giorno in cui una soglia cambia le due
+# direbbero due cose diverse sulla stessa giornata.
+from gardawind import giudizio
+
+testo_web = dict(sorgenti())["web.py"]
+# Si guardano le righe di CODICE, non i commenti: la parola "mediocre" dentro
+# un commento che spiega perche' oggi il misurato prevale sulla previsione e'
+# prosa, non una seconda definizione.
+codice_web = "\n".join(righe_di_codice(testo_web))
+copie = [p for p in giudizio.VOTI if '"%s"' % p in codice_web
+         or "'%s'" % p in codice_web]
+ok(not copie, "le parole del voto non sono riscritte nella pagina (%s)" % copie)
+ok("giudizio.voto(" in testo_web and "giudizio.affidabilita(" in testo_web,
+   "la pagina chiama giudizio per il voto e per l'affidabilita'")
+
+# E le soglie del voto vengono dallo spot, non da numeri liberi: 11 e 14 kn
+# sono min_kn e planing_kn di Torbole, e un voto che li riscrivesse a mano
+# smetterebbe di seguire la configurazione di uno spot nuovo.
+testo_giudizio = dict(sorgenti())["giudizio.py"]
+numeri = re.findall(r"spot\[\"(min_kn|planing_kn)\"\]", testo_giudizio)
+ok("min_kn" in numeri and "planing_kn" in numeri,
+   "il voto legge le soglie dallo spot")
+soglie_a_mano = re.findall(r"(?<![\w.])(1[0-9]|2[0-9])\.0(?!\d)",
+                           testo_giudizio)
+ok(not soglie_a_mano,
+   "e non ci sono soglie in nodi scritte a mano in giudizio.py (%s)"
+   % soglie_a_mano[:3])
+
+# --------------------------------------------------------------------------
+# 5-quater. Una pagina per localita', e la lista e' una sola
+# --------------------------------------------------------------------------
+# Aggiungere una localita' deve essere una riga in config.PLACES. Quindi la
+# pagina e l'esportazione non possono scrivere a mano "Torbole" o
+# "Malcesine": pagina, navigazione, rotte e nomi dei file vengono tutti da
+# quella lista, altrimenti una localita' nuova comparirebbe in un posto e
+# mancherebbe nell'altro - una voce di menu senza pagina dietro.
+#
+# engine.py e nowcast.py sono ESCLUSI, e non per comodita': la' il nome di
+# Torbole non decide cosa mostrare, dice che la forma analogica e' validata su
+# QUELLA centralina (la libreria e' costruita sul T0193, e il suo archivio non
+# esiste per altri posti). E' un fatto del modello, e vive accanto al modello.
+nomi_a_mano = []
+for nome, testo in sorgenti():
+    if nome not in ("web.py", "export.py"):
+        continue
+    for riga in righe_di_codice(testo):
+        if re.search(r'["\'](Torbole|Malcesine)["\']', riga) \
+                and "SPOTS[" not in riga and "PLACES" not in riga:
+            nomi_a_mano.append((nome, riga.strip()[:60]))
+ok(not nomi_a_mano,
+   "pagina ed esportazione non scrivono a mano il nome di una localita' (%s)"
+   % nomi_a_mano[:2])
+
+# --------------------------------------------------------------------------
 # 6. Il raccordo del livello non puo' fabbricare una giornata
 # --------------------------------------------------------------------------
 ok(analogs._raccordo_min() * 2 <= orari.PERSISTENZA_MIN,
