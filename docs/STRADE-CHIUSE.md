@@ -1,7 +1,9 @@
 # Strade chiuse
 
 Le idee che sembravano giuste e che i dati hanno rifiutato, con il numero che
-le ha rifiutate. Questo file esiste perché un'idea plausibile bocciata senza
+le ha rifiutate. In fondo, le **aperte**: quelle con il protocollo già scritto
+e i numeri non ancora guardati — che è l'unico ordine in cui si può dire di
+aver provato qualcosa. Questo file esiste perché un'idea plausibile bocciata senza
 traccia scritta torna: fra sei mesi ha lo stesso aspetto convincente di oggi, e
 la si riprova da zero.
 
@@ -105,3 +107,59 @@ che si raccolgono.
 
 È anche la ragione per cui la porta, sulla mattina, pretende calibrazione e non
 pretende colpi. Quella scelta non era prudenza: era già il risultato.
+
+---
+---
+
+# Aperte, con il protocollo già dichiarato
+
+## Il gradiente SINOTTICO per scegliere la forma
+
+*Dichiarata il 2026-09-17, prima di qualunque numero.*
+
+**Da dove viene.** Da un altro progetto sullo stesso lago
+(`github.com/cesareprimultini/garda-wind`), che usa il ΔP Bolzano–Ghedi con le
+tabelle di profiwetter.ch. È l'indicatore operativo classico dell'Ora.
+
+**Cosa abbiamo già.** Il modello del livello lo usa, e in forma più generale:
+`features.pgrad` è la pressione media di Bolzano, Trento e Merano meno quella
+di Brescia, Verona e Mantova — sei punti su 150 km invece di una coppia — più
+`features.tgrad`, il contrasto termico pianura-valle, che è il motore vero
+della brezza di lago e che loro non hanno.
+
+**Il buco vero.** La selezione degli **analoghi** non lo vede. Il suo unico
+gradiente è `dp_lago`: nord del lago meno sud del lago, quindici chilometri,
+media 0,033 hPa con dispersione 0,12. Un sussurro. E non è una scelta: è che
+`analogs.py` legge `arch_hour`, dove ci sono i due punti del lago, mentre il
+contesto sinottico vive in `ctx_hour`.
+
+**L'ipotesi, in una frase.** Quale regime vince, e quando si passano la mano, è
+deciso dal gradiente attraverso le Alpi, non da quello lungo il lago. Quindi
+sostituire `dp_lago` con il gradiente sinottico dovrebbe migliorare la
+selezione dei vicini — e in particolare la **mattina**, dove oggi la forma non
+discrimina (vantaggio sul nullo +10,1 punti, intervallo da +0,3 a +20,3).
+
+**Il protocollo, deciso adesso.** Quattro candidate a dieci dimensioni, `k`
+fermo a 3:
+
+1. l'attuale;
+2. l'attuale con `pgrad_giorno` al posto di `dp_lago`;
+3. l'attuale con `pgrad_notte` e `dp_variazione` al posto di `dp_lago` e
+   `wnotte` — `dp_variazione` è `pgrad_giorno − pgrad_notte`, cioè di quanto il
+   gradiente **gira** nella giornata, e non l'abbiamo mai misurato;
+4. l'attuale con `pgrad_alba` e `tgrad_max` al posto di `dp_lago` e `tmax`.
+
+Si sceglie sul 2024 quella col vantaggio più alto nella finestra del Pelèr a
+10 kn; la conferma sul 2025-2026 si guarda **dopo**. Se la vincitrice non batte
+l'attuale sulla conferma, la risposta è no e si scrive qui sopra, come per le
+notturne.
+
+**Cosa serve prima.** `ctx_hour` con `kind='era5'` che copra il 2012-2023: la
+libreria degli analoghi vive in quegli anni, e senza il contesto storico non
+c'è niente da confrontare. `backfill_era5_features` lo scarica già su tutti e
+sei i punti — va verificato che ci sia arrivato davvero.
+
+**Una nota che vale più dell'ipotesi.** Ogni sorgente si standardizza sulla
+propria distribuzione, e `ctx_hour` tiene `era5`, `arch` e `live` nella stessa
+tabella. Mescolarle sarebbe lo stesso errore che ci è costato due giorni sulla
+normalizzazione della sagoma.
