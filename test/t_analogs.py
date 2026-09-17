@@ -134,6 +134,7 @@ def rapporto(n_giorni=None):
         n_giorni = analogs.EXPECTED_CONFIRM_DAYS
     r = {
         "usable": True, "n": n_giorni, "leads": {},
+        "from": "2025-01-01", "to": "2026-09-12",
         # Il nullo misurato: PAREGGIA col modello nell'Ora (93,8% di colpi
         # contro 93,3%). E' il numero che ha cambiato la porta.
         "null": {"hits": .938, "false_alarms": .070, "minute_error": 72.9,
@@ -546,6 +547,58 @@ g11, w11 = analogs.benchmark_gate(oltre)
 ok(not g11 and any("budget" in x for x in w11),
    "e oltre il budget la porta si chiude dicendo il budget: %s"
    % [x for x in w11 if "budget" in x][:1])
+
+# --------------------------------------------------------------------------
+# Il comando che STAMPA la validazione, lanciato per davvero
+# --------------------------------------------------------------------------
+# Il 17 settembre la porta e' rimasta chiusa per una riga di stampa: il
+# comando nominava una costante della porta che era stata cancellata, e
+# moriva DOPO le tabelle e PRIMA di promuovere. Sullo schermo sembrava tutto
+# andato bene - i numeri erano quelli giusti - e non apriva niente.
+#
+# Il banco non lo prese perche' controllava la porta e non il comando che la
+# chiama. Adesso il comando si lancia: se un giorno si rinomina una soglia,
+# questo controllo casca subito e non dopo, sul Mac, alle nove di sera.
+import io as _io
+import contextlib as _ctx
+
+from gardawind import __main__ as cli
+
+# La promozione NON deve toccare il database: un rapporto finto che apre la
+# porta vera sarebbe il peggior effetto collaterale possibile di un test - chi
+# lancia questo file a mano si troverebbe il prodotto promosso senza aver
+# validato niente. Quindi si intercetta la scrittura e si controlla COSA
+# avrebbe scritto, che e' anche un controllo in piu'.
+from gardawind import store as _store
+
+vr, ms = analogs.validation_report, _store.meta_set
+scritto = []
+try:
+    analogs.validation_report = lambda *a, **k: rapporto()
+    _store.meta_set = lambda chiave, valore: scritto.append((chiave, valore))
+    buf = _io.StringIO()
+    with _ctx.redirect_stdout(buf):
+        cli.cmd_analoghi_validazione()
+    uscita = buf.getvalue()
+finally:
+    analogs.validation_report, _store.meta_set = vr, ms
+
+ok("PORTA APERTA" in uscita,
+   "il comando di validazione arriva fino al verdetto e lo stampa")
+ok(scritto == [(analogs.GATE_KEY, analogs.GATE_SIGNATURE)],
+   "e la promozione scrive la firma dichiarata, una volta sola (%s)" % scritto)
+for atteso in ("D+1", "nullo", "liscia", "PELER", "VANTAGGIO"):
+    ok(atteso in uscita, "e stampa la riga '%s'" % atteso)
+
+# E non deve nominare soglie che non esistono: se la stampa cita una costante,
+# quella costante deve stare in analogs, o il comando muore a meta'.
+import re as _re
+
+citate = set(_re.findall(r"analogs\.([A-Z][A-Z0-9_]{3,})",
+                         inspect.getsource(cli.cmd_analoghi_validazione)))
+mancanti = sorted(c for c in citate if not hasattr(analogs, c))
+ok(not mancanti,
+   "ogni costante citata dal comando esiste in analogs (%s)" % mancanti)
 
 # La mattina, sulla durata, DEVE battere la liscia: e' il posto dove k=9 ha
 # guadagnato di piu' (25 minuti di errore contro 34).

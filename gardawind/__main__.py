@@ -2036,8 +2036,8 @@ def cmd_analoghi_validazione():
     # che non e' un errore ma il risultato.
     # Il vantaggio: colpi meno falsi allarmi. E' l'unico modo di mettere in
     # fila i tre concorrenti senza farsi ingannare da una sola colonna - i
-    # colpi alti si comprano promettendo tutti i giorni, e con la sagoma
-    # riportata a picco 1 anche il nullo ne prende l'84%.
+    # colpi alti si comprano promettendo vento tutti i giorni, ed e'
+    # esattamente come la curva liscia si compra i suoi.
     def vant(m):
         h, f = (m or {}).get("hits"), (m or {}).get("false_alarms")
         return None if h is None or f is None else 100.0 * (h - f)
@@ -2049,8 +2049,21 @@ def cmd_analoghi_validazione():
         v = vant(m)
         print("  %-14s %s" % (etichetta,
                               "non misurato" if v is None else "%+.1f punti" % v))
-    print("  la porta pretende almeno %.1f punti di vantaggio sul nullo"
-          % analogs.GUADAGNO_MIN_SU_NULLO)
+    # Cosa la porta pretende, detto con le soglie che esistono davvero. Qui
+    # c'era una riga che nominava una costante cancellata, e il comando
+    # moriva DOPO aver stampato le tabelle e PRIMA di promuovere: una
+    # validazione che sembrava andata a buon fine e non apriva niente. Il
+    # banco non lo prendeva perche' nessun controllo lanciava questo comando.
+    print("  la porta NON pretende vantaggio sul nullo: la scelta dei vicini"
+          " non discrimina meglio del caso (+1,0 punti, da -2,7 a +5,0).")
+    print("  pretende che il nullo non stia sopra di piu' di %.1f punti, e che"
+          " la forma non stia sotto la liscia di piu' di %.1f."
+          % (analogs.SVANTAGGIO_MAX_SU_NULLO, analogs.SVANTAGGIO_MAX_SU_LISCIA))
+    print("  Il merito della forma e' la CALIBRAZIONE, e quello si pretende:"
+          " almeno %.0f minuti di sbilanciamento in meno della liscia e uno"
+          " scarto di ripidezza almeno %.1f piu' piccolo."
+          % (analogs.SBIL_MEGLIO_DELLA_LISCIA_MIN,
+             analogs.SCARTO_RIP_MEGLIO_DELLA_LISCIA_MIN))
 
     n_p = (r.get("null") or {}).get("peler") or {}
     m_p = (r["leads"][1] or {}).get("peler") or {}
