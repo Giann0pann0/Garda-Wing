@@ -269,3 +269,36 @@ Il protocollo sopra resta valido parola per parola; cambia il criterio di
 successo, che adesso è uno solo: **battere il nullo**, con l'intervallo che
 non include lo zero. Se non lo batte, la selezione della forma è una questione
 chiusa e il posto dove lavorare è il livello.
+
+## Il Pelèr addestrato sulla finestra UTILE, non su quella del regime
+
+*Dichiarata il 2026-09-17, notte, prima di qualunque riaddestramento.*
+
+**Il difetto.** `_compute_targets` addestra il modello del livello sul
+massimo delle medie orarie nella finestra del **regime** (Pelèr: 04–10), ma
+il riquadro giudica la finestra **utile** (dalle 07:20 d'estate, dalle 08
+d'inverno). La probabilità del Pelèr risponde a «entra fra le 4 e le 10?»
+mentre verdetto e affidabilità parlano di «si naviga dalle 07:20?».
+
+**Il numero, già misurato.** Sulle 4.995 giornate della centralina, a 10 kn
+con la mezz'ora sostenuta: entrato nel regime 60%, nell'utile 54%; entrato
+nel regime **ma non nell'utile 330 su 3.015, l'11%**, e d'inverno una su
+sei (ottobre 16%, novembre 15%, dicembre e gennaio 14%). In quelle giornate
+il modello impara «sì» e la scheda dovrebbe dire «no».
+
+**Cosa si fa.** Bersaglio = massimo delle medie orarie nella finestra utile
+del giorno (`orari.finestra_utile_del_giorno`), e «regime entrato» dello
+stadio A misurato nella stessa finestra. Una definizione, un posto.
+
+**Il criterio, deciso adesso.** Verifica in avanti come per ogni
+promozione. Sull'Ora, dove le due finestre quasi coincidono, il modello
+nuovo non deve peggiorare (controllo di sanità). Sul Pelèr si guardano
+Brier e colpi/falsi *misurati nella finestra utile*: ci si aspetta un
+miglioramento nei mesi da ottobre a gennaio. Se non arriva, il cambio resta
+comunque: domanda e risposta devono coincidere, e questo non dipende dal
+risultato.
+
+**Regola che ne segue.** Il numero che il modello prevede e il numero che
+la scheda mostra devono essere la stessa grandezza nella stessa finestra.
+L'ancora (istantaneo contro orario) e questo (regime contro utile) sono lo
+stesso errore due volte.
