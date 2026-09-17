@@ -9,6 +9,11 @@ import os
 
 APP_NAME = "Garda Wind"
 APP_VERSION = "3.7"
+# Il nome del prodotto, in un posto solo: compare nel manifesto dell'app
+# installata e nell'anteprima dei link. "Garda Wind" risulta gia' usato da
+# un altro sito sullo stesso lago; il nome nuovo lo sceglie Gian, e quando lo
+# sceglie si cambia qui e in nessun altro posto.
+APP_NAME = "Garda Wind"
 DB_FILENAME = "gardawind_v3.sqlite"
 
 TZ_LOCAL = "Europe/Rome"
@@ -430,6 +435,13 @@ POLL_INTERVAL_MIN = 8           # polling centraline (piu' frequente)
 LIVE_JSON_URL = os.environ.get(
     "GARDAWIND_LIVE_URL",
     "https://raw.githubusercontent.com/Giann0pann0/Garda-Wing/live/live.json")
+
+# L'indirizzo pubblico del sito. Serve SOLO alle anteprime dei link - quando
+# la pagina viene condivisa in una chat, l'immagine e il titolo devono avere
+# un indirizzo assoluto - e all'installazione sul telefono. Non entra in
+# nessun calcolo. Vuoto = niente anteprima con immagine.
+SITE_URL = os.environ.get("GARDAWIND_SITE_URL",
+                          "https://giann0pann0.github.io/Garda-Wing/")
 
 # Ogni quanto la pagina rilegge quel file. Il processo veloce gira ogni dieci
 # minuti circa (il cron di GitHub non e' puntuale), quindi chiederlo piu'
