@@ -109,9 +109,98 @@ che si raccolgono.
 pretende colpi. Quella scelta non era prudenza: era già il risultato.
 
 ---
+
+## La SCELTA dei vicini come merito della forma (anche nell'Ora)
+
+**L'idea.** Dieci predittori scelgono le tre giornate storiche più simili, e
+quella scelta è il cuore del metodo: se si scegliessero tre giornate a caso la
+curva sarebbe peggiore.
+
+**Perché sembrava vera.** Con l'ancora sbagliata lo era: il modello faceva
+52,9 punti di vantaggio contro 37,1 del nullo, quindici punti e mezzo. La
+porta li pretendeva (`GUADAGNO_MIN_SU_NULLO`).
+
+**Il numero, con l'ancora giusta.** Nella finestra dell'Ora, sul blocco cieco
+di 617 giornate, regalando a tutti il livello vero — che è il massimo delle
+medie orarie, la grandezza che il motore prevede:
+
+| | colpi | falsi | e.min | sbil. | ripidezza |
+|---|---|---|---|---|---|
+| curva liscia | 98,1% | 6,5% | 67 | +42 | 1,86 |
+| D+1 | 90,1% | 7,0% | 59 | −5 | 6,19 |
+| D+4 | 92,8% | 6,0% | 64 | −1 | 6,49 |
+| **nullo** | **92,1%** | **4,5%** | 74 | −25 | 6,35 |
+
+vera 6,99. Vantaggio D+1 meno nullo: **−4,4 punti, intervallo da −9,6 a +0,1:
+include lo zero.** Cioè non si distinguono, e il segno è pure quello
+sbagliato. Lo scarto di ripidezza dal vero, D+1 meno nullo, è −0,1 con
+intervallo da −0,5 a +0,2: anche lì zero.
+
+**Cosa vuol dire.** Quello che la forma analogica porta non viene dalla
+scelta dei vicini: viene dall'essere **una curva vera del lago** invece di una
+media. Una giornata a caso di questo lago ha un gradino, un plateau e un
+crollo; la media di trent'anni di giornate no. La ripidezza 6,3 su una vera di
+6,99 la prende anche il nullo; la media mensile fa 1,86.
+
+Era già scritto per la mattina (vantaggio sul nullo +10,1, intervallo da +0,3
+a +20,3, appena sopra lo zero). Adesso lo dice anche il pomeriggio, e con
+l'ancora giusta lo dice più forte. **Il livello decide se, la forma decide
+come — e "come" non ha bisogno di sapere quale giorno è.**
+
+**Cosa NON segue da qui.** Non segue che i dieci predittori vadano buttati:
+servono per prendere la forma del mese e della stagione giusta, e il nullo del
+test li usa comunque, perché rimescola le giornate del 2025-2026 fra loro e
+non con quelle di gennaio. Segue che la porta non può pretendere
+discriminazione da una cosa che non ne ha, in nessuna delle due finestre — e
+che il posto dove cercare colpi è il **livello**, non la sagoma.
+
+---
 ---
 
 # Aperte, con il protocollo già dichiarato
+
+## `k` rimisurato con l'ancora giusta
+
+*Dichiarata il 2026-09-17, prima di qualunque numero. Il protocollo è scritto
+qui e messo nel repository **prima** di lanciare la misura.*
+
+**Perché si riapre.** `k = 3` era stato scelto con l'ancora sbagliata, e la
+regola pre-registrata di allora — falsi entro il 20% in selezione — sotto la
+normalizzazione giusta non selezionava niente (il k migliore sul 2024 faceva
+27,2% di falsi). Con l'ancora oraria i falsi allarmi crollano al 7%: il
+vincolo che aveva bloccato la scelta non è più vincolante, e `k` non è mai
+stato misurato nelle condizioni in cui il prodotto funziona adesso.
+
+**Perché `k` e non altro.** `k` è l'unico parametro che governa la
+**larghezza** della sagoma, ed è esattamente la dimensione su cui l'analogica
+perde: la curva liscia prende 8 punti di colpi in più (98,1% contro 90,1%) e
+li paga con una durata promessa di 42 minuti più lunga del vero. Trentatré
+delle 416 giornate navigabili l'analogica le manca, e non sono giornate al
+confine: la mediana dei minuti veri sopra 12 kn, su quelle trentatré, è
+**120**. Sono giornate con due ore di vento dette non navigabili. Una mediana
+su più vicini è più larga e meno spigolosa: dovrebbe prenderne una parte.
+
+**Il criterio, deciso adesso.** `k` fra 3, 5, 7, 9, 11, 15. Si sceglie sul
+**2024** quello con i **colpi più alti** nella finestra dell'Ora a 12 kn,
+sotto due vincoli entrambi obbligatori:
+
+1. falsi allarmi **≤ 15%** — il budget dichiarato da Gian;
+2. **|sbilanciamento della durata| ≤ 15 minuti**.
+
+Il secondo vincolo è il motivo per cui questa misura si può fare senza
+imbrogliare. Senza di lui la risposta è nota in partenza: `k` grandissimo
+riporta la sagoma alla media climatologica, cioè alla curva liscia, che vince
+sui colpi **perché** promette quarantadue minuti di troppo. Il vincolo
+proibisce di ricomprare i colpi con la stessa bugia.
+
+A pari colpi decide lo scarto mediano fra ripidezza promessa e ripidezza vera,
+più piccolo è meglio.
+
+La conferma sul 2025-2026 si guarda **dopo**, una volta sola. Se il `k`
+vincitore non batte `k = 3` sulla conferma, `k` resta 3 e qui sopra si scrive
+che è stato provato.
+
+
 
 ## Il gradiente SINOTTICO per scegliere la forma
 
@@ -163,3 +252,20 @@ sei i punti — va verificato che ci sia arrivato davvero.
 propria distribuzione, e `ctx_hour` tiene `era5`, `arch` e `live` nella stessa
 tabella. Mescolarle sarebbe lo stesso errore che ci è costato due giorni sulla
 normalizzazione della sagoma.
+
+**Aggiornamento del 2026-09-17, e cambia il senso della prova.** Questa
+ipotesi era nata per curare i falsi allarmi al 36%, letti come un problema di
+**selezione** dei vicini. Quella premessa è caduta: i falsi allarmi erano
+l'ancora sbagliata, e con l'ancora oraria scendono al 7% senza toccare i
+predittori. Peggio, per questa ipotesi: la scelta dei vicini non discrimina
+meglio del caso in nessuna delle due finestre (vedi la strada chiusa qui
+sopra), quindi un predittore migliore non ha un difetto da riparare — non c'è
+un vantaggio sul nullo da aumentare, perché non c'è un vantaggio sul nullo.
+
+Resta provabile, e vale la pena solo così: non come cura per i falsi allarmi,
+ma come **la** domanda a cui il gradiente sinottico può rispondere — se la
+selezione dei vicini possa discriminare qualcosa, visto che oggi non lo fa.
+Il protocollo sopra resta valido parola per parola; cambia il criterio di
+successo, che adesso è uno solo: **battere il nullo**, con l'intervallo che
+non include lo zero. Se non lo batte, la selezione della forma è una questione
+chiusa e il posto dove lavorare è il livello.
