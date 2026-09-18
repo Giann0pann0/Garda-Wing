@@ -261,3 +261,49 @@ ok(live.curve("Torbole", adesso=ADESSO + dt.timedelta(days=2)) is None,
 snap2 = live.snapshot(adesso=ADESSO)
 ok(snap2["luoghi"]["Torbole"].get("curve") is not None,
    "e nel file ogni luogo porta la sua curva")
+
+# --------------------------------------------------------------------------
+# 8. Malcesine: la raffica arriva da un altro canale del vento
+#
+# Gian: "come mai su Malcesine il vento reale non mostra le raffiche?".
+# Perche' la pagina live della Fraglia da' solo la raffica massima del
+# giorno, che il codice giustamente non spaccia per raffica del campione; la
+# raffica dei trenta minuti sta nell'archivio intraday. Ora si chiede anche
+# oggi, e i campioni fini prendono il vento da una fonte e la raffica
+# dall'altra - ciascuna serie di una definizione sola - e dove la ricorrente
+# non e' calcolabile (un dato ogni trenta minuti) si disegna la raffica della
+# centralina COL SUO NOME.
+# --------------------------------------------------------------------------
+ST_M = config.SPOTS["Malcesine-Ora"]["station"]
+G2 = dt.datetime(2026, 9, 15, 6, 0, tzinfo=UTC)          # 08:00 locali
+vivo, intra = [], []
+for k in range(0, 8 * 60, 8):                              # ogni 8 minuti, senza raffica
+    vivo.append((iso_utc(G2 + dt.timedelta(minutes=k)), 10.0 + k / 60.0, None, 190.0))
+for k in range(0, 8 * 60, 30):                             # ogni 30, con la raffica
+    intra.append((iso_utc(G2 + dt.timedelta(minutes=k)), 9.5 + k / 60.0, 18.0 + k / 60.0, 190.0))
+scrivi_campioni(ST_M, vivo, fonte="meteoproject-live")
+scrivi_campioni(ST_M, intra, fonte="meteoproject-intraday")
+fm = engine.campioni_fini(ST_M, "2026-09-15")
+con_w = [r for r in fm if r["wind"] is not None]
+con_g = [r for r in fm if r["gust"] is not None]
+ok(len(con_w) == 60 and abs(con_w[0]["wind"] - 10.0) < 0.01,
+   "il vento viene dal canale vivo, ogni otto minuti (%d punti)" % len(con_w))
+ok(len(con_g) == 16 and abs(con_g[0]["gust"] - 18.0) < 0.01,
+   "la raffica dal canale intraday, ogni trenta (%d punti)" % len(con_g))
+ok(fm and fm[0]["raffica_fonte"] == "raffica della centralina",
+   "e si chiama col suo nome, perche' la ricorrente sui 30' non esiste a 30' di passo")
+ok(all(r["gust"] is None for r in con_w if r["hour"] * 60 % 30 != 0),
+   "il vento vivo non riceve raffiche inventate negli istanti in mezzo")
+sm = live.stazione(ST_M, adesso=G2 + dt.timedelta(minutes=8 * 60 + 5))
+ok(sm["gust"] is not None and abs(sm["gust"] - (18.0 + 7.5)) < 0.01,
+   "il riquadro dell'adesso prende l'ultima raffica data dalla centralina (%.1f)"
+   % (sm["gust"] or 0))
+sm2 = live.stazione(ST_M, adesso=G2 + dt.timedelta(minutes=8 * 60 + 5))
+ok(sm2["wind"] is not None, "e il vento resta quello dell'ultimo campione")
+cm = live.curve("Malcesine", adesso=G2 + dt.timedelta(hours=8))
+ok(cm is not None and cm["raffica"],
+   "e la curva della raffica di Malcesine entra in live.json")
+# Con un dato ogni dieci minuti invece la ricorrente c'e', e si chiama cosi'.
+ft = engine.campioni_fini(ST, "2026-09-14")
+ok(ft and ft[0]["raffica_fonte"] == "ricorrente 30'",
+   "a Torbole, coi dieci minuti, la raffica e' la ricorrente e lo dice")

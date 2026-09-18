@@ -79,6 +79,17 @@ def stazione(station, adesso=None):
     ultimo = campioni[-1][1]
     tempi = [t for t, _r in campioni]
     cad = sampling_cadence(tempi)
+    # La raffica del riquadro: l'ultima che la centralina ha DATO, purche'
+    # recente. A Malcesine il canale vivo non porta la raffica e l'intraday
+    # si', ogni trenta minuti: prendere la raffica dell'ultimo campione in
+    # assoluto avrebbe scritto "non disponibile" con una raffica di dieci
+    # minuti prima in archivio. Oltre i 45 minuti si dice non disponibile.
+    t_ult = campioni[-1][0]
+    raffica_recente = None
+    for t, r in reversed(campioni):
+        if r["gust_kn"] is not None and t >= t_ult - 45.0:
+            raffica_recente = r["gust_kn"]
+            break
 
     # La raffica ricorrente, alla sua finestra dichiarata di 30 minuti e non
     # a un'altra. Dove la cadenza non la sostiene non si allarga la finestra
@@ -114,7 +125,7 @@ def stazione(station, adesso=None):
         "station": station,
         "ts": ultimo["ts"],
         "wind": ultimo["wind_kn"],
-        "gust": ultimo["gust_kn"],
+        "gust": raffica_recente,
         "dir": ultimo["dir_deg"],
         "gust_rec": ric,
         "gust_rec_stato": stato,

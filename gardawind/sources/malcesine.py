@@ -205,14 +205,27 @@ def fetch_intraday(month, year):
     """
     import calendar
     last = calendar.monthrange(year, month)[1]
-    yy = "%02d" % (year % 100)
+    return fetch_intraday_intervallo(_dt.date(year, month, 1),
+                                     _dt.date(year, month, last))
+
+
+def fetch_intraday_giorno(giorno):
+    """Le misure di UN giorno locale (ISO). E' la strada per la raffica di
+    Malcesine in tempo reale: la pagina live da' solo la raffica massima del
+    giorno, l'archivio intraday da' quella dei 30 minuti - e accetta un
+    intervallo, quindi si chiede solo oggi, a ogni giro."""
+    d = _dt.date.fromisoformat(giorno)
+    return fetch_intraday_intervallo(d, d)
+
+
+def fetch_intraday_intervallo(dal, al):
     params = {
-        "gg2": "01", "mm2": "%02d" % month, "aa2": yy,       # dal
-        "gg": "%02d" % last, "mm": "%02d" % month, "aa": yy,  # al
+        "gg2": "%02d" % dal.day, "mm2": "%02d" % dal.month, "aa2": "%02d" % (dal.year % 100),
+        "gg": "%02d" % al.day, "mm": "%02d" % al.month, "aa": "%02d" % (al.year % 100),
     }
     text = fetch_text(config.URL_MALCESINE_CSV, params, timeout=90)
     if not text or text.lstrip().startswith("<"):
-        raise FetchError("archivio intraday %02d-%d non disponibile" % (month, year))
+        raise FetchError("archivio intraday %s..%s non disponibile" % (dal, al))
 
     out = []
     for line in text.splitlines():

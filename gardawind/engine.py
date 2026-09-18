@@ -12,7 +12,8 @@ from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
                    local_minute_of_day, mean, parse_dt_any, pstdev,
                    recurrent_gust, sampling_cadence, utc_now,
-                   vector_mean_direction)
+                   vector_mean_direction, window_estimable,
+                   FINESTRA_RICORRENTE_MIN)
 
 STATE = {
     "running": False,
@@ -121,6 +122,17 @@ def update_stations():
         done.append("Malcesine 1 campione")
     except FetchError as e:
         _note("error", "centralina/Malcesine", str(e)[:160])
+
+    # La raffica di Malcesine in tempo reale: la pagina live non ce l'ha (solo
+    # la massima del giorno), l'archivio intraday si'. Si chiede solo oggi.
+    try:
+        rows = malcesine.fetch_intraday_giorno(local_day(utc_now()))
+        if rows:
+            store.save_samples("malcesine", rows, "meteoproject-intraday")
+            aggregate.aggregate_station("malcesine", since_iso=rows[0][0])
+            done.append("Malcesine %d misure intraday di oggi" % len(rows))
+    except FetchError as e:
+        _note("warn", "intraday/Malcesine", str(e)[:160])
 
     # Le centraline Addicted (Campione): serie ORARIA, oggi e ieri. Oggi
     # perche' e' il dato vivo, ieri perche' l'ultima ora di ieri era
@@ -1449,8 +1461,13 @@ def day_observed(place, day):
     fonte = None
     if righe:
         fonte = "ricorrente 30'" if usa_ric else "massimo dell'ora"
-    return {"righe": righe, "fini": campioni_fini(station, day),
+    fini = campioni_fini(station, day)
+    return {"righe": righe, "fini": fini,
             "raffica_fonte": fonte,
+            # La raffica della curva fine puo' avere un'altra definizione da
+            # quella oraria (ricorrente, o quella dichiarata dalla centralina):
+            # si porta il nome, cosi' la pagina lo scrive.
+            "raffica_fonte_fine": fini[0].get("raffica_fonte") if fini else None,
             "ultima_ora": righe[-1]["hour"] if righe else None}
 
 
@@ -1501,34 +1518,75 @@ def campioni_fini(station, day):
         if dt is None or local_day(dt) != day:
             continue
         del_giorno.append((iso_utc(dt), r))
-    quante = {}
-    for _k, r in del_giorno:
-        if r.get("wind_kn") is not None:
-            quante[r.get("source") or ""] = quante.get(r.get("source") or "", 0) + 1
-    if not quante:
+    # Una fonte sola PER SERIE, non per giornata. Il vento dalla fonte piu'
+    # abbondante che lo ha; la raffica dalla fonte piu' abbondante che HA la
+    # raffica. A Malcesine sono due canali diversi - il vivo ogni otto minuti
+    # senza raffica, l'intraday ogni trenta con la raffica - e tenere la
+    # regola "una fonte per giornata" avrebbe voluto dire scegliere il vivo e
+    # non disegnare mai la raffica. Ogni serie resta di una definizione sola.
+    def piu_abbondante(campo):
+        quante = {}
+        for _k, r in del_giorno:
+            if r.get(campo) is not None:
+                f = r.get("source") or ""
+                quante[f] = quante.get(f, 0) + 1
+        if not quante:
+            return None
+        return max(sorted(quante), key=lambda f: quante[f])
+
+    def serie(fonte, campo):
+        per_ist = {}
+        for k, r in del_giorno:
+            if (r.get("source") or "") == fonte and r.get(campo) is not None:
+                per_ist.setdefault(k, r)
+        ordinati = sorted(per_ist.items())
+        return ([local_minute_of_day(parse_dt_any(k)) for k, _r in ordinati],
+                [float(_r.get(campo)) for _k, _r in ordinati])
+
+    fonte_w = piu_abbondante("wind_kn")
+    if fonte_w is None:
         return []
-    fonte = max(sorted(quante), key=lambda f: quante[f])
-    per_ist = {}
-    for k, r in del_giorno:
-        if (r.get("source") or "") != fonte:
-            continue
-        per_ist.setdefault(k, r)
-    if len(per_ist) < 12:
-        return []
-    ordinati = sorted(per_ist.items())
     # I minuti VERI, non l'ora arrotondata: con local_hour i sei campioni di
     # un'ora finivano tutti alla stessa ascissa, e la curva fra loro era un
     # salto verticale. Disegnavamo dei gradini e li chiamavamo vento.
-    minuti = [local_minute_of_day(parse_dt_any(k)) for k, _r in ordinati]
-    venti = [_r.get("wind_kn") for _k, _r in ordinati]
-    raffiche = [_r.get("gust_kn") for _k, _r in ordinati]
-    cadenza = sampling_cadence(minuti)
-    ric = dict(recurrent_gust(list(zip(minuti, raffiche)), cadence_min=cadenza))
+    minuti, venti = serie(fonte_w, "wind_kn")
+    if len(minuti) < 12:
+        return []
+
+    # La raffica: la RICORRENTE a trenta minuti dove la cadenza la sostiene;
+    # altrimenti la raffica che la centralina dichiara, col SUO nome
+    # (raffica_fonte), perche' due righe con lo stesso nome e due
+    # definizioni fanno leggere un numero per un altro. Con un dato ogni
+    # trenta minuti la mediana sui trenta minuti non esiste, e prima si
+    # preferiva non disegnare niente: ma "niente" e' peggio di una raffica
+    # dichiarata per quello che e'.
+    fonte_g = piu_abbondante("gust_kn")
+    raff = {}
+    raffica_fonte = None
+    if fonte_g is not None:
+        m_g, v_g = serie(fonte_g, "gust_kn")
+        cad_g = sampling_cadence(m_g) if len(m_g) >= 2 else None
+        if cad_g is not None and window_estimable(cad_g, FINESTRA_RICORRENTE_MIN):
+            raff = {m: v for m, v in recurrent_gust(list(zip(m_g, v_g)),
+                                                     cadence_min=cad_g)
+                    if v is not None}
+            raffica_fonte = "ricorrente 30'"
+        else:
+            raff = dict(zip(m_g, v_g))
+            raffica_fonte = "raffica della centralina"
     out = []
     for m, w in zip(minuti, venti):
-        if w is None:
-            continue
-        out.append({"hour": m / 60.0, "wind": float(w), "gust": ric.get(m)})
+        out.append({"hour": m / 60.0, "wind": w, "gust": raff.get(m)})
+    # La raffica ha i suoi istanti: se non coincidono con quelli del vento
+    # (due canali), entra come punti propri, senza vento.
+    if raff:
+        propri = set(minuti)
+        for m in sorted(raff):
+            if m not in propri:
+                out.append({"hour": m / 60.0, "wind": None, "gust": raff[m]})
+        out.sort(key=lambda r: r["hour"])
+    for r in out:
+        r["raffica_fonte"] = raffica_fonte
     return out
 
 

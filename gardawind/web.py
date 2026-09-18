@@ -1493,7 +1493,10 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
            ('<span style="color:var(--ink-3)"><i class="box" '
             'style="background:currentColor;opacity:1"></i>finestra utile'
             '</span>') if disegnata_utile else "",
-           ('<span>pieno: misurato &middot; tenue: previsto</span>')
+           ('<span>pieno: misurato &middot; tenue: previsto%s</span>'
+            % (" &middot; raffica misurata: quella dei 30&prime; della centralina"
+               if (osservato or {}).get("raffica_fonte_fine") == "raffica della centralina"
+               else ""))
            if oss_righe else "",
            chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
            H, pt, pb, top, OPACITA_PREVISTO, E(place),

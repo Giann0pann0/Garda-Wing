@@ -86,3 +86,17 @@ for mese, anno in ((1, 2027), (12, 2026)):
         MC.fetch_intraday = _vero
     ok(all(1 <= m <= 12 for m, _y in chiamate),
        "a %02d/%d i mesi restano validi: %s" % (mese, anno, chiamate))
+
+# Un giorno solo: e' la strada per la raffica di Malcesine in tempo reale.
+chiamate = []
+def _finto(url, params=None, timeout=None):
+    chiamate.append(dict(params or {}))
+    return csv
+MC.fetch_text = _finto
+MC.fetch_intraday_giorno("2026-09-18")
+ok(chiamate and chiamate[-1]["gg2"] == "18" and chiamate[-1]["gg"] == "18"
+   and chiamate[-1]["mm2"] == "09" and chiamate[-1]["aa"] == "26",
+   "fetch_intraday_giorno chiede dal giorno al giorno stesso: %s" % chiamate[-1])
+MC.fetch_intraday(9, 2026)
+ok(chiamate[-1]["gg2"] == "01" and chiamate[-1]["gg"] == "30",
+   "e il mese intero passa dalla stessa strada, dal primo all'ultimo")
