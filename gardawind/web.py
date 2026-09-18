@@ -327,6 +327,11 @@ MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
 SOURCE_LABEL = {
     "appreso": "modello addestrato sullo storico della centralina",
     "misto": "probabilità addestrata, intensità ancora dalla stima fisica",
+    # Il "misto" con l'intensita' dalla climatologia: non e' un difetto da
+    # avvisare, e' la previsione migliore che c'e' in un posto regolare.
+    "misto-clim": "probabilità addestrata; l’intensità è la mediana misurata "
+                  "dei giorni di regime, perché qui il vento è così regolare "
+                  "che il modello non la batte",
     "prior": "stima fisica di partenza, non ancora calibrata sui dati",
 }
 
@@ -335,7 +340,7 @@ SOURCE_LABEL = {
 # schermo in quel caso NON e' calibrato sui dati di quella centralina, e chi
 # guarda ha il diritto di saperlo prima di decidere se caricare la macchina.
 # Non e' un dettaglio tecnico da mandare in diagnostica: e' un'avvertenza.
-FONTI_DA_DICHIARARE = ("prior", "misto")
+FONTI_DA_DICHIARARE = ("prior", "misto", "misto-clim")
 
 
 # --------------------------------------------------------------------------
@@ -1564,8 +1569,14 @@ def regime_bands(place, giorno=None):
 
 def source_note(place, sessions):
     """Se il numero non e' ancora calibrato su quella centralina, lo si dice."""
-    fonti = [sessions[n].get("source") for n in place_spots(place).values()
-             if n in sessions]
+    fonti = []
+    for n in place_spots(place).values():
+        if n not in sessions:
+            continue
+        src = sessions[n].get("source")
+        if src == "misto" and sessions[n].get("source_int") == "climatologia":
+            src = "misto-clim"
+        fonti.append(src)
     for key in FONTI_DA_DICHIARARE:
         if key in fonti:
             return '<div class="snote">%s</div>' % E(SOURCE_LABEL[key])

@@ -342,6 +342,7 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
     m_int = None
     base_mae = model_mae = None
     resid = []
+    clim_median = None
     if len(idx) >= max(20, 2 * len(names)):
         # Le due strade possono non trovare un modello (troppe poche giornate
         # per i fold, o per la sorgente incrociata): in quel caso restituiscono
@@ -377,6 +378,7 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
                 mae_med = mean([abs(med - o) for o in obs])
                 mae_raw = mean([abs(r - o) for r, o in zip(raw, obs) if r is not None])
                 base_mae = min(x for x in (mae_med, mae_raw) if x is not None)
+                clim_median = med
 
     ok_occ = b_model is not None and b_base is not None and \
         b_model < b_base * (1 - config.PROMOTION_MARGIN)
@@ -399,6 +401,10 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
         "base_rate": base_rate,
         "mae": model_mae,
         "mae_base": base_mae,
+        # La mediana del picco nei giorni entrati: e' il riferimento che il
+        # modello deve battere, e dove non lo batte e' anche la previsione
+        # migliore che abbiamo - vedi predict_day.
+        "clim_median": clim_median,
         "rmse": m_int["rmse"] if m_int else None,
         "q10": quantile(resid, 0.10) if resid else None,
         "q50": quantile(resid, 0.50) if resid else None,
@@ -463,7 +469,8 @@ def serialize(result):
 def metrics_of(result):
     out = {k: result.get(k) for k in
            ("tier", "source", "n", "n_eval", "n_established", "brier", "brier_base",
-            "mae", "mae_base", "rmse", "usable", "usable_occurrence", "reliability",
+            "mae", "mae_base", "clim_median", "rmse", "usable", "usable_occurrence",
+            "reliability",
             "days_from", "days_to", "base_rate", "lam_occ", "lam_int",
             "calibrazione_fuori_campione", "n_scored")}
     # Questo modello nasce dall'archivio ordinario delle previsioni, che
@@ -699,6 +706,16 @@ def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None
         # non e' calibrato e in questa posizione mentirebbe meglio.
         prob = clamp(metrics["base_rate"], 0.02, 0.97)
         src_prob = "climatologia"
+
+    # Stessa logica per il "quanto": se il modello appreso non batte la
+    # mediana climatologica, quella mediana E' la previsione migliore che
+    # abbiamo, ed e' una misura. A Campione l'Ora e' cosi' regolare che
+    # "dire sempre 14 kn" sbaglia di 1,40 kn e il modello di 1,36-1,41: il
+    # cancello lo ferma, giustamente, e prima al suo posto entrava il prior
+    # fisico, che non e' calibrato e sbaglia di piu' di entrambi.
+    if metrics.get("clim_median") is not None and not metrics.get("usable"):
+        speed = max(float(metrics["clim_median"]), config.SPOTS[spot_name]["min_kn"])
+        src_int = "climatologia"
 
     if tier and usa and payload.get("intensity") and metrics.get("usable"):
         x = F.vector(feats, tier)

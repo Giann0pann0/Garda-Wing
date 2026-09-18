@@ -118,3 +118,30 @@ except TypeError as e:
     ok(False, "un candidato incrociato senza stadio B ha fatto morire l'addestramento: %s" % e)
 finally:
     M._fit_cross = _vero
+
+# --------------------------------------------------------------------------
+# Dove il modello non batte la mediana climatologica, la mediana E' la
+# previsione dell'intensita' - non il prior fisico
+# --------------------------------------------------------------------------
+# Campione-Ora: la mediana dei picchi sbaglia di 1,40 kn, il modello di
+# 1,36-1,41. Il cancello ferma il modello, giustamente. Ma al suo posto
+# entrava il prior fisico, non calibrato, che sbaglia piu' di entrambi.
+ok(chosen.get("clim_median") is not None and abs(chosen["clim_median"] - M.median(
+    [s["peak"] for s in S if s["established"]])) < 3.0,
+   "il candidato porta la mediana climatologica del picco (%.1f)" % chosen["clim_median"])
+_m = dict(M.metrics_of(chosen)); _m["usable"] = False       # come a Campione-Ora
+_pc = M.predict("Torbole-Ora", S[0]["features"], {"payload": M.serialize(chosen), "metrics": _m},
+                lead_days=0, spread_kn=3)
+ok(_pc["source_int"] == "climatologia" and _pc["source"] == "misto",
+   "senza intensita' usabile la fonte dell'intensita' e' la climatologia, e si dichiara")
+ok(abs(_pc["speed"] - max(chosen["clim_median"], 11.0)) < 1e-9,
+   "e il numero e' la mediana misurata (%.1f), non la stima fisica" % _pc["speed"])
+_m2 = dict(_m); _m2.pop("clim_median")
+_pp = M.predict("Torbole-Ora", S[0]["features"], {"payload": M.serialize(chosen), "metrics": _m2},
+                lead_days=0, spread_kn=3)
+ok(_pp["source_int"] == "prior",
+   "un modello salvato prima di questa versione, senza mediana, ripiega ancora sul prior")
+from gardawind import web as _w
+_nota = _w.source_note("Torbole", {"Torbole-Ora": _pc, "Torbole-Peler": p1})
+ok("mediana misurata" in _nota and "stima fisica" not in _nota,
+   "e la pagina lo dice con le parole giuste: mediana misurata, non stima fisica")
