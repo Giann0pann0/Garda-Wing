@@ -348,3 +348,65 @@ Il protocollo sopra resta valido parola per parola; cambia il criterio di
 successo, che adesso è uno solo: **battere il nullo**, con l'intervallo che
 non include lo zero. Se non lo batte, la selezione della forma è una questione
 chiusa e il posto dove lavorare è il livello.
+
+---
+
+## Limone sul Garda come quarta località
+
+**L'idea.** Aprire Limone: c'è uno storico lungo (Capo Reamol, Addicted
+Sports, sull'acqua a nord del paese) e c'è una centralina viva in paese (il
+Consorzio Turistico Limonese, MeteoSystem, Davis Vantage Pro 2). Due sensori,
+2,5 anni di sovrapposizione: si misura il legame fra loro come è stato fatto
+per Addicted contro Meteotrentino, e la località si apre.
+
+**Perché sembra giusta.** È esattamente la ricetta che ha funzionato per
+Campione e per Malcesine: storico lungo da una fonte, dato vivo da un'altra,
+e una curva misurata a cucirle. Gli ingredienti ci sono tutti.
+
+**Come è stato deciso, prima di guardare.** Tre criteri, scritti in
+`strumenti/estrai-limone.py` prima di scaricare: l'unità dichiarata va
+confermata da un confronto, non creduta; il legame fra i due sensori va
+misurato per livello di vento; e il ciclo diurno della centralina viva deve
+somigliare a quello del resto dell'alto lago.
+
+**I numeri.** Due, e bastano.
+
+Capo Reamol è **morta il 20 marzo 2025**: la pagina serve ancora la
+previsione, ma con le letture vuote — zero misure, contro le ventidue che
+Campione aveva nello stesso momento. Restano 90.891 ore dal 2014, che sono un
+archivio, non una centralina.
+
+La centralina viva **non vede il vento medio**. A luglio 2026, il mese più
+ventoso, le sue mediane orarie stanno fra 0,0 e 0,9 kn a ogni ora del giorno e
+il **67% delle letture è esattamente zero**, mentre Campione negli stessi
+giorni va da 4,1 a 11,2 kn con la termica che sale nel pomeriggio. Sui 9.172
+istanti in comune con Capo Reamol (2022-2023) il rapporto è 0,32, e le
+raffiche giornaliere dal canale NOAA — indipendente — stanno al 35-54% di
+quelle di Capo Reamol. Registra qualche raffica, la media no: un anemometro
+che parte tardi.
+
+**Perché non si aggiusta con una scala.** Una curva di scala sposta i numeri,
+non crea informazione: zero moltiplicato per qualunque fattore resta zero. Per
+due terzi delle ore quella centralina non distingue la bonaccia da un'Ora
+piena, e nessun fattore può dire quale delle due fosse.
+
+**L'unità, per la cronaca, è giusta.** Il sospetto che fosse un errore di
+km/h contro nodi è stato verificato e scartato: la pagina dichiarava «raffica
+giornaliera 12,9 km/h» e il file dello stesso giorno ha massimo 12,9. Stesso
+numero, stessa unità. E comunque non avrebbe spiegato niente, perché le
+mediane a zero sono zero in qualunque unità.
+
+**Cosa resta in piedi.** Il lettore comune delle due centraline Davis
+(`sources/davis_csv.py`, patch 0064) è buono e serve già a Malcesine: quando a
+Limone comparirà un sensore che misura, la località è a una riga di
+configurazione. Lo strumento di misura resta in `strumenti/estrai-limone.py`,
+così la verifica si rifà in un comando invece che da capo.
+
+**Cosa NON resta.** L'idea di usare Capo Reamol come "occhio a sud", per
+vedere l'Ora un'ora prima che arrivi a Torbole. Misurata su 1.503 giornate:
+l'ingresso a Capo Reamol precede quello di Torbole di un'ora in mediana, ma
+solo nel 54% dei giorni — poco più di una monetina — e nel quarto peggiore
+Torbole entra quattro ore dopo. Campione, che è viva, non ha anticipo affatto
+(mediana 0, precede nel 30% dei giorni). E soprattutto: un predittore
+spaziale serve solo se è **vivo**. Capo Reamol aveva l'anticipo ed è morta;
+Campione è viva e anticipo non ne ha.

@@ -117,7 +117,7 @@ ok(g2 and g2[0][1] == 8.0 and g2[0][2] == 26.1,
    "l'intestazione della Fraglia viene letta come quella di Limone: %s" % (g2[0],))
 
 # ---- un posto solo ---------------------------------------------------------
-import inspect
+import inspect  # noqa: E402
 
 src = inspect.getsource(malcesine)
 ok("COL_WIND" not in src and "_RE_ROW" not in src,
@@ -132,7 +132,14 @@ ok(config.LIMONE_UNITA == "kmh",
 ok(davis_csv.mesi_da((2026, 7), dt.date(2026, 9, 18)) == [(9, 2026), (8, 2026), (7, 2026)],
    "i mesi da coprire si contano all'indietro dal piu' recente")
 
-# Limone non e' ancora una localita': prima la misura della scala.
+# Limone NON e' una localita', e il motivo e' misurato, non un'impressione.
 ok("Limone" not in config.PLACES,
-   "Limone non entra in pagina finche' il legame fra i due sensori non e' misurato")
+   "Limone non e' in pagina: la sua centralina viva non vede il vento medio")
+_doc = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "docs", "STRADE-CHIUSE.md"), encoding="utf-8").read()
+ok("Limone sul Garda come quarta localit" in _doc and "67%" in _doc
+   and "20 marzo 2025" in _doc,
+   "e la strada e' scritta fra quelle chiuse, con i numeri che l'hanno chiusa")
+ok("12,9" in inspect.getsource(config) or "12,9" in _doc,
+   "compresa la verifica dell'unita', che invece era giusta")
 print("%d controlli sul lettore Davis" % passati)

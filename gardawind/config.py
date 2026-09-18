@@ -532,10 +532,21 @@ URL_MALCESINE_BASE = "https://stazioni.meteoproject.it/dati/malcesine/"
 # in nodi - lo dice la sua pagina - e questo va dichiarato, non indovinato:
 # un fattore 1,852 preso al contrario lascia numeri plausibili e sbagliati.
 #
-# Le due si sovrappongono da settembre 2022 a marzo 2025: due anni e mezzo,
-# che e' quanto serve per misurare il legame fra i due sensori invece di
-# mescolarli. Finche' quella misura non c'e', Limone non entra in PLACES:
-# vedi strumenti/estrai-limone.py.
+# MISURATO il 2026-09-19, e la risposta e' no: vedi docs/STRADE-CHIUSE.md.
+# La centralina viva non vede il vento medio. A luglio 2026 le sue mediane
+# orarie stanno fra 0,0 e 0,9 kn a OGNI ora e il 67% delle letture e'
+# esattamente zero, mentre Campione negli stessi giorni va da 4,1 a 11,2 con
+# la termica che sale. Registra qualche raffica, la media no. Una curva di
+# scala non la salva: zero per qualunque fattore resta zero.
+#
+# L'unita' dichiarata qui sotto e' invece CONFERMATA, e vale la pena tenerla
+# scritta: la pagina diceva "raffica giornaliera 12,9 km/h" e il file dello
+# stesso giorno aveva massimo 12,9. Stesso numero, stessa unita'.
+#
+# Quindi Limone non e' in PLACES. Resta tutto pronto - il lettore, gli
+# indirizzi, lo strumento di misura - per il giorno in cui a Limone comparira'
+# un sensore che misura: allora e' una riga di configurazione, e la verifica
+# si rifa' con strumenti/estrai-limone.py invece che da capo.
 URL_LIMONE_BASE = "http://www.meteosystem.com/stazione/limonesulgarda/"
 LIMONE_UNITA = "kmh"
 LIMONE_NOAA_START = (2022, 9)
