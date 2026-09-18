@@ -124,6 +124,24 @@ def export(directory, with_json=True):
             fh.write(contenuto)
         written.append(path)
 
+    # robots.txt e sitemap.xml: le pagine vengono dalla stessa lista delle
+    # localita', quindi una localita' in piu' entra da sola nella mappa.
+    base = (config.SITE_URL or "").rstrip("/")
+    if base:
+        urls = [web.url_pagina(place) for place in config.PLACES]
+        sitemap = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                   '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                   + "".join("<url><loc>%s</loc><changefreq>hourly</changefreq></url>\n"
+                             % web.E(u) for u in urls)
+                   + "</urlset>\n")
+        for nome, contenuto in (("sitemap.xml", sitemap),
+                                ("robots.txt", "User-agent: *\nAllow: /\n"
+                                 "Sitemap: %s/sitemap.xml\n" % base)):
+            path = os.path.join(directory, nome)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(contenuto)
+            written.append(path)
+
     # La foto di sfondo, se Gian l'ha messa nella cartella del progetto.
     foto = config.sfondo_path()
     if foto:

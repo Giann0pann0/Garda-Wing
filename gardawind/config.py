@@ -179,6 +179,28 @@ TORBOLE = dict(lat=45.870095, lon=10.877355, elevation=90,
 MALCESINE = dict(lat=45.7646, lon=10.8119, elevation=65,
                  station="malcesine", source="meteoproject",
                  station_name="Fraglia Vela Malcesine - MeteoProject")
+# Campione del Garda, sulla sponda bresciana, di fronte a Malcesine. La
+# centralina e' quella di Addicted Sports al Vela Club, sul lago: e' la
+# stessa del suo storico (2017 in poi, gia' in archivio), quindi il modello
+# impara sulla stessa raffica che poi mostra accanto.
+#
+# Due limiti dichiarati, che vengono dalla fonte e non da noi:
+#   la serie e' ORARIA (media e massimo dell'ora), non a dieci minuti: la
+#   curva del misurato e' piu' grossolana, e la raffica ricorrente non c'e';
+#   la DIREZIONE misurata non esiste (Addicted pubblica solo quella prevista).
+#   La direzione decide se un vento e' Ora o un nordico sinottico, e a
+#   Torbole il 22% delle ore ventose pomeridiane NON sono Ora per direzione:
+#   etichettare per sola ora del giorno sarebbe sbagliato una volta su
+#   cinque. Quindi si prende in prestito da una centralina vicina che ce
+#   l'ha - Malcesine, a quattro chilometri sull'altra sponda, e Torbole
+#   prima del 2026, quando Malcesine non aveva la direzione. Misurato su
+#   4.607 ore in comune: quando entrambe hanno vento concordano sul settore
+#   il 100% delle volte di pomeriggio e il 99% di mattina. E' un prestito,
+#   e store.obs_hours lo segna riga per riga (dir_prestito).
+CAMPIONE = dict(lat=45.7577, lon=10.7397, elevation=66,
+                station="campione", source="addicted", addicted_slug="campione",
+                station_name="Campione del Garda (Vela Club) - Addicted Sports",
+                direzione_da=("malcesine", "T0193"))
 
 # Ogni voce e' una coppia LUOGO + REGIME: sono due fenomeni diversi, con
 # finestre, asse e fisica diversi, e vanno previsti separatamente.
@@ -199,6 +221,13 @@ SPOTS = {
                             regime="PELER", axis=LAKE_AXIS_PELER, window=(5, 11),
                             min_kn=10.0, planing_kn=14.0, target="hourly",
                             ora_pratica=6.0),
+    "Campione-Ora": dict(CAMPIONE, place="Campione", label="Campione · Ora",
+                         regime="ORA", axis=LAKE_AXIS_ORA, window=(11, 19),
+                         min_kn=11.0, planing_kn=14.0, target="hourly"),
+    "Campione-Peler": dict(CAMPIONE, place="Campione", label="Campione · Pelèr",
+                           regime="PELER", axis=LAKE_AXIS_PELER, window=(5, 11),
+                           min_kn=10.0, planing_kn=14.0, target="hourly",
+                           ora_pratica=6.0),
     # L'archivio pubblico di Malcesine e' giornaliero: da' la raffica massima
     # del giorno senza dire a che ora. E' comunque un bersaglio allenabile su
     # due anni, e "quanto tira di punta oggi" e' una domanda sensata.
@@ -218,9 +247,10 @@ REGIME_SECTOR_DEG = 70.0
 for _n, _s in SPOTS.items():
     _s["axis_obs"] = OBS_AXIS.get(_n, _s["axis"])
 
-PLACES = ["Torbole", "Malcesine"]
+PLACES = ["Torbole", "Malcesine", "Campione"]
 SPOT_ORDER = ["Torbole-Ora", "Torbole-Peler",
-              "Malcesine-Ora", "Malcesine-Peler", "Malcesine-Giorno"]
+              "Malcesine-Ora", "Malcesine-Peler", "Malcesine-Giorno",
+              "Campione-Ora", "Campione-Peler"]
 
 # Punti geografici distinti da interrogare (spot diversi possono condividerli)
 def forecast_points():

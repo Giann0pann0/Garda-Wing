@@ -79,6 +79,8 @@ CSS = """
   --raggio:16px;
 }
 body.p2{--pc:var(--s2); --pc-soft:var(--s2-soft); --pc-glow:var(--s2-glow)}
+/* Campione: terza localita', terzo colore, assegnato una volta. */
+body.p3{--pc:#9b6fe0; --pc-soft:#3a2a5e; --pc-glow:rgba(155,111,224,.22)}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 img{max-width:100%}
@@ -1575,7 +1577,7 @@ def sezione_giorno(place, entry, visible):
     piu' grande della pagina e quello che risponde alla domanda dopo - non "si
     naviga" ma "a che ora, e per quanto".
     """
-    pl = entry["places"][place]
+    pl = entry["places"].get(place) or {}
     today = (entry.get("day") == local_day(utc_now()))
     live = pl.get("live")
     profile = pl.get("profile") or []
@@ -1616,7 +1618,7 @@ def striscia_giorni(place, days):
     """I cinque giorni, con la data. Cliccando si cambia il giorno mostrato."""
     cards = []
     for i, entry in enumerate(days):
-        pl = entry["places"][place]
+        pl = entry["places"].get(place) or {}
         profile = pl.get("profile") or []
         today = (entry.get("day") == local_day(utc_now()))
         migliore, kn = None, None
@@ -1966,7 +1968,7 @@ def dettagli_panel(place, days):
         'della scheda, e due righe con lo stesso nome e due definizioni fanno '
         'leggere un numero per un altro. Si usa una fonte sola per giornata: '
         'un cambio di canale a met\u00e0 giornata si vede come un salto che '
-        'non \u00e8 vento.</p>'
+        'non \u00e8 vento.</p>%s'
         '<h3>La raffica prevista</h3>'
         '<p>Non viene dal modello: il rapporto raffica/medio che i modelli '
         'danno ora per ora non ha relazione con quello vero (misurato: '
@@ -1980,7 +1982,25 @@ def dettagli_panel(place, days):
         'storico misurato delle centraline. Centraline, modelli, pesi e '
         'quanto sbaglia: <a href="/diagnostica">dati e modelli</a>.</p>'
         '</div></details>'
-        % (giudizio.scala_parole(spot), "".join(righe), raffica_parole(place)))
+        % (giudizio.scala_parole(spot), "".join(righe), prestito_parole(place),
+           raffica_parole(place)))
+
+
+def prestito_parole(place):
+    """Se la centralina non misura la direzione e la prende in prestito, la
+    pagina lo dice: e' l'unica cosa del misurato che non e' misurata qui."""
+    spot = next((config.SPOTS[n] for n in place_spots(place).values()), None)
+    donatrici = (spot or {}).get("direzione_da") or ()
+    if not donatrici:
+        return ""
+    nomi = [next((config.SPOTS[n]["place"] for n in config.SPOTS
+                  if config.SPOTS[n]["station"] == d), d) for d in donatrici]
+    return ('<p>La centralina di %s non misura la <i>direzione</i>: la si '
+            'prende in prestito, ora per ora, da %s. Misurato su 4.600 ore in '
+            'comune: quando c\u2019\u00e8 vento le centraline dell\u2019alto lago '
+            'concordano sul settore il 99\u2013100%% delle volte. La serie \u00e8 '
+            'oraria, non a dieci minuti.</p>'
+            % (E(place), E(" e, prima, ".join(nomi))))
 
 
 def raffica_parole(place):
@@ -2013,9 +2033,9 @@ def anteprima_link(place, days):
     che si apre. Uno che arriva nudo no. Il titolo e' il verdetto di OGGI,
     quindi si riscrive a ogni ricostruzione, quattro volte al giorno.
     """
-    if not days:
-        return ""
-    entry = days[0]
+    # Senza giornate (archivio vuoto, localita' appena aggiunta) i tag
+    # restano: descrizione e indirizzo canonico non dipendono dal verdetto.
+    entry = days[0] if days else {"places": {}, "sessions": {}}
     pl = entry["places"].get(place) or {}
     profile = pl.get("profile") or []
     pezzi = []
@@ -2036,12 +2056,27 @@ def anteprima_link(place, days):
     base = (config.SITE_URL or "").rstrip("/")
     img = ('<meta property="og:image" content="%s/icona-512.png">\n'
            % E(base)) if base else ""
-    return ('<meta property="og:type" content="website">\n'
+    # Il minimo per un motore di ricerca: descrizione e indirizzo canonico.
+    # Non e' una campagna SEO - prima il prodotto - ma sono due righe che
+    # costano niente e senza le quali Google indicizza un titolo a caso.
+    canon = ('<link rel="canonical" href="%s">\n'
+             % E(url_pagina(place))) if base else ""
+    return ('<meta name="description" content="%s">\n%s'
+            '<meta property="og:type" content="website">\n'
             '<meta property="og:title" content="%s">\n'
             '<meta property="og:description" content="%s">\n%s'
             '<meta property="og:site_name" content="%s">\n'
             '<meta name="twitter:card" content="summary">\n'
-            % (E(titolo), E(descr), img, E(config.APP_NAME)))
+            % (E(descr), canon, E(titolo), E(descr), img, E(config.APP_NAME)))
+
+
+def url_pagina(place):
+    """L'indirizzo pubblico della pagina di una localita'."""
+    base = (config.SITE_URL or "").rstrip("/")
+    if not base:
+        return ""
+    slug = _slug(place)
+    return base + "/" if slug == "index" else "%s/%s.html" % (base, slug)
 
 
 def page_luogo(place=None):
@@ -2064,7 +2099,7 @@ def page_luogo(place=None):
         body = ('<div class="panel"><div class="empty">Sto raccogliendo i '
                 'dati\u2026</div></div>')
     else:
-        pl = days[0]["places"][place]
+        pl = days[0]["places"].get(place) or {}
         body = (adesso_riquadro(place, pl.get("live"), pl.get("profile") or [])
                 + striscia_giorni(place, days)
                 + "".join(sezione_giorno(place, entry, visible=(i == 0))

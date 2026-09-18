@@ -456,7 +456,7 @@ def upsert_obs_hours(station, rows):
     return c.total_changes
 
 
-def obs_hours(station, start_hour=None, end_hour=None):
+def _obs_hours_grezze(station, start_hour=None, end_hour=None):
     q = "SELECT hour, wind_mean, wind_max, gust_max, gust_rec, dir_deg, " \
         "dir_const, n_samples FROM obs_hour WHERE station=?"
     args = [station]
@@ -467,6 +467,50 @@ def obs_hours(station, start_hour=None, end_hour=None):
         q += " AND hour<=?"
         args.append(end_hour)
     return [dict(r) for r in connect().execute(q + " ORDER BY hour", args)]
+
+
+def direzione_da(station):
+    """Le centraline da cui questa prende in prestito la direzione, in ordine."""
+    for s in config.SPOTS.values():
+        if s["station"] == station:
+            return tuple(s.get("direzione_da") or ())
+    return ()
+
+
+def obs_hours(station, start_hour=None, end_hour=None):
+    """Le ore osservate di una centralina, con la direzione in PRESTITO dove
+    la centralina non la misura.
+
+    E' l'unico lettore di obs_hour che il resto del programma usa, ed e' per
+    questo che il prestito sta qui e non nei consumatori: bersaglio del
+    modello, classificazione dei regimi, curva del misurato e avvisi leggono
+    tutti da qui, e un prestito fatto in uno solo di quei posti avrebbe dato
+    a Campione un Ora per il modello e nessun Ora per la scheda.
+
+    Il prestito e' dichiarato riga per riga: dir_prestito porta il nome della
+    centralina donatrice, ed e' None dove la direzione e' misurata sul posto.
+    Nella tabella non si scrive niente: obs_hour di Campione resta senza
+    direzione, com'e' la misura.
+    """
+    rows = _obs_hours_grezze(station, start_hour, end_hour)
+    donatrici = direzione_da(station)
+    for r in rows:
+        r["dir_prestito"] = None
+    if not donatrici or not rows:
+        return rows
+    mancanti = [r for r in rows if r["dir_deg"] is None]
+    if not mancanti:
+        return rows
+    a, b = mancanti[0]["hour"], mancanti[-1]["hour"]
+    for donatrice in donatrici:
+        per_ora = {d["hour"]: d for d in _obs_hours_grezze(donatrice, a, b)
+                   if d["dir_deg"] is not None}
+        for r in mancanti:
+            if r["dir_deg"] is None and r["hour"] in per_ora:
+                r["dir_deg"] = per_ora[r["hour"]]["dir_deg"]
+                r["dir_const"] = per_ora[r["hour"]]["dir_const"]
+                r["dir_prestito"] = donatrice
+    return rows
 
 
 def obs_days(station):

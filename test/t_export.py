@@ -16,7 +16,9 @@ paths = X.export("/tmp/sitotest")
 from gardawind import config
 # I file comuni: diagnostica, live.json, manifesto, due icone, previsione.
 # Piu' la foto di sfondo, se Gian l'ha messa nella cartella del progetto.
-attesi = len(config.PLACES) + 6 + (1 if config.sfondo_path() else 0)
+# Piu' robots.txt e sitemap.xml, quando il sito ha un indirizzo pubblico.
+attesi = (len(config.PLACES) + 6 + (1 if config.sfondo_path() else 0)
+          + (2 if config.SITE_URL else 0))
 ok(len(paths) == attesi,
    "una pagina per localita' piu' i file comuni, anche a database vuoto"
    " (%d su %d)" % (len(paths), attesi))
@@ -81,3 +83,12 @@ if config.sfondo_path():
 else:
     ok('class="hero"' in _html and 'class="cielo"' in _html,
        "senza foto: il cielo disegnato, e nessun riferimento a un file assente")
+
+# La mappa del sito elenca una pagina per localita', dalla stessa lista.
+if config.SITE_URL:
+    _sm = open(_os.path.join(OUT, "sitemap.xml"), encoding="utf-8").read()
+    ok(_sm.count("<url>") == len(config.PLACES)
+       and all(web.url_pagina(p) in _sm for p in config.PLACES),
+       "sitemap.xml: una voce per localita', dagli stessi indirizzi delle pagine")
+    ok('<link rel="canonical" href="%s">' % web.url_pagina("Torbole") in _html,
+       "e ogni pagina dichiara il suo indirizzo canonico")

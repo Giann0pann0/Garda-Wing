@@ -241,8 +241,15 @@ def parse_json(dati):
     return out
 
 
-def url_json(giorno):
-    return "%s?json=wind&from=%s" % (config.URL_ADDICTED_TORBOLE, giorno)
+def url_stazione(slug=None):
+    """La pagina di una stazione Addicted. Senza slug: Torbole, com'era."""
+    if not slug or slug == "torbole":
+        return config.URL_ADDICTED_TORBOLE
+    return config.URL_ADDICTED_TORBOLE.replace("/torbole/", "/%s/" % slug)
+
+
+def url_json(giorno, slug=None):
+    return "%s?json=wind&from=%s" % (url_stazione(slug), giorno)
 
 
 def url_frame_webcam(ts_utc):
@@ -291,11 +298,16 @@ def _registra(channel, url, corpo, struct, ok, n_rows=None, note=None,
             "bytes": len(corpo) if corpo is not None else None}
 
 
-def fetch_hourly(giorno=None, adesso=None):
-    """La serie oraria misurata di un giorno locale. (righe, meta)."""
+def fetch_hourly(giorno=None, adesso=None, slug=None):
+    """La serie oraria misurata di un giorno locale. (righe, meta).
+
+    slug: la stazione Addicted. Nasce per Torbole (controllo incrociato) e
+    dal 2026-09 serve Campione, dove Addicted e' LA centralina della pagina:
+    stesso parser, stessa impronta, stessa provenienza registrata.
+    """
     adesso = adesso or utc_now()
     giorno = giorno or to_local(adesso).strftime("%Y-%m-%d")
-    url = url_json(giorno)
+    url = url_json(giorno, slug)
     corpo = fetch_text(url, timeout=45)
     struct = None
     try:

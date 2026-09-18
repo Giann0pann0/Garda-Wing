@@ -7,7 +7,7 @@ import time
 
 from . import (aggregate, analogs, config, confidence as CONF, features as F,
                model as M, store, validate as V, verify)
-from .sources import malcesine, meteotrentino, openmeteo
+from .sources import addicted, malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
                    local_minute_of_day, mean, parse_dt_any, pstdev,
@@ -121,7 +121,87 @@ def update_stations():
         done.append("Malcesine 1 campione")
     except FetchError as e:
         _note("error", "centralina/Malcesine", str(e)[:160])
+
+    # Le centraline Addicted (Campione): serie ORARIA, oggi e ieri. Oggi
+    # perche' e' il dato vivo, ieri perche' l'ultima ora di ieri era
+    # provvisoria quando l'abbiamo letta.
+    for stazione, slug in stazioni_addicted():
+        try:
+            n = 0
+            for giorno in (day_shift(local_day(utc_now()), -1),
+                           local_day(utc_now())):
+                righe, _meta = addicted.fetch_hourly(giorno=giorno, slug=slug)
+                n += salva_ore_addicted(stazione, righe)
+            done.append("%s %d ore" % (stazione, n))
+        except FetchError as e:
+            _note("error", "centralina/%s" % stazione, str(e)[:160])
     return done
+
+
+def stazioni_addicted():
+    """[(station, slug)] delle centraline la cui fonte e' Addicted."""
+    out = []
+    for name in config.SPOT_ORDER:
+        s = config.SPOTS[name]
+        if s.get("source") == "addicted" and (s["station"], s["addicted_slug"]) not in out:
+            out.append((s["station"], s["addicted_slug"]))
+    return out
+
+
+# Addicted media gia' i dieci minuti dentro l'ora: la riga oraria che arriva
+# e' una media di sei letture che non vediamo. Si scrive 6 perche' il
+# bersaglio scarta le ore "ricostruite da pochissimi campioni" (n < 2), e
+# queste non lo sono: sono ore intere, mediate a monte.
+N_CAMPIONI_ORA_ADDICTED = 6
+
+
+def salva_ore_addicted(station, righe):
+    """Righe (ts_utc, medio, massimo, None) -> obs_hour, piu' un campione per
+    ora in obs_sample cosi' l'adesso della pagina ha qualcosa da leggere.
+
+    La direzione resta None in entrambe le tabelle: non e' misurata. La
+    prende in prestito store.obs_hours, dichiarandolo.
+    """
+    if not righe:
+        return 0
+    store.upsert_obs_hours(station, [{
+        "hour": ts[:13], "wind_mean": w, "wind_max": None, "gust_max": g,
+        "gust_rec": None, "dir_deg": None, "dir_const": None,
+        "n_samples": N_CAMPIONI_ORA_ADDICTED} for ts, w, g, _d in righe])
+    store.save_samples(station, righe, "addicted-json")
+    return len(righe)
+
+
+def promuovi_storico_addicted(station=None):
+    """Lo storico Addicted (addicted_hour) diventa l'osservato della
+    centralina (obs_hour), per le stazioni che hanno Addicted come fonte.
+
+    Per Torbole non si fa: la pagina mostra Meteotrentino, e i due sensori
+    non misurano la stessa raffica (1,9 contro 1,45). Per Campione si fa,
+    perche' la centralina della pagina E' quella dello storico. Sovrascrive
+    solo le ore che non sono gia' arrivate dal canale vivo.
+    """
+    out = {}
+    for stazione, slug in stazioni_addicted():
+        if station and stazione != station:
+            continue
+        gia = {r["hour"] for r in store._obs_hours_grezze(stazione)}
+        righe = []
+        for r in store.connect().execute(
+                "SELECT hour, wind_mean_kn, hourly_max_kn FROM addicted_hour "
+                "WHERE station=? AND wind_mean_kn IS NOT NULL ORDER BY hour",
+                (slug,)):
+            chiave = r["hour"][:13]
+            if chiave in gia:
+                continue
+            righe.append({"hour": chiave, "wind_mean": r["wind_mean_kn"],
+                          "wind_max": None, "gust_max": r["hourly_max_kn"],
+                          "gust_rec": None, "dir_deg": None, "dir_const": None,
+                          "n_samples": N_CAMPIONI_ORA_ADDICTED})
+        if righe:
+            store.upsert_obs_hours(stazione, righe)
+        out[stazione] = len(righe)
+    return out
 
 
 def refresh_malcesine_intraday(months=2):
@@ -169,8 +249,17 @@ def refresh_malcesine_intraday(months=2):
 
 
 def backfill_station_history(force=False, on_progress=None):
-    """Scarica una volta sola gli archivi storici pubblici delle due centraline."""
+    """Scarica una volta sola gli archivi storici pubblici delle centraline."""
     out = []
+
+    # Campione: lo storico e' gia' in archivio (addicted_hour, importato dal
+    # censimento Addicted). Qui diventa osservato, cosi' i passi successivi
+    # - ERA5, archivio, scadenze - vedono da quando ha dati.
+    for stazione, n in promuovi_storico_addicted().items():
+        if n:
+            out.append("%s: %d ore promosse dallo storico Addicted" % (stazione, n))
+            if on_progress:
+                on_progress("  %s: %d ore dallo storico Addicted" % (stazione, n))
 
     if force or not store.meta_get("backfill_torbole"):
         try:
