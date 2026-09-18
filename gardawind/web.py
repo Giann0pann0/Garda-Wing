@@ -640,6 +640,14 @@ def icona(nome, classe="ic"):
     return '<span class="%s">%s</span>' % (classe, ICONE[nome])
 
 
+def _nome_luogo(station):
+    """Il nome del posto di una centralina, per dire da dove viene un prestito."""
+    for sp in config.SPOTS.values():
+        if sp["station"] == station:
+            return sp["place"]
+    return station or ""
+
+
 def cielo_svg():
     """Il tramonto sul lago, disegnato: cielo, sole, due file di montagne, acqua.
 
@@ -718,7 +726,10 @@ def now_observed_html(live):
             % arrow(dir_deg, 30, "currentColor")) if dir_deg is not None
            else icona("freccia"),
            E(compass(dir_deg) or "—"),
-           E("da " + direzione_parole(dir_deg)) if dir_deg is not None else "",
+           E(("da " + direzione_parole(dir_deg))
+             + (" (%s)" % _nome_luogo(live.get("dir_prestito"))
+                if live.get("dir_prestito") else ""))
+           if dir_deg is not None else "",
            icona("raffica"), gust,
            icona("orologio"), E(eta_parole(live.get("age_min"))),
            E(hhmm_txt) if hhmm_txt else "—"))
@@ -1674,8 +1685,12 @@ def sources_panel():
     stations = [
         ("T0193", "Torbole (Belvedere), 90 m", "Meteotrentino",
          "https://dati.meteotrentino.it/service.asmx"),
-        ("malcesine", "Fraglia Vela Malcesine, 65 m", "MeteoProject",
-         "https://stazioni.meteoproject.it/dati/malcesine/"),
+        ("malcesine", "Fraglia Vela Malcesine, 65 m (direzione e raffica del giorno)",
+         "MeteoProject", "https://stazioni.meteoproject.it/dati/malcesine/"),
+        ("malcesine_add", "Malcesine, spiaggia (vento)", "Addicted Sports",
+         "https://it.addicted-sports.com/forecast/gardasee/malcesine/"),
+        ("campione", "Campione del Garda, Vela Club (vento)", "Addicted Sports",
+         "https://it.addicted-sports.com/forecast/gardasee/campione/"),
     ]
     for station, nome, prov, url in stations:
         st = store.obs_stats(station)
@@ -2014,7 +2029,14 @@ def prestito_parole(place):
             'comune: quando c\u2019\u00e8 vento le centraline dell\u2019alto lago '
             'concordano sul settore il 99\u2013100%% delle volte. La serie \u00e8 '
             'oraria, non a dieci minuti.</p>'
-            % (E(place), E(" e, prima, ".join(nomi))))
+            '<p>Il <i>vento medio</i> \u00e8 riportato sulla scala della '
+            'Meteotrentino di Torbole, cos\u00ec che le localit\u00e0 si possano '
+            'confrontare: le centraline Addicted, sull\u2019acqua, leggono pi\u00f9 '
+            'basso (a Torbole, con i due strumenti fianco a fianco su %s ore, '
+            'la Meteotrentino legge 1,3 volte l\u2019Addicted sopra gli 8 kn). '
+            'La raffica no: i due strumenti coincidono.</p>'
+            % (E(place), E(" e, prima, ".join(nomi)),
+               "{:,}".format(config.SCALA_ADDICTED_A_MT_N).replace(",", ".")))
 
 
 def raffica_parole(place):

@@ -1288,3 +1288,24 @@ def curva_monotona(punti, cifre=1):
                          x1 - h[i] / 3.0, y1 - m[i + 1] * h[i] / 3.0,
                          x1, y1))
     return " ".join(out)
+
+
+def riscala(curva, x):
+    """Porta una lettura sulla scala comune con una curva a punti (x, y).
+
+    Lineare fra i punti; sotto il primo e sopra l'ultimo si tiene il rapporto
+    del punto estremo, cosi' zero resta zero e una lettura fuori tabella non
+    salta. Monotona per costruzione se la curva lo e'.
+    """
+    if x is None or not curva:
+        return x
+    x = float(x)
+    (x0, y0), (xn, yn) = curva[0], curva[-1]
+    if x <= x0:
+        return x * y0 / x0 if x0 > 0 else y0
+    if x >= xn:
+        return x * yn / xn
+    for (a, ya), (b, yb) in zip(curva, curva[1:]):
+        if a <= x <= b:
+            return ya + (yb - ya) * (x - a) / (b - a)
+    return x

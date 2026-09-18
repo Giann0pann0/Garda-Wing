@@ -24,7 +24,7 @@ from gardawind.util import (FINESTRA_RICORRENTE_MIN, covered_minutes,
                             gust_level, iso_utc, recurrent_gust,
                             sampling_cadence, sustained_onset, time_above,
                             window_estimable)
-from gardawind import store, aggregate
+from gardawind import config, store, aggregate
 import datetime as dt
 
 ok = lambda c, m: print(("PASS " if c else "FAIL ") + m)
@@ -378,7 +378,7 @@ for d in range(120):
         t = b4 + dt.timedelta(days=d, minutes=passo * k)
         mix.append((iso_utc(t), 11.0, 18.0, 200.0))
         k += 1
-store.save_samples("malcesine", mix, "meteoproject-intraday")
+store.save_samples(config.SPOTS["Malcesine-Ora"]["station"], mix, "meteoproject-intraday")
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     cmd_raffiche("Malcesine-Ora")

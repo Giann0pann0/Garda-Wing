@@ -55,9 +55,7 @@ CURVA_KN_MAX = 60.0
 def stazione(station, adesso=None):
     """Lo stato osservato di una centralina. Nessuna stima, nessun modello."""
     adesso = adesso or utc_now()
-    rows = list(store.connect().execute(
-        "SELECT ts, wind_kn, gust_kn, dir_deg FROM obs_sample "
-        "WHERE station=? ORDER BY ts DESC LIMIT 40", (station,)))
+    rows = store.samples_recent(station, 40)
     if not rows:
         return {"station": station, "ts": None, "wind": None, "gust": None,
                 "dir": None, "gust_rec": None, "gust_rec_stato": "no_data",
@@ -121,12 +119,17 @@ def stazione(station, adesso=None):
         else:
             ric = validi[-1]
 
+    direzione, dir_da = ultimo["dir_deg"], None
+    if direzione is None:
+        direzione, dir_da = store.direzione_recente(station)
+
     return {
         "station": station,
         "ts": ultimo["ts"],
         "wind": ultimo["wind_kn"],
         "gust": raffica_recente,
-        "dir": ultimo["dir_deg"],
+        "dir": direzione,
+        "dir_prestito": dir_da,
         "gust_rec": ric,
         "gust_rec_stato": stato,
         "gust_rec_finestra_min": FINESTRA_RICORRENTE_MIN,

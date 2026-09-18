@@ -437,9 +437,48 @@ def samples_since(station, since_iso):
     realtime - e chi unisce i due deve sapere quale sta guardando per poter
     dichiarare un conflitto invece di scegliere in silenzio.
     """
-    return [dict(r) for r in connect().execute(
+    rows = [dict(r) for r in connect().execute(
         "SELECT ts, wind_kn, gust_kn, dir_deg, source FROM obs_sample "
         "WHERE station=? AND ts>=? ORDER BY ts, source", (station, since_iso))]
+    return _campioni_in_scala(station, rows)
+
+
+def _campioni_in_scala(station, rows):
+    if config.scala_vento(_fonte(station)):
+        for r in rows:
+            r["wind_kn"] = scala_vento(station, r["wind_kn"])
+    return rows
+
+
+def direzione_recente(station, entro_min=45.0):
+    """La direzione piu' recente di una centralina che non la misura, presa
+    in prestito dalle sue donatrici (config: direzione_da), se non e' piu'
+    vecchia di entro_min. Per l'adesso della pagina: Campione e Malcesine
+    mostrano la freccia della Fraglia o di Torbole, e la pagina lo dice.
+    Ritorna (gradi, donatrice) o (None, None)."""
+    from .util import parse_dt_any, utc_now
+    for donatrice in direzione_da(station):
+        for r in connect().execute(
+                "SELECT ts, dir_deg FROM obs_sample WHERE station=? AND dir_deg "
+                "IS NOT NULL ORDER BY ts DESC LIMIT 1", (donatrice,)):
+            dt = parse_dt_any(r["ts"])
+            if dt and (utc_now() - dt).total_seconds() / 60.0 <= entro_min:
+                return float(r["dir_deg"]), donatrice
+    return None, None
+
+
+def samples_recent(station, limit=40):
+    """Gli ultimi campioni, dal piu' recente, sulla scala comune.
+
+    Nasce per togliere le due letture dirette di obs_sample che stavano in
+    live.py e in engine.current_conditions: due strade che non passavano
+    per la scala, e avrebbero mostrato "adesso" un numero diverso da quello
+    del grafico.
+    """
+    rows = [dict(r) for r in connect().execute(
+        "SELECT ts, wind_kn, gust_kn, dir_deg, source FROM obs_sample "
+        "WHERE station=? ORDER BY ts DESC LIMIT ?", (station, int(limit)))]
+    return _campioni_in_scala(station, rows)
 
 
 def upsert_obs_hours(station, rows):
@@ -469,6 +508,27 @@ def _obs_hours_grezze(station, start_hour=None, end_hour=None):
     return [dict(r) for r in connect().execute(q + " ORDER BY hour", args)]
 
 
+def _fonte(station):
+    for s in config.SPOTS.values():
+        if s["station"] == station:
+            return s.get("source")
+    return None
+
+
+def scala_vento(station, kn):
+    """Una lettura di vento medio di questa centralina, sulla scala comune.
+
+    E' l'unico posto in cui la curva di config.SCALA_ADDICTED_A_MT viene
+    applicata; tutti i lettori passano di qui. In archivio resta il grezzo.
+    Solo il vento medio: la raffica non si tocca (i due strumenti coincidono).
+    """
+    curva = config.scala_vento(_fonte(station))
+    if kn is None or not curva:
+        return kn
+    from .util import riscala
+    return riscala(curva, kn)
+
+
 def direzione_da(station):
     """Le centraline da cui questa prende in prestito la direzione, in ordine."""
     for s in config.SPOTS.values():
@@ -494,8 +554,12 @@ def obs_hours(station, start_hour=None, end_hour=None):
     """
     rows = _obs_hours_grezze(station, start_hour, end_hour)
     donatrici = direzione_da(station)
+    curva = config.scala_vento(_fonte(station))
     for r in rows:
         r["dir_prestito"] = None
+        if curva:
+            r["wind_mean"] = scala_vento(station, r["wind_mean"])
+            r["wind_max"] = scala_vento(station, r["wind_max"])
     if not donatrici or not rows:
         return rows
     mancanti = [r for r in rows if r["dir_deg"] is None]

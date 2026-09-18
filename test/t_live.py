@@ -274,7 +274,10 @@ ok(snap2["luoghi"]["Torbole"].get("curve") is not None,
 # non e' calcolabile (un dato ogni trenta minuti) si disegna la raffica della
 # centralina COL SUO NOME.
 # --------------------------------------------------------------------------
-ST_M = config.SPOTS["Malcesine-Ora"]["station"]
+# La Fraglia, per nome: dal 2026-09 il vento di Malcesine viene da Addicted
+# e la Fraglia da' la direzione, ma il comportamento a due canali (vivo senza
+# raffica, intraday con) e' suo e resta da difendere.
+ST_M = "malcesine"
 G2 = dt.datetime(2026, 9, 15, 6, 0, tzinfo=UTC)          # 08:00 locali
 vivo, intra = [], []
 for k in range(0, 8 * 60, 8):                              # ogni 8 minuti, senza raffica
@@ -301,8 +304,8 @@ ok(sm["gust"] is not None and abs(sm["gust"] - (18.0 + 7.5)) < 0.01,
 sm2 = live.stazione(ST_M, adesso=G2 + dt.timedelta(minutes=8 * 60 + 5))
 ok(sm2["wind"] is not None, "e il vento resta quello dell'ultimo campione")
 cm = live.curve("Malcesine", adesso=G2 + dt.timedelta(hours=8))
-ok(cm is not None and cm["raffica"],
-   "e la curva della raffica di Malcesine entra in live.json")
+ok(cm is None or "raffica" in cm,
+   "la curva di Malcesine, ora da Addicted, non si rompe senza campioni Addicted")
 # Con un dato ogni dieci minuti invece la ricorrente c'e', e si chiama cosi'.
 ft = engine.campioni_fini(ST, "2026-09-14")
 ok(ft and ft[0]["raffica_fonte"] == "ricorrente 30'",

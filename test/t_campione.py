@@ -46,8 +46,9 @@ ok({"Campione-Ora", "Campione-Peler"} <= set(config.SPOT_ORDER),
 ok(config.SPOTS["Campione-Ora"]["station"] == "campione"
    and config.SPOTS["Campione-Ora"]["source"] == "addicted",
    "la centralina e' quella Addicted del Vela Club")
-ok(engine.stazioni_addicted() == [("campione", "campione")],
-   "ed e' l'unica con Addicted come fonte: Torbole resta Meteotrentino")
+ok(("campione", "campione") in engine.stazioni_addicted()
+   and all(st != "T0193" for st, _s in engine.stazioni_addicted()),
+   "ha Addicted come fonte, e Torbole resta Meteotrentino")
 ok(web._slug("Campione") == "campione" and 'href="/campione"' in web.nav_luoghi("Torbole"),
    "la pagina e la navigazione nascono da config")
 ok(addicted.url_json("2026-09-18", "campione")
@@ -127,7 +128,7 @@ for h, w, g in ((10, 8.0, 14.0), (11, 9.0, 15.0), (14, 99.0, 99.0)):
               ("torbole", ora(G, h) + ":00:00Z", w, g, "addicted-sports-history",
                "torbole", "prova"))
 c.commit()
-esito = engine.promuovi_storico_addicted()
+esito = engine.promuovi_storico_addicted("campione")
 ok(esito == {"campione": 2}, "promosse le ore che mancavano, e solo quelle: %s" % esito)
 righe = {r["hour"]: r for r in store._obs_hours_grezze("campione")}
 ok(righe[ora(G, 10)]["wind_mean"] == 8.0 and righe[ora(G, 10)]["gust_max"] == 14.0

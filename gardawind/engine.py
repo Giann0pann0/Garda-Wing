@@ -1439,9 +1439,8 @@ def live_reading(station):
     ma quanto sta tirando adesso. Viaggia con la sua eta', perche' un dato
     di quaranta minuti fa non e' "adesso".
     """
-    row = store.connect().execute(
-        "SELECT ts, wind_kn, gust_kn, dir_deg FROM obs_sample "
-        "WHERE station=? ORDER BY ts DESC LIMIT 1", (station,)).fetchone()
+    righe = store.samples_recent(station, 1)
+    row = righe[0] if righe else None
     if not row:
         return None
     dt = parse_dt_any(row["ts"])

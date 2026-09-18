@@ -25,6 +25,48 @@ APP_TAGLINE = "Il vento giusto, al momento giusto."
 SFONDO_FILE = "sfondo.jpg"
 
 
+# --------------------------------------------------------------------------
+# La SCALA del vento: tutte le localita' sui numeri della Meteotrentino
+# --------------------------------------------------------------------------
+# Gian: "uno vuole sapere quanto vento c'e' davvero, non quanto misura la
+# centralina" - dopo aver visto tre pagine che per lo stesso vento dicevano
+# 15, 11 e 9. Le centraline non leggono uguale: la Meteotrentino di Torbole
+# (Belvedere, 90 m) legge piu' alto delle Addicted, che stanno sull'acqua ai
+# circoli. Nello STESSO POSTO, Torbole, con i due strumenti fianco a fianco:
+# 62.847 ore in comune, e sopra gli 8 kn la Meteotrentino legge x1,26-1,31
+# volte l'Addicted, con dispersione stretta. E' un fattore di sensore, non di
+# geografia: per questo si impara SOLO dalla coppia di Torbole e si applica
+# uguale a tutte le Addicted (stessa famiglia di strumenti). Impararlo dalla
+# coppia Campione-Torbole avrebbe mescolato dentro le giornate in cui a
+# Campione tira e a Torbole no.
+#
+# La scala scelta e' quella della Meteotrentino, perche' e' quella su cui le
+# soglie (11 kn "entra", 14 "si plana") sono state fissate e validate in
+# anni, e quella dei numeri a cui Gian e' abituato. Quindi Torbole non si
+# tocca; le letture Addicted (Campione, Malcesine) vengono riportate su
+# questa scala LEGGENDOLE, con la curva qui sotto - in archivio resta il
+# grezzo. Solo il vento medio: la raffica massima oraria dei due strumenti
+# coincide gia' (rapporto x1,00 sopra gli 8 kn), e non si tocca.
+#
+# La curva: lettura Addicted -> mediana della Meteotrentino nello stesso
+# scalino di 2 kn, resa monotona, interpolata linearmente fra i punti ed
+# estrapolata col rapporto dell'ultimo punto. Con questa curva lo scarto
+# mediano fra i due strumenti nelle ore con piu' di 14 kn passa da 4,7 a 1,5
+# kn. Misurata il 2026-09-18 su ore 5-19; si rimisura con
+# strumenti/estrai-scala.py.
+SCALA_ADDICTED_A_MT = ((1.0, 2.5), (3.0, 4.6), (5.0, 7.2), (7.0, 9.9),
+                       (9.0, 12.0), (11.0, 14.3), (13.0, 16.4),
+                       (15.0, 18.6), (17.0, 20.2))
+SCALA_ADDICTED_A_MT_N = 62847
+
+
+def scala_vento(source):
+    """La curva con cui le letture di una fonte vanno riportate sulla scala
+    comune, o None se la fonte E' la scala (Meteotrentino, e la Fraglia che
+    da' solo la direzione)."""
+    return SCALA_ADDICTED_A_MT if source == "addicted" else None
+
+
 def sfondo_path():
     """Il percorso della foto di sfondo, o None se non c'e'."""
     radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -176,9 +218,25 @@ STAGIONI_USO = (
 TORBOLE = dict(lat=45.870095, lon=10.877355, elevation=90,
                station="T0193", source="meteotrentino",
                station_name="Torbole (Belvedere) - Meteotrentino")
+# Malcesine: il VENTO viene dalla centralina Addicted della spiaggia, la
+# DIREZIONE dalla Fraglia Vela (MeteoProject). Perche' non tutto dalla
+# Fraglia, che ha direzione e otto minuti di passo: perche' legge basso nel
+# vento forte, e in modo sporco. Misurato sulle ore in comune con Addicted
+# Malcesine: a 4-8 kn concordano, a 8-12 la Fraglia e' sotto di 1,5 kn, a
+# 12-16 di 3,6, sopra i 16 di 6,6 - e sopra i 12 kn letti ha quindici ore in
+# tutto. Quando tira forte quel sensore non lo vede, e non si puo'
+# ricostruire cio' che uno strumento non ha misurato. Addicted invece e'
+# sull'acqua, ha lo storico dal 2014 (95.000 ore, contro 200 giorni della
+# Fraglia) ed e' la stessa famiglia di Campione. La Fraglia resta, e serve:
+# la direzione, che Addicted non misura, e la raffica massima del giorno.
+MALCESINE_FRAGLIA = dict(lat=45.7646, lon=10.8119, elevation=65,
+                         station="malcesine", source="meteoproject",
+                         station_name="Fraglia Vela Malcesine - MeteoProject")
 MALCESINE = dict(lat=45.7646, lon=10.8119, elevation=65,
-                 station="malcesine", source="meteoproject",
-                 station_name="Fraglia Vela Malcesine - MeteoProject")
+                 station="malcesine_add", source="addicted",
+                 addicted_slug="malcesine",
+                 station_name="Malcesine (spiaggia) - Addicted Sports",
+                 direzione_da=("malcesine", "T0193"))
 # Campione del Garda, sulla sponda bresciana, di fronte a Malcesine. La
 # centralina e' quella di Addicted Sports al Vela Club, sul lago: e' la
 # stessa del suo storico (2017 in poi, gia' in archivio), quindi il modello
@@ -231,7 +289,7 @@ SPOTS = {
     # L'archivio pubblico di Malcesine e' giornaliero: da' la raffica massima
     # del giorno senza dire a che ora. E' comunque un bersaglio allenabile su
     # due anni, e "quanto tira di punta oggi" e' una domanda sensata.
-    "Malcesine-Giorno": dict(MALCESINE, place="Malcesine",
+    "Malcesine-Giorno": dict(MALCESINE_FRAGLIA, place="Malcesine",
                              label="Malcesine · raffica di giornata",
                              regime="GIORNO", axis=LAKE_AXIS_ORA, window=(6, 20),
                              min_kn=18.0, planing_kn=22.0, target="daily_gust"),
