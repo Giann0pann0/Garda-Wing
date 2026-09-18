@@ -343,18 +343,25 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
     base_mae = model_mae = None
     resid = []
     if len(idx) >= max(20, 2 * len(names)):
+        # Le due strade possono non trovare un modello (troppe poche giornate
+        # per i fold, o per la sorgente incrociata): in quel caso restituiscono
+        # None su tutta la linea, e le previsioni fuori campione non esistono.
+        # Si controlla PRIMA di indicizzare: con Campione, che ha meno anni di
+        # Torbole, e' successo, e l'addestramento di tutte le localita' e'
+        # morto per una che non aveva ancora abbastanza giornate.
         if same:
             Xi = [X[i] for i in idx]
             yi = [math.log1p(max(0.0, peaks[i])) for i in idx]
             gi = [days[i] for i in idx]
             int_model, int_oof, int_lam, _f = _fit_stage(Xi, yi, gi, "ridge")
-            pred_all = [math.expm1(v) if v is not None else None for v in int_oof]
+            pred_all = ([math.expm1(v) if v is not None else None for v in int_oof]
+                        if int_oof is not None else None)
         else:
             int_model, oof_full, int_lam, _f = _fit_cross(
                 eval_samples, train_samples, tier, "ridge")
-            pred_all = [math.expm1(oof_full[i]) if oof_full[i] is not None else None
-                        for i in idx]
-        if int_model is not None:
+            pred_all = ([math.expm1(oof_full[i]) if oof_full[i] is not None else None
+                         for i in idx] if oof_full is not None else None)
+        if int_model is not None and pred_all is not None:
             pred = pred_all
             obs = [peaks[i] for i in idx]
             m_int = regression_metrics(pred, obs)

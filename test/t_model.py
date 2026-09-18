@@ -87,3 +87,34 @@ ok(all(r["tier"]!="full" for r in allf), "con 60 giorni il livello completo non 
 # prior senza modello
 pp=M.predict("Torbole-Ora",S[0]["features"],None,1,4)
 ok(pp["source"]=="prior" and 0<pp["prob"]<1 and pp["speed"]>0, "prior fisico funziona da solo")
+
+# --------------------------------------------------------------------------
+# Un candidato incrociato senza modello d'intensita' non fa morire tutto
+# --------------------------------------------------------------------------
+# Successo con Campione, la terza localita': meno anni di Torbole, la
+# sorgente incrociata non trovava abbastanza giornate per lo stadio B,
+# _fit_cross restituiva None e il codice indicizzava quel None. Morto
+# l'addestramento di TUTTE le localita' per una che non era pronta.
+import random as _rnd
+_rnd.seed(7)
+_names = F.TIERS[list(F.TIERS)[0]]
+def _campione(i, fonte):
+    feats = {n: _rnd.gauss(0, 1) for n in _names}
+    return {"day": "2024-%02d-%02d" % (1 + i // 28 % 12, 1 + i % 28), "features": feats,
+            "established": i % 3 != 0, "peak": 8.0 + (i % 7), "source": fonte}
+_eval = [_campione(i, "forecast") for i in range(60)]
+_train = [_campione(i, "era5") for i in range(60)]
+_vero = M._fit_cross
+def _finto(eval_samples, train_samples, tier, kind):
+    if kind == "ridge":
+        return None, None, None, None            # lo stadio B non trova niente
+    return _vero(eval_samples, train_samples, tier, kind)
+M._fit_cross = _finto
+try:
+    esito = M._evaluate_candidate(_eval, _train, list(F.TIERS)[0], source="era5")
+    ok(True, "un candidato incrociato senza stadio B non solleva eccezioni (esito: %s)"
+       % ("nessuno" if esito is None else "senza intensita'"))
+except TypeError as e:
+    ok(False, "un candidato incrociato senza stadio B ha fatto morire l'addestramento: %s" % e)
+finally:
+    M._fit_cross = _vero
