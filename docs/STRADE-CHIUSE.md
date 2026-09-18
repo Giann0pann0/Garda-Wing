@@ -155,6 +155,85 @@ discriminazione da una cosa che non ne ha, in nessuna delle due finestre — e
 che il posto dove cercare colpi è il **livello**, non la sagoma.
 
 ---
+
+## Il Pelèr era addestrato sulla finestra sbagliata *(corretto)*
+
+*Protocollo dichiarato il 2026-09-17 notte (commit "Il Peler e' addestrato
+sulla finestra sbagliata: dichiarato, e misurato"), misurato il 18 mattina
+con `--confronta-bersaglio` sull'archivio vero.*
+
+**Il difetto.** Il modello del livello imparava sul massimo delle medie orarie
+nella finestra del **regime** (Pelèr 04–10); il riquadro giudica la finestra
+**utile** (dalle 07:20 d'estate, dalle 08 d'inverno). Due domande diverse, e
+l'affidabilità stampata rispondeva alla prima mentre il verdetto poneva la
+seconda. Misurato sulle 4.995 giornate della centralina: entrato nel regime ma
+non nell'utile 330 su 3.015, l'11%, e d'inverno una su sei.
+
+**Prima di leggere i numeri, una cautela che vale più dei numeri.** Brier e
+MAE delle due metà **non sono confrontabili fra loro**: è cambiato il
+bersaglio, cioè la domanda. La prova sta nella colonna della climatologia,
+che si muove da 0,238 a 0,247: la frequenza di base si è spostata verso metà
+e metà, perché le giornate "entrate al buio" sono uscite dal conto. Una
+metrica calcolata su due bersagli diversi misura due cose diverse, e
+confrontarla è esattamente l'errore che questo file esiste per non rifare.
+Quello che si può leggere è: (a) ogni metà è internamente validata, (b) la
+SKILL relativa al proprio riferimento banale, (c) l'orario, che è l'unica
+grandezza di cui la metà "dopo" descrive la promessa che la scheda fa davvero.
+
+**L'Ora — controllo di sanità.** Le due finestre quasi coincidono, quindi qui
+il cambio non deve spostare niente, e non lo sposta: Brier 0,117→0,115 (corto),
+0,133→0,126 (medio), 0,179→0,174 (lungo); MAE 2,52→2,49; errore di
+calibrazione 0,056→0,049 nel medio; orario 74→71, 72→69, 70→68 minuti.
+Tutto uguale o un filo meglio. ✓
+
+**Il Pelèr — dove la finestra cambia davvero.**
+
+| | prima (regime) | dopo (utile) |
+|---|---|---|
+| frequenza di base (clim) | 0,244 / 0,238 / 0,238 | 0,249 / 0,246 / 0,247 |
+| guadagno probabilità | +21% / +24% / +11% | +21% / +23% / +9% |
+| MAE intensità (kn) | 1,56 / 1,52 / 1,69 | **1,48 / 1,45 / 1,62** |
+| banda dai residui (corto) | −2,6 / +2,5 | −2,5 / +2,3 |
+| **orario, MAE** | **83 / 90 min** | **48 / 50 / 52 min** |
+| orario entro 30′ | 23% / 19% | **32% / 34% / 35%** |
+
+(corto = D+0-1, medio = D+2-3, lungo = D+4-7.)
+
+**Il numero che decide: l'orario dimezzato, da 83 a 48 minuti.** Ed è il
+numero giusto da guardare, perché è quello che misura esattamente la cosa che
+è cambiata. Ma va detto per quello che è: **non è il modello che è migliorato,
+è che adesso misuriamo la promessa che facciamo.** Prima l'"ora del picco"
+poteva cadere alle 05:00, al buio: quell'errore di 83 minuti era vero e si
+riferiva a un'affermazione che la scheda non ha mai fatto. Da oggi la scheda
+dice "si naviga dalle 07:20" con 48 minuti di errore, e fino a ieri non lo
+sapevamo, perché stavamo misurando un'altra ora del giorno.
+
+**La probabilità non cambia** (+21 contro +21, +23 contro +24; a lunga
+scadenza +9 contro +11): il modello non è diventato migliore né peggiore nel
+dire SE. L'intensità migliora di sette centesimi di nodo a ogni fascia e la
+banda si stringe di un paio di decimi.
+
+**Cosa NON è stato misurato qui.** Colpi e falsi allarmi del livello nella
+finestra utile: `--confronta-bersaglio` stampa il Brier, che è la regola di
+punteggio propria della stessa domanda e non ha bisogno di una soglia
+arbitraria. Chi volesse la coppia colpi/falsi deve dichiarare prima quale
+soglia di probabilità, e quella soglia è una decisione di prodotto che non
+abbiamo preso.
+
+**Perché il cambio resta comunque.** Era scritto nel protocollo prima di
+guardare: domanda e risposta devono coincidere, e questo non dipende dal
+risultato. Il vecchio bersaglio resta raggiungibile con
+`engine.BERSAGLIO = "regime"` solo per rifare questo confronto.
+
+**La regola che ne segue, e vale oltre questo caso.** Il numero che il modello
+prevede e il numero che la scheda mostra devono essere la stessa grandezza
+nella stessa finestra. L'ancora (massimo istantaneo contro massimo delle medie
+orarie) e questo (finestra del regime contro finestra utile) sono lo stesso
+errore due volte, in due punti diversi della catena.
+
+---
+
+---
 ---
 
 # Aperte, con il protocollo già dichiarato
@@ -269,36 +348,3 @@ Il protocollo sopra resta valido parola per parola; cambia il criterio di
 successo, che adesso è uno solo: **battere il nullo**, con l'intervallo che
 non include lo zero. Se non lo batte, la selezione della forma è una questione
 chiusa e il posto dove lavorare è il livello.
-
-## Il Pelèr addestrato sulla finestra UTILE, non su quella del regime
-
-*Dichiarata il 2026-09-17, notte, prima di qualunque riaddestramento.*
-
-**Il difetto.** `_compute_targets` addestra il modello del livello sul
-massimo delle medie orarie nella finestra del **regime** (Pelèr: 04–10), ma
-il riquadro giudica la finestra **utile** (dalle 07:20 d'estate, dalle 08
-d'inverno). La probabilità del Pelèr risponde a «entra fra le 4 e le 10?»
-mentre verdetto e affidabilità parlano di «si naviga dalle 07:20?».
-
-**Il numero, già misurato.** Sulle 4.995 giornate della centralina, a 10 kn
-con la mezz'ora sostenuta: entrato nel regime 60%, nell'utile 54%; entrato
-nel regime **ma non nell'utile 330 su 3.015, l'11%**, e d'inverno una su
-sei (ottobre 16%, novembre 15%, dicembre e gennaio 14%). In quelle giornate
-il modello impara «sì» e la scheda dovrebbe dire «no».
-
-**Cosa si fa.** Bersaglio = massimo delle medie orarie nella finestra utile
-del giorno (`orari.finestra_utile_del_giorno`), e «regime entrato» dello
-stadio A misurato nella stessa finestra. Una definizione, un posto.
-
-**Il criterio, deciso adesso.** Verifica in avanti come per ogni
-promozione. Sull'Ora, dove le due finestre quasi coincidono, il modello
-nuovo non deve peggiorare (controllo di sanità). Sul Pelèr si guardano
-Brier e colpi/falsi *misurati nella finestra utile*: ci si aspetta un
-miglioramento nei mesi da ottobre a gennaio. Se non arriva, il cambio resta
-comunque: domanda e risposta devono coincidere, e questo non dipende dal
-risultato.
-
-**Regola che ne segue.** Il numero che il modello prevede e il numero che
-la scheda mostra devono essere la stessa grandezza nella stessa finestra.
-L'ancora (istantaneo contro orario) e questo (regime contro utile) sono lo
-stesso errore due volte.
