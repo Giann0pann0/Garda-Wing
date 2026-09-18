@@ -97,7 +97,11 @@ cc = engine.live_reading("campione")
 ok(cc and abs(cc["wind"] - 12.0) < 1e-9,
    "live_reading passa dallo stesso lettore")
 html = web.now_observed_html(dict(v, age_min=5.0))
-ok("(Torbole)" in html, "e la cella dell'adesso scrive da dove viene la freccia")
+ok("(Torbole)" in html, "e la cella dell'adesso scrive da quale CENTRALINA viene la freccia")
+ok(config.nome_centralina("malcesine") == "Fraglia Vela"
+   and "da Fraglia Vela" in web.dettagli_panel("Malcesine", []),
+   "e la dice per nome: a Malcesine il prestito viene dalla Fraglia, non"
+   " 'da Malcesine'")
 
 # Nessun lettore diretto di obs_sample fuori da store: e' l'unico modo per
 # cui la scala non possa mancare da qualche parte.

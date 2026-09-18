@@ -78,14 +78,22 @@ def stazione(station, adesso=None):
     tempi = [t for t, _r in campioni]
     cad = sampling_cadence(tempi)
     # La raffica del riquadro: l'ultima che la centralina ha DATO, purche'
-    # recente. A Malcesine il canale vivo non porta la raffica e l'intraday
-    # si', ogni trenta minuti: prendere la raffica dell'ultimo campione in
-    # assoluto avrebbe scritto "non disponibile" con una raffica di dieci
-    # minuti prima in archivio. Oltre i 45 minuti si dice non disponibile.
+    # vicina all'ultimo campione. A Malcesine il canale vivo non porta la
+    # raffica e l'intraday si', ogni trenta minuti: prendere la raffica
+    # dell'ultimo campione in assoluto avrebbe scritto "non disponibile" con
+    # una raffica di dieci minuti prima in archivio.
+    #
+    # La finestra segue la CADENZA della centralina, non un numero fisso.
+    # Con 45 minuti buoni per una centralina da dieci minuti, una da un'ora
+    # (Addicted) perdeva la raffica ogni volta che l'ora in corso non aveva
+    # ancora il suo massimo: il campione precedente era a sessanta minuti,
+    # cioe' sempre fuori. In pagina si vedeva il vento e "raffica non
+    # disponibile" accanto, con la raffica in archivio.
     t_ult = campioni[-1][0]
+    indietro = max(45.0, 2.0 * (cad or 0.0))
     raffica_recente = None
     for t, r in reversed(campioni):
-        if r["gust_kn"] is not None and t >= t_ult - 45.0:
+        if r["gust_kn"] is not None and t >= t_ult - indietro:
             raffica_recente = r["gust_kn"]
             break
 

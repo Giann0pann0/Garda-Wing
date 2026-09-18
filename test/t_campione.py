@@ -111,8 +111,12 @@ store.upsert_obs_hours("malcesine", [
 targets = engine._compute_targets("Campione-Ora")
 ok(G in targets and not targets[G][1],
    "e con un nordico sulle centraline vicine quello stesso vento NON e' Ora")
-ok("prestito" in web.dettagli_panel("Campione", []) and "Malcesine" in web.dettagli_panel("Campione", []),
-   "il cassetto dei dettagli dichiara il prestito")
+# Le donatrici si dicono col nome della CENTRALINA, non del luogo: a
+# Malcesine il donatore e' la Fraglia, e "in prestito da Malcesine" sarebbe
+# vero e inutile.
+_det = web.dettagli_panel("Campione", [])
+ok("prestito" in _det and "Fraglia Vela" in _det and "Torbole" in _det,
+   "il cassetto dei dettagli dichiara il prestito, e da quali centraline")
 ok("prestito" not in web.dettagli_panel("Torbole", []),
    "e a Torbole no")
 

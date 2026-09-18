@@ -640,14 +640,6 @@ def icona(nome, classe="ic"):
     return '<span class="%s">%s</span>' % (classe, ICONE[nome])
 
 
-def _nome_luogo(station):
-    """Il nome del posto di una centralina, per dire da dove viene un prestito."""
-    for sp in config.SPOTS.values():
-        if sp["station"] == station:
-            return sp["place"]
-    return station or ""
-
-
 def cielo_svg():
     """Il tramonto sul lago, disegnato: cielo, sole, due file di montagne, acqua.
 
@@ -727,7 +719,7 @@ def now_observed_html(live):
            else icona("freccia"),
            E(compass(dir_deg) or "—"),
            E(("da " + direzione_parole(dir_deg))
-             + (" (%s)" % _nome_luogo(live.get("dir_prestito"))
+             + (" (%s)" % config.nome_centralina(live.get("dir_prestito"))
                 if live.get("dir_prestito") else ""))
            if dir_deg is not None else "",
            icona("raffica"), gust,
@@ -2022,8 +2014,7 @@ def prestito_parole(place):
     donatrici = (spot or {}).get("direzione_da") or ()
     if not donatrici:
         return ""
-    nomi = [next((config.SPOTS[n]["place"] for n in config.SPOTS
-                  if config.SPOTS[n]["station"] == d), d) for d in donatrici]
+    nomi = [config.nome_centralina(d) for d in donatrici]
     return ('<p>La centralina di %s non misura la <i>direzione</i>: la si '
             'prende in prestito, ora per ora, da %s. Misurato su 4.600 ore in '
             'comune: quando c\u2019\u00e8 vento le centraline dell\u2019alto lago '

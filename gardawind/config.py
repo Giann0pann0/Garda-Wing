@@ -60,6 +60,20 @@ SCALA_ADDICTED_A_MT = ((1.0, 2.5), (3.0, 4.6), (5.0, 7.2), (7.0, 9.9),
 SCALA_ADDICTED_A_MT_N = 62847
 
 
+def nome_centralina(station):
+    """Il nome corto di una centralina, per dire da dove viene un prestito.
+
+    Serve perche' il nome del LUOGO non basta: a Malcesine la direzione si
+    prende in prestito dalla Fraglia, che sta a Malcesine, e la pagina
+    scriveva "la si prende in prestito da Malcesine" - vero e inutile. Le
+    centraline hanno un nome, ed e' quello che va detto.
+    """
+    for s in SPOTS.values():
+        if s["station"] == station:
+            return s.get("station_breve") or s.get("station_name") or station
+    return station or ""
+
+
 def scala_vento(source):
     """La curva con cui le letture di una fonte vanno riportate sulla scala
     comune, o None se la fonte E' la scala (Meteotrentino, e la Fraglia che
@@ -217,7 +231,8 @@ STAGIONI_USO = (
 # planing_kn: soglia indicativa di planata per wing/windsurf
 TORBOLE = dict(lat=45.870095, lon=10.877355, elevation=90,
                station="T0193", source="meteotrentino",
-               station_name="Torbole (Belvedere) - Meteotrentino")
+               station_name="Torbole (Belvedere) - Meteotrentino",
+               station_breve="Torbole")
 # Malcesine: il VENTO viene dalla centralina Addicted della spiaggia, la
 # DIREZIONE dalla Fraglia Vela (MeteoProject). Perche' non tutto dalla
 # Fraglia, che ha direzione e otto minuti di passo: perche' legge basso nel
@@ -231,11 +246,13 @@ TORBOLE = dict(lat=45.870095, lon=10.877355, elevation=90,
 # la direzione, che Addicted non misura, e la raffica massima del giorno.
 MALCESINE_FRAGLIA = dict(lat=45.7646, lon=10.8119, elevation=65,
                          station="malcesine", source="meteoproject",
-                         station_name="Fraglia Vela Malcesine - MeteoProject")
+                         station_name="Fraglia Vela Malcesine - MeteoProject",
+                         station_breve="Fraglia Vela")
 MALCESINE = dict(lat=45.7646, lon=10.8119, elevation=65,
                  station="malcesine_add", source="addicted",
                  addicted_slug="malcesine",
                  station_name="Malcesine (spiaggia) - Addicted Sports",
+                 station_breve="spiaggia di Malcesine",
                  direzione_da=("malcesine", "T0193"))
 # Campione del Garda, sulla sponda bresciana, di fronte a Malcesine. La
 # centralina e' quella di Addicted Sports al Vela Club, sul lago: e' la
@@ -258,6 +275,7 @@ MALCESINE = dict(lat=45.7646, lon=10.8119, elevation=65,
 CAMPIONE = dict(lat=45.7577, lon=10.7397, elevation=66,
                 station="campione", source="addicted", addicted_slug="campione",
                 station_name="Campione del Garda (Vela Club) - Addicted Sports",
+                station_breve="Vela Club Campione",
                 direzione_da=("malcesine", "T0193"))
 
 # Ogni voce e' una coppia LUOGO + REGIME: sono due fenomeni diversi, con

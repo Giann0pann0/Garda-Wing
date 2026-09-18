@@ -310,3 +310,36 @@ ok(cm is None or "raffica" in cm,
 ft = engine.campioni_fini(ST, "2026-09-14")
 ok(ft and ft[0]["raffica_fonte"] == "ricorrente 30'",
    "a Torbole, coi dieci minuti, la raffica e' la ricorrente e lo dice")
+
+# --------------------------------------------------------------------------
+# 9. La raffica del riquadro segue la CADENZA, non un numero fisso
+#
+# Visto in pagina: Malcesine con il vento stampato e "raffica non disponibile"
+# accanto, mentre la raffica era in archivio. Le centraline Addicted mandano
+# un dato all'ora, e l'ora in corso non ha ancora il suo massimo: con una
+# finestra fissa di 45 minuti il campione precedente - a sessanta - restava
+# sempre fuori, e la raffica spariva ogni volta.
+# --------------------------------------------------------------------------
+ST_H = "oraria_prova"
+G3 = dt.datetime(2026, 9, 18, 6, 0, tzinfo=UTC)
+orarie = [(iso_utc(G3 + dt.timedelta(hours=k)), 12.0 + k, 20.0 + k, None)
+          for k in range(6)]
+orarie.append((iso_utc(G3 + dt.timedelta(hours=6)), 18.0, None, None))  # ora in corso
+scrivi_campioni(ST_H, orarie, fonte="addicted-json")
+sh = live.stazione(ST_H, adesso=G3 + dt.timedelta(hours=6, minutes=20))
+ok(sh["wind"] == 18.0, "il vento e' quello dell'ora in corso")
+ok(sh["gust"] is not None and abs(sh["gust"] - 25.0) < 0.01,
+   "e la raffica e' l'ultima che la centralina ha dato, un'ora prima (%s)"
+   % sh["gust"])
+ok(sh["cadenza_min"] and sh["cadenza_min"] >= 55,
+   "perche' la finestra segue la cadenza dichiarata (%.0f min)" % sh["cadenza_min"])
+# Una centralina fitta che tace da due ore non ripesca una raffica vecchia.
+ST_F = "fitta_prova"
+scrivi_campioni(ST_F, [(iso_utc(G3 + dt.timedelta(minutes=10 * k)), 12.0, 20.0, None)
+                       for k in range(12)] +
+                [(iso_utc(G3 + dt.timedelta(minutes=200)), 12.0, None, None)],
+                fonte="prova")
+sf = live.stazione(ST_F, adesso=G3 + dt.timedelta(minutes=210))
+ok(sf["gust"] is None,
+   "mentre una raffica di due ore prima, su una centralina da dieci minuti,"
+   " resta 'non disponibile'")
