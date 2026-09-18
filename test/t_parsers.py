@@ -2,6 +2,7 @@ import os, sys, json, zipfile, io
 os.environ["GARDAWIND_HOME"]="/tmp/gwparse"
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from gardawind.sources import meteotrentino as MT, malcesine as MC, openmeteo as OM, http as H
+from gardawind.sources import davis_csv as DC
 from gardawind import store
 from gardawind.util import KN_PER_MS
 ok=lambda c,m: print(("PASS " if c else "FAIL ")+m)
@@ -50,7 +51,7 @@ noaa = ('Data;Avg;Min;"Ora Min";Max;"Ora Max";"Avg UR";"Avg Rad";Pioggia;"Avg Ve
         '2;28.1;24.1;7.0;33.0;15:00;60;;0.0;9.3;26.9;ENE\n'
         '4;29.8;25.9;3.0;35.5;19:00;53;;0.0;4.7;17.4;SW\n'
         '32;1;1;1;1;1;1;;1;1;1;N\n')
-MC.fetch_text = lambda *a, **k: noaa
+DC.fetch_text = lambda *a, **k: noaa
 days = MC.fetch_month(8, 2026)
 ok(len(days)==3, "giorno 32 scartato: %d righe valide"%len(days))
 ok(days[0]==("2026-08-01",8.0,26.1,67.5), "prima riga: %s"%(days[0],))

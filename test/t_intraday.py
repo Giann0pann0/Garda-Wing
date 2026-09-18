@@ -3,6 +3,7 @@ os.environ["GARDAWIND_HOME"]="/tmp/gwintra"
 import shutil; shutil.rmtree("/tmp/gwintra", ignore_errors=True)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from gardawind.sources import malcesine as MC
+from gardawind.sources import davis_csv as DC
 from gardawind import store, aggregate, config
 from gardawind.util import parse_dt_any, local_hour, local_day
 ok=lambda c,m: print(("PASS " if c else "FAIL ")+m)
@@ -17,7 +18,10 @@ csv = ('Data;Ora;Temp;Min;Max;Umid;"Dew pt";Vento;Dir;Raffica;"Dir Raff.";Press;
        '12/9/2026;23:30;20.7;20.4;20.7;76;15.9;1.7;ESE;5.2;E;1022.7;0.0;0.0;-\n'
        '"Unita di misura"\n'
        '"Temperatura: C";;"Vento: kts";;"Pressione: hPa"\n')
-MC.fetch_text = lambda *a, **k: csv
+# Il CSV lo legge ora il lettore comune (davis_csv), non malcesine.py:
+# si intercetta LI', altrimenti la prova scavalcherebbe proprio il
+# pezzo che si vuole provare e andrebbe in rete davvero.
+DC.fetch_text = lambda *a, **k: csv
 rows = MC.fetch_intraday(9, 2026)
 ok(len(rows)==5, "righe intraday lette: %d"%len(rows))
 ts,w,g,d = rows[2]
@@ -92,7 +96,7 @@ chiamate = []
 def _finto(url, params=None, timeout=None):
     chiamate.append(dict(params or {}))
     return csv
-MC.fetch_text = _finto
+DC.fetch_text = _finto
 MC.fetch_intraday_giorno("2026-09-18")
 ok(chiamate and chiamate[-1]["gg2"] == "18" and chiamate[-1]["gg"] == "18"
    and chiamate[-1]["mm2"] == "09" and chiamate[-1]["aa"] == "26",

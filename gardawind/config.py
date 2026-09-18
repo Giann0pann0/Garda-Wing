@@ -493,6 +493,35 @@ MALCESINE_ARCHIVE_START = (2024, 8)   # primo mese del report NOAA giornaliero
 # Massimo un mese per richiesta; nei parametri gg2/mm2/aa2 e' la data INIZIALE
 # e gg/mm/aa quella finale (non il contrario, nonostante l'ordine).
 URL_MALCESINE_CSV = "https://stazioni.meteoproject.it/dati/malcesine/csv.php"
+# La radice dell'impianto: csv.php e csvnoaa.php stanno accanto, e il lettore
+# (sources/davis_csv.py) li compone da qui. Limone ha la stessa forma.
+URL_MALCESINE_BASE = "https://stazioni.meteoproject.it/dati/malcesine/"
+
+# --------------------------------------------------------------------------
+# Limone sul Garda
+# --------------------------------------------------------------------------
+# Due sensori, e nessuno dei due basta da solo.
+#
+# Capo Reamol (Addicted Sports, sull'acqua a nord del paese) ha lo storico
+# lungo - 90.891 ore dal 2014 - ma e' MORTA: l'ultima misura e' del 20 marzo
+# 2025, e oggi la sua pagina serve la previsione con le letture tutte vuote
+# (verificato: zero misure, mentre Campione nello stesso momento ne ha 22).
+# Un archivio, non una centralina.
+#
+# Il Consorzio Turistico Limonese (MeteoSystem, Davis Vantage Pro 2) e' VIVA
+# e pubblica con lo stesso pacchetto della Fraglia di Malcesine: csv.php a 15
+# minuti, csvnoaa.php mensile dal settembre 2022. Ma il vento e' in KM/H, non
+# in nodi - lo dice la sua pagina - e questo va dichiarato, non indovinato:
+# un fattore 1,852 preso al contrario lascia numeri plausibili e sbagliati.
+#
+# Le due si sovrappongono da settembre 2022 a marzo 2025: due anni e mezzo,
+# che e' quanto serve per misurare il legame fra i due sensori invece di
+# mescolarli. Finche' quella misura non c'e', Limone non entra in PLACES:
+# vedi strumenti/estrai-limone.py.
+URL_LIMONE_BASE = "http://www.meteosystem.com/stazione/limonesulgarda/"
+LIMONE_UNITA = "kmh"
+LIMONE_NOAA_START = (2022, 9)
+LIMONE_INTRADAY_START = (2022, 9)
 MALCESINE_INTRADAY_START = (2026, 3)  # primo mese con dati, verificato
 
 # --------------------------------------------------------------------------
