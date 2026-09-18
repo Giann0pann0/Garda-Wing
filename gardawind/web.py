@@ -21,9 +21,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import (config, confidence, engine, giudizio, orari, store,
                verify)
-from .util import (angle_diff, clamp, local_day, parse_dt_any,
-                   sampling_cadence, sustained_onset, time_above,
-                   to_local, utc_now)
+from .util import (angle_diff, clamp, curva_monotona, local_day,
+                   parse_dt_any, sampling_cadence, sustained_onset,
+                   time_above, to_local, utc_now)
 
 E = html.escape
 
@@ -953,54 +953,6 @@ def _soglie_fasce(place):
     return [(spot["min_kn"], "si esce"), (spot["planing_kn"], "si plana")]
 
 
-def _curva(punti):
-    """Un percorso CURVO che passa per tutti i punti e non inventa massimi.
-
-    Gian: "preferibilmente che sia una curva non una serie di rette
-    spezzate". La tentazione, per ottenerla, e' una spline morbida qualunque -
-    e sarebbe il difetto peggiore che questo grafico potrebbe avere, perche'
-    una spline morbida OLTREPASSA i punti: fra un 16 e un 20 disegna un 21 che
-    nessun modello ha previsto e nessuna centralina ha misurato. Su una pagina
-    che serve a decidere se andare in acqua, un picco inventato e' la cosa
-    peggiore da disegnare.
-
-    Quindi si usa l'interpolazione cubica MONOTONA (Fritsch-Carlson): passa
-    esattamente per ogni punto, e su ogni tratto resta monotona, cioe' non
-    puo' creare un massimo o un minimo che non ci sia nei dati. Dove i dati
-    cambiano verso, la pendenza viene messa a zero e la curva ha il suo
-    estremo esattamente nel punto misurato.
-
-    E il gradino dell'Ora sopravvive: i punti sono onorati uno per uno, quindi
-    una salita di sette nodi in mezz'ora resta una salita di sette nodi in
-    mezz'ora - arrotondata negli spigoli, non spianata.
-    """
-    pts = [(float(x), float(y)) for x, y in punti]
-    if len(pts) < 2:
-        return ""
-    if len(pts) == 2:
-        return "M%.1f,%.1f L%.1f,%.1f" % (pts[0][0], pts[0][1],
-                                          pts[1][0], pts[1][1])
-    n = len(pts)
-    h = [pts[i + 1][0] - pts[i][0] for i in range(n - 1)]
-    d = [((pts[i + 1][1] - pts[i][1]) / h[i] if h[i] else 0.0)
-         for i in range(n - 1)]
-    m = [d[0]] + [0.0] * (n - 2) + [d[-1]]
-    for i in range(1, n - 1):
-        if d[i - 1] * d[i] <= 0:
-            m[i] = 0.0                     # un estremo resta dove e' misurato
-        else:
-            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
-            m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i])
-    out = ["M%.1f,%.1f" % pts[0]]
-    for i in range(n - 1):
-        x0, y0 = pts[i]
-        x1, y1 = pts[i + 1]
-        out.append("C%.1f,%.1f %.1f,%.1f %.1f,%.1f"
-                   % (x0 + h[i] / 3.0, y0 + m[i] * h[i] / 3.0,
-                      x1 - h[i] / 3.0, y1 - m[i + 1] * h[i] / 3.0, x1, y1))
-    return " ".join(out)
-
-
 def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     """La giornata di un luogo: vento medio e raffica.
 
@@ -1056,7 +1008,15 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     p = ['<defs><linearGradient id="%s-g" x1="0" y1="0" x2="0" y2="1">'
          '<stop offset="0%%" stop-color="var(--pc)" stop-opacity=".33"/>'
          '<stop offset="100%%" stop-color="var(--pc)" stop-opacity="0"/>'
-         '</linearGradient></defs>' % chart_id]
+         '</linearGradient>'
+         # Il riquadro del disegno, per la curva del misurato che il browser
+         # riscrive: quella arriva dopo, e puo' portare una punta piu' alta
+         # della scala decisa quando la pagina e' stata costruita. Tagliata al
+         # bordo si vede che tocca il tetto - che e' vero - invece di uscire
+         # sopra le scritte del titolo.
+         '<clipPath id="%s-clip"><rect x="%g" y="%g" width="%g" height="%g"/>'
+         '</clipPath></defs>'
+         % (chart_id, chart_id, pl, pt, W - pl - pr, H - pb - pt)]
 
     disegnata_utile = False
     for band in bands:
@@ -1138,28 +1098,41 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         p.append('<text x="%g" y="%.1f" text-anchor="end" class="t-s" '
                  'fill="var(--ink-3)">%d</text>' % (pl - 7, yy + 4, v))
 
-    curva_w = _curva([(x(r["hour"]), y(r["wind"])) for r in rows])
-    p.append('<path d="%s L%.1f,%.1f L%.1f,%.1f Z" fill="url(#%s-g)"%s/>'
-             % (curva_w, x(hours[-1]), H - pb, x(hours[0]), H - pb, chart_id,
-                ' opacity=".45"' if oss_righe else ""))
-
     # Con l'osservato in scena la previsione si fa piu' tenue: le due linee
     # dicono cose diverse - una e' un'ipotesi, l'altra e' una misura - e la
     # misura deve essere quella che si legge per prima.
-    tenue = (' opacity="%g"' % OPACITA_PREVISTO) if oss_righe else ""
-    curva_g = _curva([(x(r["hour"]), y(r["gust"])) for r in rows])
+    #
+    # L'opacita' sta sul GRUPPO e non sulle singole righe perche' non e' piu'
+    # una decisione presa solo alla costruzione: se la pagina e' stata fatta
+    # all'alba non c'era niente di misurato, e la previsione era giustamente
+    # piena; poi arriva la curva del misurato e la previsione deve farsi da
+    # parte anche allora. Il browser cambia un numero su un gruppo, e nessuna
+    # riga viene ridisegnata.
+    curva_w = curva_monotona([(x(r["hour"]), y(r["wind"])) for r in rows])
+    curva_g = curva_monotona([(x(r["hour"]), y(r["gust"])) for r in rows])
+    p.append('<g id="%s-prev" opacity="%g">' % (chart_id, OPACITA_PREVISTO
+                                                if oss_righe else 1))
+    p.append('<path d="%s L%.1f,%.1f L%.1f,%.1f Z" fill="url(#%s-g)"/>'
+             % (curva_w, x(hours[-1]), H - pb, x(hours[0]), H - pb, chart_id))
     p.append('<path d="%s" fill="none" stroke="var(--gust)" stroke-width="%g" '
-             'stroke-dasharray="7 5" stroke-linecap="round"%s/>'
-             % (curva_g, TRATTO["previsto_raffica"], tenue))
+             'stroke-dasharray="7 5" stroke-linecap="round"/>'
+             % (curva_g, TRATTO["previsto_raffica"]))
     p.append('<path d="%s" fill="none" stroke="var(--pc)" stroke-width="%g" '
-             'stroke-linecap="round"%s/>'
-             % (curva_w, TRATTO["previsto"], tenue))
+             'stroke-linecap="round"/>'
+             % (curva_w, TRATTO["previsto"]))
+    p.append('</g>')
 
     # L'OSSERVATO: piu' marcato, e si ferma dove finisce il dato. Non viene
     # prolungato fino a "adesso" ne' interpolato sui buchi: il senso di questa
     # curva e' il confronto, e un confronto con un dato inventato non e' un
     # confronto.
     if oss_righe:
+        # Tutto il misurato in un gruppo con un nome: e' la roba che il
+        # browser spegne quando ha una curva piu' recente da mettere al suo
+        # posto. Spegnere un gruppo e' un'operazione; cancellare sei
+        # elementi cercandoli uno per uno sarebbe sei occasioni di
+        # sbagliarne uno e lasciare in pagina mezza curva vecchia.
+        inizio_oss = len(p)
         # Si DISEGNANO i campioni veri, non le medie orarie. La media oraria
         # nasconde proprio quello che la misura serve a mostrare: misurato su
         # 2.769 inversioni di regime, il fondo del buco fra Peler e Ora sta al
@@ -1174,12 +1147,12 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
             p.append('<path d="%s" fill="none" stroke="var(--gust)" '
                      'stroke-width="%g" stroke-dasharray="4 3" '
                      'stroke-linecap="round"/>'
-                     % (_curva([(x(h), y(v)) for h, v in g_oss]),
+                     % (curva_monotona([(x(h), y(v)) for h, v in g_oss]),
                         TRATTO["misurato_raffica"]))
         if len(w_oss) >= 2:
             p.append('<path d="%s" fill="none" stroke="var(--pc)" '
                      'stroke-width="%g" stroke-linecap="round"/>'
-                     % (_curva([(x(h), y(v)) for h, v in w_oss]),
+                     % (curva_monotona([(x(h), y(v)) for h, v in w_oss]),
                         TRATTO["misurato"]))
         # Un punto pieno sull'ultima misura: e' il "fin qui" della realta'.
         if w_oss:
@@ -1198,6 +1171,34 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
                      'fill="var(--pc)" text-anchor="middle">misurato</text>'
                      % (min(max(x(hh), pl + 24), W - pr - 24),
                         y(vv) + (19 if alto else -11)))
+        p.insert(inizio_oss, '<g id="%s-oss">' % chart_id)
+        p.append('</g>')
+
+    # Il posto dove il browser mette la curva del misurato appena riletta.
+    # Vuoto alla costruzione, e vuoto resta se il file non arriva: in quel
+    # caso in pagina rimane il gruppo qui sopra, cioe' la misura che c'era
+    # quando la pagina e' stata fatta. Non si perde niente, si invecchia.
+    #
+    # Le due righe sono ritagliate, il pallino e la scritta no: una scritta
+    # tagliata a meta' da un riquadro si legge peggio di una scritta
+    # appoggiata un po' fuori.
+    if oggi:
+        p.append('<g id="%s-live" opacity="0">'
+                 '<g clip-path="url(#%s-clip)">'
+                 '<path id="%s-live-g" fill="none" stroke="var(--gust)" '
+                 'stroke-width="%g" stroke-dasharray="4 3" '
+                 'stroke-linecap="round" d=""/>'
+                 '<path id="%s-live-w" fill="none" stroke="var(--pc)" '
+                 'stroke-width="%g" stroke-linecap="round" d=""/>'
+                 '</g>'
+                 '<circle id="%s-live-dot" cx="-99" cy="-99" r="3.6" '
+                 'fill="var(--pc)" stroke="var(--card)" stroke-width="2"/>'
+                 '<text id="%s-live-lab" x="-99" y="-99" class="t-s" '
+                 'font-weight="800" fill="var(--pc)" text-anchor="middle">'
+                 'misurato</text></g>'
+                 % (chart_id, chart_id, chart_id,
+                    TRATTO["misurato_raffica"], chart_id,
+                    TRATTO["misurato"], chart_id, chart_id))
 
     hi = max(rows, key=lambda r: r["wind"])
     op_picco = ' opacity=".55"' if oss_righe else ""
@@ -1271,9 +1272,16 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
 
     return (
         '<div class="chartwrap">'
+        # I numeri della mappa del disegno, scritti addosso al disegno.
+        # Servono al browser per due cose: la riga di "adesso" e la curva del
+        # misurato riletta. Sono gli stessi numeri con cui sono state
+        # disegnate le curve qui sopra - non una seconda copia scritta a
+        # mano da qualche parte - quindi la mappa del browser e' per
+        # costruzione la stessa della pagina.
         '<svg class="chart" id="%s" viewBox="0 0 %g %g" role="img" '
         'data-today="%d" data-w="%g" data-pl="%g" data-pr="%g" '
-        'data-h0="%g" data-h1="%g" '
+        'data-h0="%g" data-h1="%g" data-h="%g" data-pt="%g" data-pb="%g" '
+        'data-top="%g" data-tenue="%g" data-place="%s" '
         'aria-label="Vento previsto a %s, ora per ora">%s</svg>'
         '<div class="tip" id="%s-tip"></div></div>'
         '%s'
@@ -1294,6 +1302,7 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         # ha mai funzionato. La coda viene svuotata quando la funzione esiste.
         '<script>(window.gwq=window.gwq||[]).push([%s,%s,%g,%g,%g,%g,%g]);</script>'
         % (chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
+           H, pt, pb, top, OPACITA_PREVISTO, E(place),
            E(place), "".join(p), chart_id,
            ('<p class="scarto">%s</p>' % scarto_words(_sc)) if _sc else "",
            # La voce della finestra utile compare solo quando la fetta chiara
@@ -2176,7 +2185,7 @@ document.addEventListener('click',function(ev){
    ---------------------------------------------------------------------- */
 var GW_LIVE_URLS=%(liveurls)s, GW_LIVE_MS=%(livems)d, GW_ETA=%(etawords)s,
     GW_BANNER=%(bannerwords)s, GW_NOREACH=%(noreach)s,
-    GW_MANCATE_MAX=%(mancate)d, gwMancate=0;
+    GW_MANCATE_MAX=%(mancate)d, gwMancate=0, gwCurvaGen=0;
 function gwEtaParole(min){
   if(min===null||isNaN(min)) return 'orario sconosciuto';
   for(var i=0;i<GW_ETA.length;i++){
@@ -2269,6 +2278,77 @@ function gwPaintAge(){
      parole: due frasi diverse sullo stesso dato sarebbero una bugia e mezza. */
   if(b.length) gwBanner(fresca);
 }
+function gwMappa(d,tx,sx,ty,sy){
+  /* Riscrive SOLO le coppie di numeri di un percorso SVG, lasciando in pace
+     le lettere dei comandi. Il percorso arriva gia' curvo da Python: qui non
+     si interpola niente, si moltiplica. E' questo che tiene la matematica
+     della curva in un posto solo - se il browser dovesse costruirla, la
+     cubica monotona avrebbe due residenze e prima o poi disegnerebbero due
+     curve diverse per gli stessi campioni. */
+  return d.replace(/(-?[0-9.]+),(-?[0-9.]+)/g,function(_m,a,b){
+    return (tx+sx*parseFloat(a)).toFixed(1)+','+(ty+sy*parseFloat(b)).toFixed(1);
+  });
+}
+function gwCurveLive(dati){
+  /* Mai tornare indietro: un file pubblicato in ritardo non deve rimettere
+     in pagina una curva piu' corta di quella che c'e' gia'. E' la stessa
+     regola del numerone, applicata al file invece che al campione. */
+  var gen=Date.parse(dati.generato||'');
+  if(!isNaN(gen)){ if(gen<gwCurvaGen) return; gwCurvaGen=gen; }
+  var g=document.querySelectorAll('svg.chart[data-today="1"]');
+  for(var i=0;i<g.length;i++){
+    var svg=g[i];
+    var vivo=document.getElementById(svg.id+'-live');
+    if(!vivo) continue;
+    var v=dati.luoghi[svg.getAttribute('data-place')], c=v&&v.curve;
+    /* Niente curva nel file: NON si spegne quella della costruzione. Una
+       centralina muta non deve cancellare la misura di stamattina. */
+    if(!c||!c.media) continue;
+    var W=parseFloat(svg.getAttribute('data-w')),
+        H=parseFloat(svg.getAttribute('data-h')),
+        pl=parseFloat(svg.getAttribute('data-pl')),
+        pr=parseFloat(svg.getAttribute('data-pr')),
+        pt=parseFloat(svg.getAttribute('data-pt')),
+        pb=parseFloat(svg.getAttribute('data-pb')),
+        top=parseFloat(svg.getAttribute('data-top')),
+        h0=parseFloat(svg.getAttribute('data-h0')),
+        h1=parseFloat(svg.getAttribute('data-h1'));
+    var Wp=W-pl-pr, Hp=H-pb-pt, span=Math.max(1,h1-h0);
+    /* Da 0-1 alle coordinate del disegno. In x: l'unita' vale l'intervallo
+       di ore del file, e l'origine sta dove cadrebbe la sua prima ora.
+       In y si va all'incontrario, perche' nel disegno lo zero sta in basso. */
+    var TX=pl+Wp*(c.ora_da-h0)/span, SX=Wp*(c.ora_a-c.ora_da)/span,
+        TY=H-pb, SY=-Hp*c.ymax/top;
+    var pw=document.getElementById(svg.id+'-live-w'),
+        pg=document.getElementById(svg.id+'-live-g'),
+        dot=document.getElementById(svg.id+'-live-dot'),
+        lab=document.getElementById(svg.id+'-live-lab');
+    if(pw) pw.setAttribute('d',gwMappa(c.media,TX,SX,TY,SY));
+    if(pg) pg.setAttribute('d',c.raffica?gwMappa(c.raffica,TX,SX,TY,SY):'');
+    if(c.ultimo&&dot){
+      var cx=TX+SX*c.ultimo.x, cy=TY+SY*c.ultimo.y;
+      dot.setAttribute('cx',cx.toFixed(1));
+      dot.setAttribute('cy',cy.toFixed(1));
+      if(lab){
+        /* Sotto il pallino se sta in alto, sopra se sta in basso: la
+           scritta non deve mai finire addosso al picco previsto, che porta
+           la sua etichetta sopra di se'. Stessa regola della costruzione. */
+        var alto=cy<(pt+H-pb)/2;
+        lab.setAttribute('x',Math.min(Math.max(cx,pl+24),W-pr-24).toFixed(1));
+        lab.setAttribute('y',(cy+(alto?19:-11)).toFixed(1));
+      }
+    }
+    vivo.setAttribute('opacity','1');
+    /* Ora che c'e' la curva nuova: si spegne quella vecchia e la previsione
+       si fa da parte. Se la pagina e' stata costruita all'alba la previsione
+       era ancora piena, e da sola non si sarebbe mai tirata indietro. */
+    var vecchio=document.getElementById(svg.id+'-oss');
+    if(vecchio) vecchio.setAttribute('opacity','0');
+    var prev=document.getElementById(svg.id+'-prev'),
+        tenue=svg.getAttribute('data-tenue');
+    if(prev&&tenue) prev.setAttribute('opacity',tenue);
+  }
+}
 function gwApplyLive(d){
   if(!d||!d.luoghi) return;
   var b=document.querySelectorAll('.nowblock');
@@ -2284,6 +2364,7 @@ function gwApplyLive(d){
     var box=b[i].querySelector('.nowobs');
     if(box){ box.innerHTML=v.html; b[i].setAttribute('data-ts',v.ts); }
   }
+  gwCurveLive(d);
   gwPaintAge();
 }
 function gwFetchLive(i){

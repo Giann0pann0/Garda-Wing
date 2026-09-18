@@ -354,6 +354,119 @@ with sync_playwright() as pw:
        "adesso: l'etichetta dice ADESSO")
     pg.close()
 
+    # ---- 11. la curva del misurato si aggiorna da sola -------------------
+    # Gian: "Il fatto che il grafico del vento reale non si aggiorni
+    # migliorera' con le ultime modifiche?". No, e adesso si'. Il numerone
+    # dell'adesso si rifaceva da solo e la curva no: restava quella della
+    # costruzione, quindi un 22 kn scritto grande sopra una riga che si
+    # fermava a mezzogiorno. Sembrava rotto, e in un certo senso lo era.
+    #
+    # Qui si prova la parte che nessun controllo in Python vede: che il
+    # browser prenda il percorso in coordinate 0-1 e lo porti DENTRO il
+    # riquadro del disegno, nel punto giusto.
+    from gardawind.util import curva_monotona as _cm
+
+    def curva_finta(punti):
+        ux = lambda h: (h - 4.0) / 17.0
+        uy = lambda v: v / 60.0
+        return {
+            "ora_da": 4.0, "ora_a": 21.0, "ymax": 60.0,
+            "media": _cm([(ux(h), uy(v)) for h, v in punti], cifre=4),
+            "raffica": _cm([(ux(h), uy(v * 1.4)) for h, v in punti], cifre=4),
+            "max_kn": round(max(v * 1.4 for _h, v in punti), 1),
+            "ultimo": {"x": round(ux(punti[-1][0]), 4),
+                       "y": round(uy(punti[-1][1]), 4),
+                       "ora": punti[-1][0], "kn": punti[-1][1]},
+            "n": len(punti)}
+
+    PUNTI_A = [(6.0, 8.0), (9.0, 12.0), (12.0, 22.0), (14.0, 19.0)]
+    PUNTI_B = PUNTI_A + [(16.0, 24.0), (17.5, 21.0)]
+    corpo = json_nuovo(ADESSO - dt.timedelta(minutes=4), 21.0, 28.0)
+    corpo["luoghi"]["Torbole"]["curve"] = curva_finta(PUNTI_A)
+    pg, _ = apri(ctx, corpo)
+
+    svg_id = pg.eval_on_selector('svg.chart[data-today="1"]', "e => e.id")
+    d1 = pg.eval_on_selector("#%s-live-w" % svg_id, "e => e.getAttribute('d')")
+    ok(bool(d1) and d1.startswith("M") and "C" in d1,
+       "la curva riletta e' in pagina, ed e' una curva (%s...)" % (d1 or "")[:18])
+    ok(pg.eval_on_selector("#%s-live" % svg_id,
+                           "e => e.getAttribute('opacity')") == "1",
+       "il gruppo del misurato riletto e' accesso")
+    ok(bool(pg.eval_on_selector("#%s-live-g" % svg_id,
+                                "e => e.getAttribute('d')")),
+       "e la raffica misurata con lui")
+
+    # Dentro il riquadro, e nel punto giusto: si rifa' la mappa dai data-*
+    # del disegno e si controlla che il browser sia arrivato dove doveva.
+    box = pg.eval_on_selector('svg.chart[data-today="1"]', """e => ({
+        W:+e.getAttribute('data-w'), H:+e.getAttribute('data-h'),
+        pl:+e.getAttribute('data-pl'), pr:+e.getAttribute('data-pr'),
+        pt:+e.getAttribute('data-pt'), pb:+e.getAttribute('data-pb'),
+        top:+e.getAttribute('data-top'), h0:+e.getAttribute('data-h0'),
+        h1:+e.getAttribute('data-h1'), tenue:e.getAttribute('data-tenue'),
+        place:e.getAttribute('data-place')})""")
+    import re as _re
+    coppie = [(float(a), float(b)) for a, b in
+              _re.findall(r"(-?[\d.]+),(-?[\d.]+)", d1)]
+    dentro = all(box["pl"] - 1 <= xx <= box["W"] - box["pr"] + 1
+                 and box["pt"] - 1 <= yy <= box["H"] - box["pb"] + 1
+                 for xx, yy in coppie)
+    ok(dentro, "e sta dentro il riquadro del disegno, non sopra le scritte")
+    Wp = box["W"] - box["pl"] - box["pr"]
+    Hp = box["H"] - box["pb"] - box["pt"]
+    atteso_x = (box["pl"] + Wp * (PUNTI_A[0][0] - box["h0"])
+                / (box["h1"] - box["h0"]))
+    atteso_y = (box["H"] - box["pb"]) - Hp * PUNTI_A[0][1] / box["top"]
+    ok(abs(coppie[0][0] - atteso_x) < 0.4 and abs(coppie[0][1] - atteso_y) < 0.4,
+       "e il primo punto cade dove cadono le 06:00 a 8 kn: (%.1f, %.1f) contro"
+       " (%.1f, %.1f)" % (coppie[0] + (atteso_x, atteso_y)))
+    dot = pg.eval_on_selector("#%s-live-dot" % svg_id,
+                              "e => [+e.getAttribute('cx'),+e.getAttribute('cy')]")
+    atteso_dx = (box["pl"] + Wp * (PUNTI_A[-1][0] - box["h0"])
+                 / (box["h1"] - box["h0"]))
+    ok(abs(dot[0] - atteso_dx) < 0.6,
+       "il pallino sta sull'ultima misura (%.1f contro %.1f)"
+       % (dot[0], atteso_dx))
+
+    # E la previsione si fa da parte, anche se la pagina e' nata senza niente
+    # di misurato: da sola non si sarebbe mai tirata indietro.
+    ok(pg.eval_on_selector("#%s-prev" % svg_id,
+                           "e => e.getAttribute('opacity')") == box["tenue"],
+       "la previsione si sbiadisce all'arrivo della misura (%s)" % box["tenue"])
+    vecchio = pg.query_selector("#%s-oss" % svg_id)
+    ok(vecchio is None or vecchio.get_attribute("opacity") == "0",
+       "e la curva della costruzione si spegne: una misura per volta")
+
+    # Un file piu' recente con una curva piu' lunga: la riga cresce.
+    corpo2 = json_nuovo(ADESSO - dt.timedelta(minutes=1), 21.0, 28.0)
+    corpo2["luoghi"]["Torbole"]["curve"] = curva_finta(PUNTI_B)
+    pg.evaluate("d => gwApplyLive(d)", corpo2)
+    d2 = pg.eval_on_selector("#%s-live-w" % svg_id, "e => e.getAttribute('d')")
+    ok(d2 != d1 and len(d2) > len(d1),
+       "un file piu' recente allunga la curva senza ricaricare la pagina")
+
+    # Un file SENZA curva non cancella quella che c'e': una centralina muta
+    # non deve far sparire la misura di stamattina.
+    corpo3 = json_nuovo(ADESSO, 21.0, 28.0)
+    pg.evaluate("d => gwApplyLive(d)", corpo3)
+    ok(pg.eval_on_selector("#%s-live-w" % svg_id,
+                           "e => e.getAttribute('d')") == d2,
+       "un file senza curva lascia in pagina quella che c'e'")
+
+    # E un file piu' VECCHIO non fa tornare indietro la curva.
+    corpo4 = json_nuovo(ADESSO - dt.timedelta(minutes=30), 21.0, 28.0)
+    corpo4["generato"] = iso_utc(ADESSO - dt.timedelta(hours=2))
+    corpo4["luoghi"]["Torbole"]["curve"] = curva_finta(PUNTI_A)
+    pg.evaluate("d => gwApplyLive(d)", corpo4)
+    ok(pg.eval_on_selector("#%s-live-w" % svg_id,
+                           "e => e.getAttribute('d')") == d2,
+       "e un file pubblicato in ritardo non accorcia la curva")
+    errori = []
+    pg.on("pageerror", lambda e: errori.append(str(e)))
+    pg.wait_for_timeout(200)
+    ok(not errori, "niente errori in console: %s" % (errori[:1] or "nessuno"))
+    pg.close()
+
     browser.close()
 
 # --------------------------------------------------------------------------

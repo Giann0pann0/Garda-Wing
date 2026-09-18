@@ -175,8 +175,40 @@ ok(etichette and max(etichette) >= 40.0,
    % (max(etichette) if etichette else None))
 
 senza = web.place_chart("Torbole", previsione, bande, "cy", oggi=True)
-ok("misurato" in svg and "misurato" not in senza,
-   "la curva misurata compare solo quando c'e' l'osservato")
+
+
+def gruppo(testo, nome):
+    """Il contenuto del gruppo con quell'id, e nient'altro.
+
+    Serve perche' nel grafico di oggi il misurato sta in DUE posti: il gruppo
+    disegnato alla costruzione e il gruppo vuoto che il browser riempie con la
+    curva riletta. Un controllo sull'intero disegno li conterebbe insieme e
+    direbbe "due curve" dove ce n'e' una disegnata e una scatola vuota.
+    """
+    apre = '<g id="%s">' % nome
+    i = testo.find(apre)
+    if i < 0:
+        return ""
+    return testo[i + len(apre):testo.find("</g>", i)]
+
+
+disegnato = gruppo(svg, "cx-oss")
+ok("misurato" in disegnato and '<g id="cy-oss">' not in senza,
+   "la curva misurata si DISEGNA solo quando c'e' l'osservato")
+# La scatola per la curva riletta invece c'e' sempre, sul grafico di oggi, e
+# nasce spenta e vuota: se il file non arriva non si vede niente di nuovo, e
+# quello che c'e' in pagina resta dov'e'.
+ok('<g id="cx-live" opacity="0">' in svg and '<g id="cy-live" opacity="0">' in senza,
+   "il posto per la curva riletta c'e' su ogni grafico di oggi, e nasce spento")
+ok('id="cx-live-w" fill="none"' in svg and 'id="cx-live-w"' in svg.replace(' d=""', ""),
+   "con le due righe pronte")
+ok(svg.count(' d=""') == 2,
+   "e nasce VUOTO: due percorsi senza disegno, non una curva finta (%d)"
+   % svg.count(' d=""'))
+nonoggi = web.place_chart("Torbole", previsione, bande, "cz", oggi=False,
+                          osservato=oss_alto)
+ok("-live" not in nonoggi,
+   "su un giorno che non e' oggi non c'e': non esiste un misurato di domani")
 # Gli spessori si leggono da web.TRATTO: il rapporto fra le linee e'
 # l'informazione, e un controllo che inseguisse numeri magici si romperebbe a
 # ogni ritocco senza dire niente di vero.
@@ -201,7 +233,7 @@ ok("ricorrente" not in svg,
    "e la definizione della raffica non sta piu' in legenda")
 ok("ricorrente" in web.dettagli_panel("Torbole", []),
    "ma nel cassetto dei dettagli, dove ha spazio")
-ok(svg.count(W_MIS) == 1,
+ok(disegnato.count(W_MIS) == 1,
    "una sola curva misurata del vento medio, non una per ora")
 
 # L'osservato si ferma: nessun punto della curva misurata oltre le 8.

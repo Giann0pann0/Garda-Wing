@@ -154,3 +154,110 @@ live.scrivi(percorso, adesso=ADESSO + dt.timedelta(minutes=1))
 letto2 = json.load(io.open(percorso, encoding="utf-8"))
 ok(letto2["generato"] != letto["generato"] and not os.path.exists(percorso + ".tmp"),
    "scrivi: la seconda scrittura sostituisce, e resta un file solo")
+
+
+# --------------------------------------------------------------------------
+# 7. Le curve del misurato, in coordinate normalizzate
+#
+# Il numerone "adesso" si aggiornava da solo, la curva del misurato no:
+# restava quella della costruzione della pagina. Ora entra nel file, e il
+# punto delicato e' UNO: la matematica della curva deve restare in
+# curva_monotona, in un posto solo. Il browser non interpola, moltiplica -
+# quindi la curva scritta in coordinate 0-1 e poi mappata deve venire la
+# stessa che si sarebbe disegnata direttamente nelle coordinate del grafico.
+# Se non lo fosse, la pagina mostrerebbe due curve diverse per gli stessi
+# campioni a seconda di chi l'ha disegnata, e nessuno se ne accorgerebbe.
+# --------------------------------------------------------------------------
+import re
+
+from gardawind import engine
+from gardawind.util import curva_monotona
+
+GIORNO = dt.datetime(2026, 9, 14, 6, 0, tzinfo=UTC)   # 08:00 locali
+PUNTI = [(0, 6.0, 9.0), (1, 7.0, 11.0), (2, 12.0, 18.0), (3, 19.0, 27.0),
+         (4, 21.0, 30.0), (5, 20.0, 29.0), (6, 17.0, 24.0), (7, 14.0, 20.0),
+         (8, 11.0, 15.0), (9, 9.0, 13.0), (10, 8.0, 12.0), (11, 7.0, 10.0),
+         (12, 6.0, 9.0)]
+camp = []
+for k, w, g in PUNTI:
+    for mezzo in (0, 10, 20, 30, 40, 50):
+        camp.append((iso_utc(GIORNO + dt.timedelta(minutes=60 * k + mezzo)),
+                     w, g, 200))
+scrivi_campioni(ST, camp, fonte="t_live_curve")
+fini = engine.campioni_fini(ST, "2026-09-14")
+
+# Il difetto che questi due controlli impediscono di rimettere: i campioni
+# dentro l'ora finivano tutti alla stessa ascissa, perche' l'ora la dava
+# local_hour, che i minuti li butta. Sei campioni alla stessa ascissa con sei
+# valori diversi non sono una curva: sono un salto verticale, ed e' quello che
+# si vedeva nel grafico - gradini da dieci nodi in dieci minuti.
+ore = [r["hour"] for r in fini]
+ok(len(set(ore)) == len(ore),
+   "ogni campione ha la sua ascissa, coi minuti dentro: %d campioni, %d ascisse"
+   % (len(ore), len(set(ore))))
+ok(any(abs(h - round(h)) > 1e-6 for h in ore),
+   "e le ore non sono tutte intere: i dieci minuti esistono")
+
+c = live.curve("Torbole", adesso=ADESSO)
+ok(c is not None, "la curva del misurato esce dal file, non solo dalla pagina")
+ok(c["media"].startswith("M") and "C" in c["media"] and c["raffica"],
+   "sono CURVE, non spezzate - cubiche, come nel grafico - e sono due")
+numeri = [float(v) for v in re.findall(r"-?\d+\.?\d*", c["media"])]
+ok(min(numeri) >= 0.0 and max(numeri) <= 1.0,
+   "in coordinate normalizzate: tutto fra 0 e 1 (%.4f - %.4f)"
+   % (min(numeri), max(numeri)))
+ok(c["ora_da"] < c["ora_a"] and c["ymax"] > 0,
+   "e il file dice di che riferimento si tratta: %g-%g ore, 0-%g kn"
+   % (c["ora_da"], c["ora_a"], c["ymax"]))
+ok(abs(c["ultimo"]["kn"] - 6.0) < 0.01 and abs(c["ultimo"]["ora"] - 20.833) < 0.01,
+   "l'ultimo punto e' l'ultima misura vera: %.1f kn alle %.2f"
+   % (c["ultimo"]["kn"], c["ultimo"]["ora"]))
+ok(abs(c["max_kn"] - 30.0) < 0.01,
+   "e il picco della giornata e' dichiarato, raffica compresa: %.1f kn"
+   % c["max_kn"])
+
+# La prova che conta. Un grafico qualunque, con la sua scala e la sua
+# finestra di ore, e due strade per la stessa curva.
+W, H, pl, pr, pt, pb, top = 440.0, 280.0, 28.0, 58.0, 26.0, 50.0, 35.0
+h0, h1 = 5.0, 20.0
+dentro = [r for r in fini if c["ora_da"] <= r["hour"] <= c["ora_a"]
+          and r.get("wind") is not None]
+diretta = curva_monotona(
+    [(pl + (W - pl - pr) * (r["hour"] - h0) / (h1 - h0),
+      H - pb - (H - pb - pt) * min(top, r["wind"]) / top) for r in dentro])
+# La mappa affine, la stessa che fa il browser. Qui e' riscritta in Python
+# perche' quello che si controlla e' l'affermazione MATEMATICA: la cubica
+# monotona sopravvive a una mappa affine, quindi mappare i punti di controllo
+# e interpolare dopo danno la stessa curva. Che il browser la applichi per
+# davvero lo controlla t_live_pagina.py, con un browser vero.
+Wp, Hp = W - pl - pr, H - pb - pt
+TX = pl + Wp * (c["ora_da"] - h0) / (h1 - h0)
+SX = Wp * (c["ora_a"] - c["ora_da"]) / (h1 - h0)
+TY, SY = H - pb, -Hp * c["ymax"] / top
+mappata = re.sub(
+    r"(-?[0-9.]+),(-?[0-9.]+)",
+    lambda m: "%.1f,%.1f" % (TX + SX * float(m.group(1)),
+                             TY + SY * float(m.group(2))),
+    c["media"])
+ok(re.sub(r"[-\d.]+", "", mappata) == re.sub(r"[-\d.]+", "", diretta),
+   "la curva mappata ha gli stessi comandi di quella disegnata: stessi punti,"
+   " stessi tratti")
+a = [float(v) for v in re.findall(r"-?\d+\.?\d*", mappata)]
+b = [float(v) for v in re.findall(r"-?\d+\.?\d*", diretta)]
+scarto = max(abs(x - y) for x, y in zip(a, b)) if len(a) == len(b) else None
+# Non si pretende l'uguaglianza delle STRINGHE: nel file le coordinate sono
+# arrotondate a quattro cifre, e moltiplicate per la larghezza del disegno
+# quel troncamento vale qualche centesimo di pixel - abbastanza per far
+# cadere un arrotondamento da una parte o dall'altra: mezzo decimo per
+# parte, un decimo in tutto, ed e' il massimo possibile. Si pretende che la
+# differenza resti invisibile, e un decimo di pixel lo e'.
+ok(scarto is not None and scarto <= 0.101,
+   "e le passa sopra a meno di un decimo di pixel (%s): una sola matematica,"
+   " in un posto solo" % ("%.3f" % scarto if scarto is not None else "?"))
+
+# Una centralina che tace da ieri non disegna la sua curva di ieri su oggi.
+ok(live.curve("Torbole", adesso=ADESSO + dt.timedelta(days=2)) is None,
+   "la giornata e' quella di adesso: niente curve di ieri sul grafico di oggi")
+snap2 = live.snapshot(adesso=ADESSO)
+ok(snap2["luoghi"]["Torbole"].get("curve") is not None,
+   "e nel file ogni luogo porta la sua curva")

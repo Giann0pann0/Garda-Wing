@@ -25,14 +25,31 @@ import json
 import os
 
 from . import config, store
-from .util import (FINESTRA_RICORRENTE_MIN, iso_utc, parse_dt_any,
-                   recurrent_gust, sampling_cadence, utc_now,
-                   window_estimable)
+from .util import (FINESTRA_RICORRENTE_MIN, clamp, curva_monotona, iso_utc,
+                   local_day, parse_dt_any, recurrent_gust, sampling_cadence,
+                   utc_now, window_estimable)
 
 # Quanto passato guardare per la raffica ricorrente. Serve piu' della finestra
 # stessa: la mediana su trenta minuti ha bisogno dei campioni di quei trenta
 # minuti, e con qualche minuto di margine si sopravvive a un campione perso.
 FINESTRA_PASSATO_MIN = 90.0
+
+# Lo SPAZIO NORMALIZZATO delle curve del misurato. x va da 0 a 1 fra queste
+# due ore, y da 0 a 1 fra zero e questi nodi. Non sono i numeri del grafico:
+# sono un sistema di riferimento neutro, e il grafico ci mappa sopra il suo.
+#
+# Perche' non scrivere direttamente le coordinate del disegno: il file lo
+# scrive un processo che non sa quanto e' alta la scala del grafico ne' da che
+# ora comincia - quelle le decide la pagina quando viene costruita, e cambiano
+# da un luogo all'altro e da un giorno all'altro. Ma soprattutto: la
+# matematica della curva sta in curva_monotona, in un posto solo, e li' deve
+# restare. Il browser NON interpola niente - riscrive le coppie di numeri di
+# un percorso gia' fatto, che e' una moltiplicazione. Se invece il browser
+# dovesse costruire la curva, l'interpolazione monotona avrebbe due
+# residenze, una in Python e una in JavaScript, e prima o poi disegnerebbero
+# due curve diverse per gli stessi campioni.
+CURVA_ORA_DA, CURVA_ORA_A = 4.0, 21.0
+CURVA_KN_MAX = 60.0
 
 
 def stazione(station, adesso=None):
@@ -113,6 +130,66 @@ def _station_of(place):
                  if config.SPOTS[s]["place"] == place), None)
 
 
+def curve(place, adesso=None):
+    """Le curve del vento MISURATO oggi, in coordinate normalizzate.
+
+    Il numerone "adesso" si aggiornava da solo, la curva del misurato no: era
+    quella della costruzione della pagina, quindi vecchia di ore, e il
+    confronto fra le due - un 22 kn scritto grande sopra una riga che si
+    fermava a mezzogiorno - faceva sembrare rotto il grafico. Qui la curva
+    viene riscritta ogni volta che si rilegge il file.
+
+    Una scelta da dichiarare: la giornata e' quella di ADESSO, non quella
+    dell'ultimo campione. Se la centralina tace da ieri non si disegna la sua
+    curva di ieri sul grafico di oggi: si lascia quella della costruzione e
+    l'eta' del dato, che la pagina scrive accanto, dice perche'.
+
+    I campioni li legge engine.campioni_fini, che e' la stessa lettura della
+    pagina costruita: una fonte sola per giornata, la raffica ricorrente a
+    trenta minuti. Una seconda lettura scritta qui avrebbe riportato i gradini
+    da dieci nodi che quella regola ha tolto.
+    """
+    adesso = adesso or utc_now()
+    st = _station_of(place)
+    if not st:
+        return None
+    from . import engine
+    fini = [r for r in engine.campioni_fini(st, local_day(adesso))
+            if CURVA_ORA_DA <= r.get("hour", -1) <= CURVA_ORA_A]
+    # Fuori finestra si SCARTA, non si schiaccia al bordo: un campione delle
+    # tre di notte appoggiato sulle quattro disegnerebbe un tratto orizzontale
+    # che nessuno ha misurato. In altezza invece si schiaccia, perche' e' la
+    # stessa cosa che fa il grafico con la previsione: una punta oltre la
+    # scala si vede al bordo della scala, non si butta.
+    def ux(h):
+        return clamp((h - CURVA_ORA_DA) / (CURVA_ORA_A - CURVA_ORA_DA), 0.0, 1.0)
+
+    def uy(v):
+        return clamp(float(v) / CURVA_KN_MAX, 0.0, 1.0)
+
+    media = [(ux(r["hour"]), uy(r["wind"])) for r in fini
+             if r.get("wind") is not None]
+    raffica = [(ux(r["hour"]), uy(r["gust"])) for r in fini
+               if r.get("gust") is not None]
+    if len(media) < 2:
+        return None
+    ultimo = [r for r in fini if r.get("wind") is not None][-1]
+    picco = max([r["wind"] for r in fini if r.get("wind") is not None]
+                + [r["gust"] for r in fini if r.get("gust") is not None])
+    return {
+        "ora_da": CURVA_ORA_DA, "ora_a": CURVA_ORA_A, "ymax": CURVA_KN_MAX,
+        "media": curva_monotona(media, cifre=4),
+        "raffica": (curva_monotona(raffica, cifre=4)
+                    if len(raffica) >= 2 else None),
+        "max_kn": round(picco, 1),
+        "ultimo": {"x": round(ux(ultimo["hour"]), 4),
+                   "y": round(uy(ultimo["wind"]), 4),
+                   "ora": round(ultimo["hour"], 3),
+                   "kn": round(ultimo["wind"], 1)},
+        "n": len(media),
+    }
+
+
 def snapshot(adesso=None):
     """Il contenuto di live.json: un luogo per centralina, piu' l'ora di scrittura.
 
@@ -136,8 +213,9 @@ def snapshot(adesso=None):
     # non legare il processo veloce all'intero modulo della pagina quando
     # serve solo il dato.
     from . import web
-    for v in luoghi.values():
+    for place, v in luoghi.items():
         v["html"] = web.now_observed_html(v)
+        v["curve"] = curve(place, adesso=adesso)
     return {"generato": iso_utc(adesso), "versione": config.APP_VERSION,
             "luoghi": luoghi}
 

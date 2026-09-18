@@ -54,6 +54,25 @@ def local_hour(dt_utc):
     return to_local(dt_utc).hour
 
 
+def local_minute_of_day(dt_utc):
+    """Minuti dalla mezzanotte locale, con i minuti dentro.
+
+    local_hour qui sopra i minuti li butta, ed e' giusto che li butti: serve a
+    indicizzare le ORE, e un'ora e' un numero intero. Ma chi disegna i
+    campioni veri ha bisogno di sapere DOVE nell'ora sono arrivati, e
+    riusando local_hour li metteva tutti sullo stesso punto: sei campioni di
+    un'ora finivano alla stessa ascissa con sei valori diversi, e la curva fra
+    loro diventava un salto verticale. Sono i gradini che si vedevano nel
+    grafico - "un gran casino" - insieme al mescolamento delle fonti.
+
+    Due funzioni e non una perche' sono due domande diverse: "in quale ora
+    siamo" e "a che minuto siamo". Una sola funzione che rispondesse a
+    entrambe le avrebbe confuse un'altra volta.
+    """
+    t = to_local(dt_utc)
+    return t.hour * 60.0 + t.minute + t.second / 60.0
+
+
 def utc_now():
     return datetime.now(UTC).replace(microsecond=0)
 
@@ -1213,3 +1232,59 @@ def offset_locale_ore(data_iso):
     dt = parse_iso_utc(data_iso[:10] + "T12:00:00Z")
     loc = to_local(dt)
     return (loc.utcoffset().total_seconds() / 3600.0) if loc.utcoffset() else 1.0
+
+
+def curva_monotona(punti, cifre=1):
+    """Un percorso CURVO che passa per tutti i punti e non inventa massimi.
+
+`cifre` serve perche' questa funzione ha due clienti con due precisioni:
+    il grafico la vuole in unita' di viewBox (un decimo basta), il processo
+    veloce la scrive in coordinate normalizzate 0-1 dentro live.json, e la'
+    un decimo sarebbe una griglia da dieci passi.
+
+    Gian: "preferibilmente che sia una curva non una serie di rette
+    spezzate". La tentazione, per ottenerla, e' una spline morbida qualunque -
+    e sarebbe il difetto peggiore che questo grafico potrebbe avere, perche'
+    una spline morbida OLTREPASSA i punti: fra un 16 e un 20 disegna un 21 che
+    nessun modello ha previsto e nessuna centralina ha misurato. Su una pagina
+    che serve a decidere se andare in acqua, un picco inventato e' la cosa
+    peggiore da disegnare.
+
+    Quindi si usa l'interpolazione cubica MONOTONA (Fritsch-Carlson): passa
+    esattamente per ogni punto, e su ogni tratto resta monotona, cioe' non
+    puo' creare un massimo o un minimo che non ci sia nei dati. Dove i dati
+    cambiano verso, la pendenza viene messa a zero e la curva ha il suo
+    estremo esattamente nel punto misurato.
+
+    E il gradino dell'Ora sopravvive: i punti sono onorati uno per uno, quindi
+    una salita di sette nodi in mezz'ora resta una salita di sette nodi in
+    mezz'ora - arrotondata negli spigoli, non spianata.
+    """
+    pts = [(float(x), float(y)) for x, y in punti]
+    if len(pts) < 2:
+        return ""
+    f2 = "M%%.%df,%%.%df L%%.%df,%%.%df" % (cifre, cifre, cifre, cifre)
+    if len(pts) == 2:
+        return f2 % (pts[0][0], pts[0][1], pts[1][0], pts[1][1])
+    n = len(pts)
+    h = [pts[i + 1][0] - pts[i][0] for i in range(n - 1)]
+    d = [((pts[i + 1][1] - pts[i][1]) / h[i] if h[i] else 0.0)
+         for i in range(n - 1)]
+    m = [d[0]] + [0.0] * (n - 2) + [d[-1]]
+    for i in range(1, n - 1):
+        if d[i - 1] * d[i] <= 0:
+            m[i] = 0.0                     # un estremo resta dove e' misurato
+        else:
+            w1, w2 = 2 * h[i] + h[i - 1], h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i])
+    fm = "M%%.%df,%%.%df" % (cifre, cifre)
+    fc = ("C%%.%df,%%.%df %%.%df,%%.%df %%.%df,%%.%df"
+          % tuple([cifre] * 6))
+    out = [fm % pts[0]]
+    for i in range(n - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        out.append(fc % (x0 + h[i] / 3.0, y0 + m[i] * h[i] / 3.0,
+                         x1 - h[i] / 3.0, y1 - m[i + 1] * h[i] / 3.0,
+                         x1, y1))
+    return " ".join(out)

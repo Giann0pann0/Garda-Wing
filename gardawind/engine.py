@@ -10,8 +10,9 @@ from . import (aggregate, analogs, config, confidence as CONF, features as F,
 from .sources import malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
-                   mean, parse_dt_any, pstdev, recurrent_gust, sampling_cadence,
-                   utc_now, vector_mean_direction)
+                   local_minute_of_day, mean, parse_dt_any, pstdev,
+                   recurrent_gust, sampling_cadence, utc_now,
+                   vector_mean_direction)
 
 STATE = {
     "running": False,
@@ -1360,13 +1361,18 @@ def day_observed(place, day):
     fonte = None
     if righe:
         fonte = "ricorrente 30'" if usa_ric else "massimo dell'ora"
-    return {"righe": righe, "fini": _osservato_fine(station, day),
+    return {"righe": righe, "fini": campioni_fini(station, day),
             "raffica_fonte": fonte,
             "ultima_ora": righe[-1]["hour"] if righe else None}
 
 
-def _osservato_fine(station, day):
+def campioni_fini(station, day):
     """I campioni veri della giornata, alla cadenza a cui arrivano.
+
+    Pubblica, non privata, perche' ha due clienti: la pagina costruita e il
+    processo veloce che scrive live.json. La regola della fonte unica qui
+    sotto e' costata un pomeriggio di diagnosi, e una seconda lettura dei
+    campioni scritta altrove la perderebbe da capo.
 
     La serie oraria sopra resta, perche' e' quella su cui si confronta con la
     previsione e il confronto vive sull'asse orario. Ma DISEGNARE la misura
@@ -1422,7 +1428,10 @@ def _osservato_fine(station, day):
     if len(per_ist) < 12:
         return []
     ordinati = sorted(per_ist.items())
-    minuti = [local_hour(parse_dt_any(k)) * 60.0 for k, _r in ordinati]
+    # I minuti VERI, non l'ora arrotondata: con local_hour i sei campioni di
+    # un'ora finivano tutti alla stessa ascissa, e la curva fra loro era un
+    # salto verticale. Disegnavamo dei gradini e li chiamavamo vento.
+    minuti = [local_minute_of_day(parse_dt_any(k)) for k, _r in ordinati]
     venti = [_r.get("wind_kn") for _k, _r in ordinati]
     raffiche = [_r.get("gust_kn") for _k, _r in ordinati]
     cadenza = sampling_cadence(minuti)
