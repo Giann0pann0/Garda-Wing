@@ -1040,17 +1040,16 @@ def forecast_days(spot_name, horizon=None):
         profile = []
         for key, rel in shape:
             dt = parse_dt_any(key)
-            gust_ratio = 1.0
-            g = hours[key].get("g10")
-            w = hours[key].get("w10")
-            if g and w and w > 0.5:
-                gust_ratio = clamp(g / w, 1.0, 2.2)
             value = pred["speed"] * rel
             profile.append({
                 "hour_local": local_hour(dt),
                 "key": key,
                 "wind": value,
-                "gust": value * gust_ratio,
+                # Lo stesso rapporto del profilo della giornata, dallo stesso
+                # posto: era una seconda copia del g10/w10 del modello, con
+                # un limite diverso (2,2 invece di 2,1), e due raffiche per
+                # la stessa ora.
+                "gust": value * rapporto_raffica(spot_name, value),
                 "spread": spread.get(key) if spread.get(key) is not None else 0.0,
             })
 
@@ -1444,6 +1443,104 @@ def campioni_fini(station, day):
     return out
 
 
+# ---------------------------------------------------------------------------
+# La raffica prevista: medio per un rapporto MISURATO, non per quello del modello
+# ---------------------------------------------------------------------------
+#
+# Gian: "la previsione delle raffiche e' molto lontana dal medio, si puo' fare
+# qualcosa?". Misurato prima di toccare niente (Malcesine, marzo-settembre
+# 2026, 970 ore con vento >= 8 kn; poi Sport Addicted, dodici anni, sei
+# centraline, 107.000 ore):
+#
+#   la raffica E' lontana dal medio, ed e' il lago: il massimo dell'ora vale
+#   1,5-2,0 volte il medio, e il rapporto SCENDE quando il vento sale (Ora:
+#   1,76 fra 8 e 12 kn, 1,57 fra 12 e 16, 1,51 sopra i 16; Peler: da 1,98 a
+#   1,49). Un rapporto fisso sbaglia di 2-3 nodi proprio nelle giornate forti;
+#
+#   il rapporto g10/w10 che dice il modello, ora per ora, non ha nessuna
+#   relazione con quello vero: correlazione 0,23 con l'Ora e 0,03 col Peler.
+#   Un rapporto imparato dalle misure dimezza l'errore (2,0 -> 1,1 kn);
+#
+#   il ripiego di 1,35 che si usava senza raffica del modello sottostimava di
+#   4-6 nodi;
+#
+#   e i SENSORI non misurano la stessa raffica: lo stesso posto da' 1,9 su
+#   Addicted e 1,45 su Meteotrentino. Quindi il rapporto va imparato dalla
+#   centralina che la pagina mostra come "misurato", non da un archivio piu'
+#   ricco di un altro sensore - altrimenti la raffica prevista starebbe sempre
+#   il 25% sopra quella misurata accanto, e sembrerebbe sbagliata ogni giorno.
+#   Sedici ore del sensore giusto valgono piu' di seimila di quello sbagliato.
+#
+# La forma e' a scalini per livello di vento (verificata alla cieca: imparata
+# sugli anni pari, controllata sui dispari, il bias sopra i 16 kn passa da
+# +-2,4 a meno di mezzo nodo). Si impara ogni volta dall'archivio orario della
+# centralina, cosi' cresce da sola: Torbole oggi ha novanta ore di raffica, fra
+# un mese ne avra' quattrocento, e nessuno deve ricordarsi di aggiornare un
+# numero.
+RAFFICA_SCALINI = (8.0, 12.0, 16.0, 20.0)
+RAFFICA_MIN_ORE = 12          # sotto, uno scalino non si fida di se stesso
+RAFFICA_PREDEFINITO = 1.6     # la mediana di tutto quello che si e' misurato
+RAFFICA_LIMITI = (1.0, 2.5)
+
+
+def relazione_raffica(spot_name):
+    """{scalino_kn: rapporto} imparato dalla centralina dello spot, nel suo regime.
+
+    Ritorna anche "ore" (quante ne ha imparate) e "fonte" per poterlo dire in
+    pagina. Il calcolo e' una passata sull'archivio orario di una centralina:
+    e' piccolo, e si tiene in memoria per giornata.
+    """
+    chiave = "raffica:%s:%s" % (spot_name, local_day(utc_now()))
+    if chiave in STATE:
+        return STATE[chiave]
+    spot = config.SPOTS[spot_name]
+    h0, h1 = spot["window"]
+    per_scalino = {s: [] for s in RAFFICA_SCALINI}
+    for r in store.obs_hours(spot["station"]):
+        w, g = r.get("wind_mean"), r.get("gust_max")
+        if w is None or g is None or w < RAFFICA_SCALINI[0] or g < w:
+            continue
+        dt = parse_dt_any(r["hour"])
+        if dt is None or not (h0 <= local_hour(dt) < h1):
+            continue
+        scalino = max(s for s in RAFFICA_SCALINI if s <= w)
+        per_scalino[scalino].append(g / w)
+    tabella = {}
+    for s, v in per_scalino.items():
+        if len(v) >= RAFFICA_MIN_ORE:
+            v.sort()
+            tabella[s] = clamp(v[len(v) // 2], *RAFFICA_LIMITI)
+    esito = {"scalini": tabella, "ore": sum(len(v) for v in per_scalino.values()),
+             "fonte": spot["station"]}
+    STATE[chiave] = esito
+    return esito
+
+
+def rapporto_raffica(spot_name, wind):
+    """Il rapporto raffica/medio da usare a questo livello di vento.
+
+    Lo scalino del livello, o l'ultimo che c'e' sotto; e se la centralina non
+    ha ancora insegnato niente, il predefinito - che e' una mediana misurata,
+    non un numero a occhio.
+    """
+    tab = relazione_raffica(spot_name)["scalini"]
+    if not tab:
+        return RAFFICA_PREDEFINITO
+    sotto = [s for s in tab if s <= wind]
+    return tab[max(sotto)] if sotto else tab[min(tab)]
+
+
+def _spot_per_ora(spot_names, h):
+    """Lo spot (regime) a cui appartiene un'ora: la raffica dell'Ora non e'
+    quella del Peler, e a Torbole differiscono di mezzo punto di rapporto."""
+    for name in spot_names:
+        a, b = config.SPOTS[name]["window"]
+        if a <= h < b:
+            return name
+    return min(spot_names, key=lambda n: min(abs(h - x)
+                                             for x in config.SPOTS[n]["window"]))
+
+
 def day_profile(place, day, sessions):
     """Andamento orario dell'intera giornata per un luogo, gia' corretto.
 
@@ -1526,8 +1623,11 @@ def day_profile(place, day, sessions):
         if w is None:
             continue
         wind = max(0.0, w * factor)
-        g = (src or {}).get("g10")
-        ratio = clamp(g / w, 1.0, 2.1) if (g and w > 0.5) else 1.35
+        # Non il g10/w10 del modello: ora per ora e' rumore (correlazione
+        # 0,03-0,23 con il rapporto vero). Il rapporto misurato alla
+        # centralina, per regime e per livello di vento - vedi
+        # relazione_raffica.
+        ratio = rapporto_raffica(_spot_per_ora(spot_names, h), wind)
         sp = spread.get(k)
         sp = 2.0 if sp is None else sp * factor
         out.append({

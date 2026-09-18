@@ -170,6 +170,7 @@ header{padding-block:18px 0}
 .rq-kn{font-size:19px;font-weight:700;color:var(--ink);margin-top:2px;
   font-family:"Avenir Next",system-ui,sans-serif;font-variant-numeric:tabular-nums}
 .rq-kn small{font-size:12px;color:var(--ink-2);font-weight:600}
+.rq-kn b{font-weight:800}.rq-kn b+small{margin:0 8px 0 3px}
 .rq-d{margin:11px 0 0;padding-top:10px;border-top:1px solid var(--line);
   display:grid;gap:5px;font-size:12.5px}
 .rq-d div{display:flex;justify-content:space-between;gap:8px}
@@ -724,10 +725,13 @@ def sessione_numeri(name, profile, giorno, live=None, today=False):
               and inizio <= float(r["hour"]) * 60.0 <= fine]
     migliore = max(dentro, key=lambda r: float(r["wind"])) if dentro else None
     kn = float(migliore["wind"]) if migliore else max(v for _m, v in serie)
-    lo = (migliore or {}).get("lo")
-    hi = (migliore or {}).get("hi")
-    if lo is None or hi is None:
-        lo = hi = kn
+    # Niente "lo-hi" qui: quel range era la DISPERSIONE DELL'ENSEMBLE - quanto
+    # i modelli litigano fra loro - e la scheda la stampava come previsione.
+    # In una giornata termica veniva "1-29 kn", che Gian ha letto giusto: "non
+    # da' immediatezza, confonde". La banda calibrata sui residui esiste ed e'
+    # un'altra cosa (sta nella sessione); qui si scrivono i due numeri che si
+    # sentono in acqua, il medio e la raffica.
+    raffica = (migliore or {}).get("gust")
     # Oggi il dato MISURATO ha la precedenza sul giudizio emesso stanotte: se
     # la centralina sta leggendo diciassette nodi di Ora, la scheda non puo'
     # continuare a dire "mediocre" perche' la previsione di stanotte era piu'
@@ -736,8 +740,10 @@ def sessione_numeri(name, profile, giorno, live=None, today=False):
     misurato = live_regime_state(live, spot, today)
     if misurato:
         kn = max(kn, misurato["wind"])
+    if raffica is None or raffica < kn:
+        raffica = kn
     return {"nome": name, "spot": spot, "inizio": inizio, "fine": fine,
-            "kn": kn, "lo": lo, "hi": hi, "minuti": minuti, "limite": limite,
+            "kn": kn, "raffica": raffica, "minuti": minuti, "limite": limite,
             "misurato": bool(misurato)}
 
 
@@ -759,14 +765,15 @@ def card_regime(place, regime, label, quando, profile, sessions,
         '<div class="rq q-%s">'
         '<div class="rq-t">%s <span>%s</span></div>'
         '<div class="rq-v">%s</div>'
-        '<div class="rq-kn">%.0f\u2013%.0f <small>kn</small></div>'
+        '<div class="rq-kn"><b>%.0f</b><small>medio</small> '
+        '<b>%.0f</b><small>raffica</small> <small>kn</small></div>'
         '<dl class="rq-d">'
         '<div><dt>finestra</dt><dd>%s\u2013%s</dd></div>'
         '<div><dt>sopra %.0f kn</dt><dd>%s</dd></div>'
         '<div><dt>affidabilit\u00e0</dt><dd>%s</dd></div>'
         '</dl></div>'
         % (classe, E(label.upper()), E(quando), E(parola),
-           num["lo"], num["hi"], hhmm(num["inizio"]), hhmm(num["fine"]),
+           num["kn"], num["raffica"], hhmm(num["inizio"]), hhmm(num["fine"]),
            num["spot"]["min_kn"], _durata_parole(num["minuti"], num["limite"]),
            ("<b>%d%%</b>" % pct) if pct is not None else "\u2014"))
 
@@ -1767,13 +1774,41 @@ def dettagli_panel(place, days):
         'leggere un numero per un altro. Si usa una fonte sola per giornata: '
         'un cambio di canale a met\u00e0 giornata si vede come un salto che '
         'non \u00e8 vento.</p>'
+        '<h3>La raffica prevista</h3>'
+        '<p>Non viene dal modello: il rapporto raffica/medio che i modelli '
+        'danno ora per ora non ha relazione con quello vero (misurato: '
+        'correlazione 0,2 con l\u2019Ora, zero col Pel\u00e8r). \u00c8 il medio '
+        'previsto per il rapporto <i>misurato</i> a questa centralina, per '
+        'regime e per livello di vento \u2014 sul lago la raffica vale 1,5\u20132 '
+        'volte il medio, e il rapporto scende quando il vento sale. %s</p>'
         '<h3>Da dove arrivano i numeri</h3>'
         '<p>Nessuna previsione altrui viene ricopiata: i modelli grezzi entrano '
         'come ingredienti, e la previsione \u00e8 ricalcolata e corretta con lo '
         'storico misurato delle centraline. Centraline, modelli, pesi e '
         'quanto sbaglia: <a href="/diagnostica">dati e modelli</a>.</p>'
         '</div></details>'
-        % (giudizio.scala_parole(spot), "".join(righe)))
+        % (giudizio.scala_parole(spot), "".join(righe), raffica_parole(place)))
+
+
+def raffica_parole(place):
+    """Quante ore ha imparato la centralina, e i rapporti: cosi' si vede
+    crescere. Se non ha ancora insegnato niente, lo dice."""
+    pezzi = []
+    for key, lab, _q in META_REGIME:
+        name = place_spots(place).get(key)
+        if not name:
+            continue
+        rel = engine.relazione_raffica(name)
+        if rel["scalini"]:
+            pezzi.append("%s: %s (%d ore)" % (
+                lab, ", ".join("da %.0f kn \u00d7%.2f" % (k, v)
+                               for k, v in sorted(rel["scalini"].items())),
+                rel["ore"]))
+    if not pezzi:
+        return ("La centralina non ha ancora abbastanza ore di raffica: "
+                "intanto si usa \u00d7%.1f, la mediana di tutto il misurato."
+                % engine.RAFFICA_PREDEFINITO)
+    return "Imparato qui \u2014 " + "; ".join(pezzi) + "."
 
 
 def anteprima_link(place, days):
@@ -1800,8 +1835,8 @@ def anteprima_link(place, days):
             continue
         parola, _c = giudizio.voto(num["kn"], num["minuti"], num["spot"])
         if parola:
-            pezzi.append("%s %s, %.0f\u2013%.0f kn" % (lab, parola, num["lo"],
-                                                      num["hi"]))
+            pezzi.append("%s %s, %.0f kn (raffiche %.0f)"
+                         % (lab, parola, num["kn"], num["raffica"]))
     titolo = "%s \u00b7 oggi: %s" % (place, " \u00b7 ".join(pezzi) or "vento")
     descr = ("Pel\u00e8r e Ora previsti sulla centralina, con il vento misurato "
              "adesso. Cinque giorni, affidabilit\u00e0 misurata.")
