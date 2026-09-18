@@ -132,8 +132,9 @@ def update_stations():
             store.save_samples("malcesine", rows, "meteoproject-intraday")
             aggregate.aggregate_station("malcesine", since_iso=rows[0][0])
             done.append("Malcesine %d misure intraday di oggi" % len(rows))
-    except FetchError as e:
-        _note("warn", "intraday/Malcesine", str(e)[:160])
+    except Exception as e:                        # noqa: BLE001
+        _note("warn", "intraday/Malcesine",
+              "%s: %s" % (type(e).__name__, str(e)[:140]))
 
     # Le centraline Addicted (Campione): serie ORARIA, oggi e ieri. Oggi
     # perche' e' il dato vivo, ieri perche' l'ultima ora di ieri era
@@ -146,8 +147,13 @@ def update_stations():
                 righe, _meta = addicted.fetch_hourly(giorno=giorno, slug=slug)
                 n += salva_ore_addicted(stazione, righe)
             done.append("%s %d ore" % (stazione, n))
-        except FetchError as e:
-            _note("error", "centralina/%s" % stazione, str(e)[:160])
+        except Exception as e:                    # noqa: BLE001
+            # Non solo FetchError: queste pagine cambiano senza avvisare, e
+            # un parser che inciampa su una stazione non deve portarsi dietro
+            # le altre - ne' impedire che live.json venga scritto. Il guasto
+            # finisce nel registro, la giornata continua.
+            _note("error", "centralina/%s" % stazione,
+                  "%s: %s" % (type(e).__name__, str(e)[:140]))
     return done
 
 

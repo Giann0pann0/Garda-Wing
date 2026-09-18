@@ -2276,9 +2276,20 @@ def main(argv=None):
                      v["gust_rec_stato"]))
         print("scritto %s" % args.live_json)
         # E gli avvisi, dallo stesso giro: la misura e' appena stata fatta.
-        from . import avvisi
-        for line in avvisi.esegui():
-            print(line)
+        #
+        # Dentro un try che non lascia passare niente, di proposito: il file
+        # e' GIA' scritto qui sopra, e il passo successivo del flusso lo
+        # pubblica. Se un errore negli avvisi facesse uscire il comando con
+        # un codice diverso da zero, il passo di pubblicazione non
+        # partirebbe, e il sito resterebbe con il dato vecchio per colpa di
+        # un messaggio Telegram. L'errore si stampa, cosi' si vede nel
+        # registro, ma non ferma la pubblicazione di una misura buona.
+        try:
+            from . import avvisi
+            for line in avvisi.esegui():
+                print(line)
+        except Exception as e:                    # noqa: BLE001
+            print("avvisi: errore non fatale (%s: %s)" % (type(e).__name__, e))
         return 0
 
     if args.ci:

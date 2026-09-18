@@ -46,3 +46,34 @@ if up:
 p.terminate()
 try: p.wait(timeout=5)
 except Exception: p.kill()
+
+# --------------------------------------------------------------------------
+# Il processo veloce non puo' zittirsi per sempre in silenzio
+# --------------------------------------------------------------------------
+# Visto il 2026-09-19: live.json fermo dal 17, quindi "adesso" congelato fra
+# una ricostruzione e l'altra, e Campione che sembrava morta. Due difese, e
+# nessuna delle due e' una diagnosi: sono i modi in cui quel processo NON
+# deve poter smettere di pubblicare.
+import os as _os
+_wf = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..",
+                         ".github", "workflows", "adesso.yml"), encoding="utf-8").read()
+_cron = "*/10" in _wf
+ok("timeout-minutes:" in _wf,
+   "il flusso veloce ha un limite di tempo per esecuzione")
+_limite = int(_wf.split("timeout-minutes:")[1].split("\n")[0].strip())
+ok(not _cron or _limite < 10,
+   "piu' corto del periodo del cron (%d min): un'esecuzione impiantata muore"
+   " da sola invece di essere annullata da quella dopo, per sempre" % _limite)
+ok("cancel-in-progress: true" in _wf,
+   "e l'ultima lettura vince, che per un dato osservato e' giusto")
+
+_main = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..",
+                           "gardawind", "__main__.py"), encoding="utf-8").read()
+_pezzo = _main[_main.index('if args.live_json:'):]
+_pezzo = _pezzo[:_pezzo.index("if args.ci:")]
+ok(_pezzo.index("scrivi(args.live_json)") < _pezzo.index("avvisi"),
+   "il file si scrive PRIMA degli avvisi")
+ok("try:" in _pezzo.split("avvisi")[0][-400:] or "except Exception" in _pezzo,
+   "e un errore negli avvisi non fa uscire il comando con un codice di errore:"
+   " altrimenti il passo di pubblicazione non parte e il sito resta col dato"
+   " vecchio per colpa di un messaggio Telegram")

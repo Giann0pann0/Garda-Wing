@@ -33,6 +33,13 @@ concurrency:
 jobs:
   adesso:
     runs-on: ubuntu-latest
+    # Con un cron ogni dieci minuti e cancel-in-progress, un'esecuzione che si
+    # impianta viene annullata dalla successiva - che a sua volta si impianta,
+    # e cosi' via: il processo veloce puo' smettere di pubblicare PER SEMPRE
+    # senza che nessuna esecuzione risulti fallita. Un limite piu' corto del
+    # periodo del cron rompe il ciclo: la lettura delle centraline dura
+    # secondi, e se ne servono otto minuti qualcosa e' rotto comunque.
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
