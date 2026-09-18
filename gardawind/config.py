@@ -9,14 +9,27 @@ import os
 
 APP_VERSION = "3.7"
 # Il nome del prodotto, in un posto solo: manifesto dell'app installata,
-# titolo delle pagine, anteprima dei link. Scelto da Gian il 2026-09-17:
-# "Garda Wind" risultava gia' usato da un altro sito sullo stesso lago.
-#
-# E' una frase, ed e' la frase giusta: e' quello che si dice al telefono
-# quando la scheda ha avuto ragione. Il nome corto e' per l'icona sul
-# telefono, dove sedici caratteri non stanno.
-APP_NAME = "L\u2019Ora \u00e8 arrivata"
-APP_SHORT_NAME = "L\u2019Ora"
+# titolo delle pagine, anteprima dei link. Scelto da Gian il 2026-09-18,
+# sul mockup che ha mandato: "Time to Foil". Il nome precedente, "L'Ora e'
+# arrivata", resta come FRASE dell'avviso Telegram - e' quello che si dice
+# quando la scheda ha avuto ragione - ma non e' piu' il nome del sito.
+# Il nome corto e' per l'icona sul telefono: dodici caratteri ci stanno.
+APP_NAME = "Time to Foil"
+APP_SHORT_NAME = "Time to Foil"
+# La riga sotto il titolo, dal mockup. Una frase sola, e la dice il sito,
+# non il regime: e' vera per il Peler quanto per l'Ora.
+APP_TAGLINE = "Il vento giusto, al momento giusto."
+# La foto di sfondo della testa, se c'e': un file che Gian mette nella
+# cartella del progetto, accanto al README. Se manca, la pagina disegna un
+# cielo in vettoriale. Non e' nel pacchetto perche' e' sua, non del codice.
+SFONDO_FILE = "sfondo.jpg"
+
+
+def sfondo_path():
+    """Il percorso della foto di sfondo, o None se non c'e'."""
+    radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    p = os.path.join(radice, SFONDO_FILE)
+    return p if os.path.isfile(p) else None
 DB_FILENAME = "gardawind_v3.sqlite"
 
 TZ_LOCAL = "Europe/Rome"

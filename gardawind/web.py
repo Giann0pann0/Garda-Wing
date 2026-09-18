@@ -42,13 +42,19 @@ CSS = """
 /* Un tema solo, scuro. Non e' una preferenza estetica: la pagina si guarda in
    spiaggia all'alba e al tramonto, e un fondo chiaro a quell'ora e' una torcia
    in faccia. Committiamo al buio e lo dipingiamo bene, invece di mantenere due
-   temi e curarne male entrambi. */
+   temi e curarne male entrambi.
+
+   L'aspetto viene dal mockup di Gian (2026-09-18): un tramonto sul lago in
+   testa, tutto il resto su schede scure semitrasparenti. La foto non c'e' -
+   non e' nostra - al suo posto c'e' un cielo disegnato in vettoriale, che
+   pesa due kilobyte e non ha diritti. */
 :root{
   color-scheme:dark;
   --bg-1:#0a121c; --bg-2:#0d1826; --bg-3:#070e16;
   --card:#101a26; --card-2:#16222f; --card-3:#1b2937;
-  --ink:#e9f1f8; --ink-2:#9db0c4; --ink-3:#6d8098;
-  --line:#1e2c3b; --grid:#1a2734; --axis:#33455a;
+  --vetro:rgba(11,20,31,.78);
+  --ink:#eef4fa; --ink-2:#a7b8ca; --ink-3:#74879e;
+  --line:#22323f; --grid:#1a2734; --axis:#33455a;
 
   /* Identita' delle localita': colore categorico, assegnato una volta e mai
      riciclato. Validati col validatore sui sei controlli su questa superficie
@@ -67,11 +73,11 @@ CSS = """
 
   /* Stati: riservati, mai riusati per una serie, sempre con la parola scritta. */
   --good:#35c97a; --warn:#f0b429; --crit:#f2564d; --big:#5ad2ff;
+  --accento:#4fd3ff;
 
   --shadow:0 1px 2px rgba(0,0,0,.55),0 14px 38px rgba(0,0,0,.45);
+  --raggio:16px;
 }
-/* Una localita' per pagina: il suo colore si sceglie una volta, sul corpo,
-   invece di essere ripetuto su ogni sezione. */
 body.p2{--pc:var(--s2); --pc-soft:var(--s2-soft); --pc-glow:var(--s2-glow)}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -80,121 +86,141 @@ img{max-width:100%}
 body{
   font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   color:var(--ink);
-  background:
-    radial-gradient(900px 420px at 12% -8%, #13273c 0%, transparent 62%),
-    radial-gradient(760px 380px at 88% 0%, #102132 0%, transparent 58%),
-    linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 40%, var(--bg-3) 100%);
-  background-attachment:fixed;
+  background:linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 40%, var(--bg-3) 100%);
   min-height:100vh;
   -webkit-font-smoothing:antialiased;
 }
-.display{
+.display,.titolo,.nowbig .v,.gcard .gk,.rq-v,.rq-kn{
   font-family:"Avenir Next","Avenir",Futura,"Gill Sans","Trebuchet MS",system-ui,sans-serif;
-  font-weight:700;letter-spacing:-.02em;
 }
 a{color:var(--s1)}
 .wrap{max-width:1040px;margin:0 auto;padding-left:16px;padding-right:16px}
 
-/* ---------------- testa: il nome del posto, e basta ---------------- */
-header{padding-block:18px 0}
-/* Il marchio: una riga sola, piccola, in maiuscoletto. Il posto grande e'
-   della localita', perche' e' quella la domanda; il nome del sito e' la
-   risposta, e la si riconosce senza gridarla. */
-.marchio{margin:0 0 2px;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
-  color:var(--ink-3);font-weight:700}
-.hbar{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;
-  flex-wrap:wrap;border-bottom:1px solid var(--line)}
-.hbar .live{padding-bottom:12px}
-.live{font-size:12px;color:var(--ink-2);display:inline-flex;align-items:center;gap:7px}
+/* ---------------- la testa: il cielo, il nome, le localita' ---------------- */
+header.hero{position:relative;overflow:hidden;padding:14px 0 26px;min-height:300px;
+  display:flex;align-items:flex-end;background:#0a121c}
+header.hero>.wrap{width:100%;display:flex;flex-direction:column;min-height:260px;
+  justify-content:space-between}
+/* Con la foto: coperta e centrata, e un velo scuro in basso perche' il
+   titolo e la striscia dell'adesso restino leggibili su qualunque cielo. */
+header.hero.foto{background:#0a121c url(sfondo.jpg) center/cover no-repeat;min-height:360px}
+header.hero.foto::after{content:"";position:absolute;inset:auto 0 0 0;height:55%;
+  background:linear-gradient(180deg,transparent,rgba(7,14,22,.75))}
+header.hero.foto>.wrap{z-index:1}
+header.hero .cielo{position:absolute;inset:0;width:100%;height:100%;display:block}
+header.hero .wrap{position:relative}
+.hbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.live{font-size:12.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:7px;
+  text-shadow:0 1px 2px rgba(0,0,0,.6)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
 .dot.warn{background:var(--warn)}.dot.bad{background:var(--crit)}
-/* Le localita' come linguette. Aggiungerne una e' una riga di config: qui non
+/* Le localita' come pillole. Aggiungerne una e' una riga di config: qui non
    si tocca niente, e per questo la navigazione non puo' restare indietro. */
-.luoghi{display:flex;gap:6px;margin-bottom:-1px}
-.luoghi a{padding:6px 2px 10px;margin-right:18px;font-size:27px;font-weight:700;
-  letter-spacing:-.02em;text-decoration:none;color:var(--ink-3);
-  font-family:"Avenir Next","Avenir",Futura,"Gill Sans",system-ui,sans-serif;
-  border-bottom:3px solid transparent;margin-bottom:-1px}
-.luoghi a[aria-current="page"]{color:var(--pc);border-bottom-color:var(--pc)}
+.luoghi{display:flex;gap:8px}
+.luoghi a{padding:8px 18px;border-radius:12px;font-size:15px;font-weight:700;
+  text-decoration:none;color:var(--ink);background:rgba(12,22,34,.55);
+  border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)}
+.luoghi a[aria-current="page"]{background:var(--pc);border-color:transparent;color:#fff}
+.titolo{margin:26px 0 0;font-size:64px;line-height:1;font-weight:800;letter-spacing:-.03em;
+  color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45)}
+.titolo em{font-style:normal;color:var(--accento)}
+.tag{margin:8px 0 0;font-size:19px;color:#dbe7f3;text-shadow:0 1px 6px rgba(0,0,0,.5)}
 
-/* ---------------- adesso ---------------- */
-.adesso{padding:16px 0 4px}
-.lbl{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);
-  margin:0 0 6px}
-.nowbig{display:flex;align-items:center;gap:14px}
-.nowbig .v{font-size:46px;line-height:.95;font-weight:700;
-  font-family:"Avenir Next",system-ui,sans-serif;letter-spacing:-.03em;color:var(--pc)}
-.nowbig .v small{font-size:17px;font-weight:600;color:var(--ink-2);letter-spacing:0}
-.nowbig .compass{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
-.nowbig .compass b{color:var(--ink);font-size:16px;display:block;line-height:1.15}
-.nowbig .compass small{font-size:12px;color:var(--ink-3)}
-.nowgust{font-size:14px;color:var(--ink-2);margin-top:4px}
-.nowgust b{color:var(--ink)}
-.nowmeta{font-size:12px;color:var(--ink-3);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
-.nowmeta.stale{color:var(--warn)}
-.nowcond{font-size:13px;color:var(--ink-2);margin-top:8px}
-.nowcond b{color:var(--ink);font-weight:600}
-.novalue{font-size:20px;color:var(--ink-3)}
+/* ---------------- adesso: una striscia di cinque celle ---------------- */
+.adesso{margin-top:-18px;position:relative;z-index:1}
+.costruita{margin:10px 2px 0;font-size:12px;color:var(--ink-3);line-height:1.45}
+.costruita b{color:var(--ink-2);font-weight:600}
+.nowblock{background:var(--vetro);border:1px solid var(--line);border-radius:var(--raggio);
+  padding:10px 14px;box-shadow:var(--shadow);backdrop-filter:blur(10px)}
+.nowobs,.nowstrip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.nowobs{grid-template-columns:repeat(4,1fr);grid-column:1/5}
+.cella{display:flex;align-items:center;gap:10px;min-width:0;padding:4px 8px 4px 0;
+  border-right:1px solid var(--line)}
+.cella:last-child,.nowstrip>.cella:last-child{border-right:0}
+.cella .ic{flex:none;width:30px;height:30px;color:var(--ink-2)}
+.cella .ic svg{width:100%;height:100%;display:block}
+.cella>span:not(.ic){display:grid;min-width:0}
+.cella .k{font-size:12px;color:var(--ink-2);line-height:1.2;white-space:nowrap}
+.cella .v{font-size:22px;font-weight:800;line-height:1.15;color:var(--ink);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.cella .v small{font-size:13px;font-weight:600;color:var(--ink-2)}
+.nowbig .v{color:var(--ink)}
+.nowmeta.stale .v,.nowmeta.stale .k{color:var(--warn)}
+.novalue{font-size:16px;color:var(--ink-3);grid-column:1/-1;padding:6px 0}
 
 /* ---------------- i cinque giorni ---------------- */
-/* Una striscia, non cinque schede grandi: la scelta del giorno e' un gesto,
-   non una lettura. I dettagli del giorno scelto stanno sotto. */
-.giorni{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:18px 0 16px}
+.giorni{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0 14px}
 .gcard{appearance:none;font:inherit;color:inherit;cursor:pointer;text-align:center;
-  background:var(--card);border:1px solid var(--line);border-radius:12px;
-  padding:9px 4px 10px;display:grid;gap:1px;transition:border-color .15s,background .15s}
+  background:var(--vetro);border:1px solid var(--line);border-radius:14px;
+  padding:10px 4px 10px;display:grid;gap:1px;justify-items:center;
+  transition:border-color .15s,background .15s}
 .gcard:hover{border-color:var(--axis)}
-.gcard[aria-current="true"]{border-color:var(--pc);
-  background:color-mix(in srgb,var(--pc) 13%,var(--card))}
-.gcard .gg{font-size:12px;font-weight:700;text-transform:capitalize}
-.gcard .gd{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.gcard .gk{font-size:20px;font-weight:700;margin-top:5px;
-  font-family:"Avenir Next",system-ui,sans-serif}
+.gcard[aria-current="true"]{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+.gcard .gg{font-size:13px;font-weight:700;text-transform:capitalize}
+.gcard .gd{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.gcard .gk{font-size:19px;font-weight:800;margin-top:4px}
 .gcard .gk small{font-size:11px;color:var(--ink-2);font-weight:600}
-.gcard .gv{font-size:11px;font-weight:700;text-transform:capitalize}
+/* Il voto e' una pillola piena: la parola c'e' sempre, il colore la rafforza. */
+.gv,.pill{display:inline-block;margin-top:6px;padding:2px 10px;border-radius:8px;
+  font-size:12px;font-weight:800;text-transform:capitalize;color:#0b1119;
+  background:var(--ink-3)}
+.pill{margin:0}
+/* Il colore del testo sta QUI, nelle regole a due classi: piu' sotto .q-go
+   da solo colora il testo di verde, e verde su verde e' una pillola vuota -
+   e' successo. */
+.q-no.gv,.q-no.pill{background:var(--crit);color:#fff}
+.q-meh.gv,.q-meh.pill{background:var(--warn);color:#0b1119}
+.q-go.gv,.q-go.pill{background:var(--good);color:#0b1119}
+.q-big.gv,.q-big.pill{background:var(--big);color:#0b1119}
+.q-off.gv,.q-off.pill{background:var(--card-3);color:var(--ink-2)}
 
 /* ---------------- i due riquadri, identici ---------------- */
-/* Stessa griglia, stessa struttura, stessa altezza: i due regimi contano
-   uguale, e due riquadri di dimensioni diverse direbbero il contrario prima
-   di qualunque numero. Restano affiancati anche sul telefono. */
-.rqgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch}
-.rq{background:var(--card);border:1px solid var(--line);border-radius:16px;
-  padding:14px 15px 12px;box-shadow:var(--shadow);position:relative;overflow:hidden;
-  display:flex;flex-direction:column}
-.rq::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:currentColor}
-.rq-t{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;
-  color:var(--ink-2)}
-.rq-t span{color:var(--ink-3);font-weight:600;letter-spacing:.04em}
-.rq-v{font-size:26px;font-weight:800;line-height:1.05;margin-top:7px;
-  font-family:"Avenir Next",system-ui,sans-serif;text-transform:capitalize}
-.rq-kn{font-size:19px;font-weight:700;color:var(--ink);margin-top:2px;
-  font-family:"Avenir Next",system-ui,sans-serif;font-variant-numeric:tabular-nums}
-.rq-kn small{font-size:12px;color:var(--ink-2);font-weight:600}
-.rq-kn b{font-weight:800}.rq-kn b+small{margin:0 8px 0 3px}
-.rq-d{margin:11px 0 0;padding-top:10px;border-top:1px solid var(--line);
-  display:grid;gap:5px;font-size:12.5px}
-.rq-d div{display:flex;justify-content:space-between;gap:8px}
-.rq-d dt{color:var(--ink-3);margin:0}
-.rq-d dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.rqgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch}
+.rq{background:var(--vetro);border:1px solid var(--line);border-radius:var(--raggio);
+  padding:14px 16px 14px;box-shadow:var(--shadow);display:flex;flex-direction:column;
+  backdrop-filter:blur(10px)}
+.rq-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.rq-t{font-size:22px;font-weight:800;letter-spacing:.02em;color:var(--ink)}
+.rq-t span{color:var(--ink-2);font-weight:500;font-size:16px;letter-spacing:0}
+.rq-b{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start;margin-top:12px}
+.anello{display:grid;justify-items:center;gap:4px;font-size:12px;color:var(--ink-2)}
+.anello svg{display:block}
+.anello text{font-size:20px}
+.rq-v{display:none}
+.rq-kn{font-size:30px;font-weight:800;line-height:1.05;color:var(--ink);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.rq-kn small{font-size:11px;color:var(--ink-2);font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase}
+.rq-kn b{font-weight:800}.rq-kn b+small{margin:0 10px 0 4px}
+.rq-d{margin:10px 0 0;display:grid;gap:7px;font-size:13.5px}
+.rq-d div{display:flex;align-items:center;gap:9px}
+.rq-d .ic{width:20px;height:20px;color:var(--ink-2);flex:none}
+.rq-d .ic svg{width:100%;height:100%;display:block}
+.rq-d dt{color:var(--ink-2);margin:0;flex:1}
+.rq-d dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums;font-weight:700}
 .rq-n{margin:8px 0 0;font-size:12px;color:var(--ink-3)}
-/* Il voto porta il colore, e la parola c'e' sempre: il colore non e' mai
-   l'unico portatore dell'informazione. */
 .q-no{color:var(--crit)}.q-meh{color:var(--warn)}
 .q-go{color:var(--good)}.q-big{color:var(--big)}.q-off{color:var(--ink-3)}
-.rq.q-off .rq-v{color:var(--ink-3);font-size:22px}
+.rq.rq-off .rq-v{display:block;color:var(--ink-3);font-size:22px;margin-top:8px}
 
 /* ---------------- la riga del meglio ---------------- */
-.meglio{margin:12px 0 0;font-size:14.5px;color:var(--ink-2);line-height:1.45}
-.meglio b{color:currentColor}
+.meglio{margin:14px 0 0;padding:12px 16px;display:flex;align-items:center;gap:12px;
+  font-size:16px;color:var(--ink);line-height:1.4;border-radius:14px;
+  border:1px solid currentColor;background:var(--vetro)}
+.meglio .ic{width:26px;height:26px;flex:none}
+.meglio .ic svg{width:100%;height:100%;display:block}
+.meglio .tx{flex:1;color:var(--ink)}
+.meglio .tx b{color:currentColor}
 .meglio.no{color:var(--ink-3)}
-/* I motori: una riga discreta, in tabulare, che si puo' ignorare. */
-.motori{margin:6px 0 0;font-size:12.5px;color:var(--ink-3);display:flex;gap:16px;
-  flex-wrap:wrap;font-variant-numeric:tabular-nums}
-.motori b{color:var(--ink-2);font-weight:600}
+.meglio.q-no{color:var(--crit)}.meglio.q-meh{color:var(--warn)}
+.meglio.q-go{color:var(--good)}.meglio.q-big{color:var(--big)}
 
 /* ---------------- il grafico, che e' il pezzo grosso ---------------- */
-.grafico{margin-top:16px;background:var(--card);border:1px solid var(--line);
-  border-radius:18px;padding:14px 12px 12px;box-shadow:var(--shadow)}
+.grafico{margin-top:14px;background:var(--vetro);border:1px solid var(--line);
+  border-radius:var(--raggio);padding:14px 14px 12px;box-shadow:var(--shadow)}
+.gtesta{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;margin-bottom:6px}
+.gtesta h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.01em}
 svg.chart{display:block;width:100%;height:auto;
   /* Le scritte del grafico in unita' di viewBox: su schermo grande il disegno
      e' scalato 2,4 volte, quindi il numero va ridotto della stessa quantita'
@@ -209,24 +235,29 @@ svg.chart .t-m{font-size:calc(var(--fs-m) * 1px)}
 .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
   background:var(--card-3);border:1px solid var(--line);border-radius:10px;padding:7px 10px;
   font-size:12px;box-shadow:var(--shadow);white-space:nowrap;z-index:3;color:var(--ink)}
-.legend{display:flex;gap:15px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin-top:8px}
-.scarto{margin:10px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
-.scarto b{color:var(--ink)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
 .legend i{display:inline-block;width:18px;height:0;border-top:3px solid currentColor;
   margin-right:6px;vertical-align:middle}
 .legend i.dash{border-top-style:dashed}
-.legend i.box{height:9px;border:0;border-radius:2px;vertical-align:-1px}
+.legend i.box{height:11px;width:14px;border:0;border-radius:3px;vertical-align:-1px}
+.scarto{margin:10px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+.scarto b{color:var(--ink)}
 details.tbl{margin-top:10px;font-size:13px}
 details.tbl summary{cursor:pointer;color:var(--ink-3);font-size:12px}
 details.tbl .scroller{overflow-x:auto}
 .snote{font-size:12px;color:var(--warn);margin:10px 0 0;line-height:1.4}
 
 /* ---------------- il cassetto dei dettagli ---------------- */
-/* Tutte le spiegazioni stanno qui. Chi non tocca non legge niente. */
-.dettagli{margin:22px 0 10px;border-top:1px solid var(--line);padding-top:12px}
-.dettagli summary{cursor:pointer;font-size:13px;color:var(--ink-3);
-  letter-spacing:.06em;text-transform:uppercase;font-weight:700}
-.dcont{padding-top:6px;max-width:66ch}
+.dettagli{margin:14px 0 10px;background:var(--vetro);border:1px solid var(--line);
+  border-radius:var(--raggio);padding:0 16px}
+.dettagli summary{cursor:pointer;font-size:18px;font-weight:800;padding:14px 0;
+  list-style:none;display:flex;justify-content:space-between;align-items:center}
+.dettagli summary::-webkit-details-marker{display:none}
+.dettagli summary::after{content:"";width:10px;height:10px;border-right:2px solid var(--ink-2);
+  border-bottom:2px solid var(--ink-2);transform:rotate(45deg);margin-right:6px;
+  transition:transform .15s}
+.dettagli[open] summary::after{transform:rotate(-135deg)}
+.dcont{padding:0 0 14px;max-width:66ch}
 .dcont h3{margin:16px 0 2px;font-size:13.5px;color:var(--ink)}
 .dcont p,.dcont li{color:var(--ink-2);font-size:13px;line-height:1.55;margin:4px 0 8px}
 .dcont ul{margin:4px 0 8px;padding-left:18px}
@@ -257,22 +288,32 @@ footer{padding-block:18px 40px;font-size:12px;color:var(--ink-3);text-align:cent
 footer a{color:var(--ink-2)}
 
 @media (max-width:700px){
-  .luoghi a{font-size:22px;margin-right:14px}
-  .wrap{padding-left:14px;padding-right:14px}
-  .nowbig .v{font-size:38px}
-  .giorni{gap:5px;margin:14px 0 14px}
-  .gcard{padding:8px 2px 9px;border-radius:10px}
+  .wrap{padding-left:12px;padding-right:12px}
+  header.hero{padding-bottom:18px}
+  .luoghi a{padding:7px 13px;font-size:14px}
+  .titolo{font-size:42px;margin-top:18px}
+  .tag{font-size:15px}
+  .nowstrip{grid-template-columns:repeat(3,1fr)}
+  .nowobs{grid-template-columns:repeat(3,1fr);grid-column:1/-1}
+  .nowobs .cella:nth-child(4){grid-column:1/3}
+  .cella{border-right:0;padding-right:0}
+  .cella .v{font-size:19px}
+  .cella .ic{width:24px;height:24px}
+  .giorni{gap:5px;margin:12px 0 12px}
+  .gcard{padding:8px 2px 9px;border-radius:12px}
   .gcard .gg{font-size:11px}
-  .gcard .gk{font-size:17px;margin-top:4px}
-  .gcard .gv{font-size:10px}
-  .rqgrid{gap:9px}
-  .rq{padding:12px 12px 10px;border-radius:14px}
-  .rq-v{font-size:21px}
-  .rq-kn{font-size:17px}
-  .rq-d{font-size:11.5px}
-  .rq-d div{display:grid;gap:0}
-  .rq-d dd{text-align:left}
-  .grafico{padding:10px 6px 10px;border-radius:14px}
+  .gcard .gd{font-size:10.5px}
+  .gcard .gk{font-size:16px;margin-top:3px}
+  .gv{font-size:10px;padding:2px 6px}
+  .rqgrid{grid-template-columns:1fr;gap:10px}
+  .rq{padding:12px 12px 12px}
+  .rq-t{font-size:19px}.rq-t span{font-size:14px}
+  .rq-kn{font-size:26px}
+  .rq-d{font-size:12.5px}
+  .meglio{font-size:14px;padding:10px 12px}
+  .grafico{padding:10px 6px 10px}
+  .gtesta h2{font-size:17px;padding-left:6px}
+  .legend{font-size:11.5px;gap:10px;padding-left:6px}
   .panel{padding:14px;border-radius:16px}
 }
 """
@@ -564,6 +605,71 @@ def eta_parole(minuti):
     return ETA_PAROLE[-1][1]
 
 
+# Le icone: tratti semplici, un colore (currentColor), nessuna libreria. Sono
+# decorazione che aiuta l'occhio a trovare la cella, non portano informazione
+# da sole: accanto c'e' sempre la parola.
+_IC = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+       'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" '
+       'aria-hidden="true">%s</svg>')
+ICONE = {
+    "manica": _IC % ('<path d="M4 3v18"/><path d="M4 5h13l3 3-3 3H4"/>'
+                     '<path d="M9 5v6M13 5v6"/>'),
+    "freccia": _IC % '<path d="M12 3v18M6 9l6-6 6 6"/>',
+    "raffica": _IC % ('<path d="M3 8h10a2.5 2.5 0 1 0-2.5-2.5"/>'
+                      '<path d="M3 12h14a3 3 0 1 1-3 3"/><path d="M3 16h7"/>'),
+    "cielo": _IC % ('<path d="M7 17a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 8a4.5 4.5 0 0 1 0 9H7z"/>'),
+    "orologio": _IC % '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    "finestra": _IC % '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+    "termo": _IC % ('<path d="M10 4.5a2 2 0 0 1 4 0v9.3a3.5 3.5 0 1 1-4 0z"/>'
+                    '<path d="M12 10v6"/>'),
+    "pressione": _IC % ('<circle cx="12" cy="12" r="8.5"/><path d="M12 12l3.5-3.5"/>'
+                        '<path d="M8 15.5h8"/>'),
+    "sole": _IC % ('<circle cx="12" cy="13" r="4"/><path d="M12 4v2M4 13h2M18 13h2'
+                   'M6.3 7.3l1.4 1.4M17.7 7.3l-1.4 1.4M4 19h16"/>'),
+}
+
+
+def icona(nome, classe="ic"):
+    return '<span class="%s">%s</span>' % (classe, ICONE[nome])
+
+
+def cielo_svg():
+    """Il tramonto sul lago, disegnato: cielo, sole, due file di montagne, acqua.
+
+    Al posto della foto del mockup, che non e' nostra. E' vettoriale, pesa
+    come un paragrafo, e non ha diritti: e' il nostro. Le montagne sono
+    poligoni a mano, un profilo qualunque - non e' un ritratto del Baldo.
+    """
+    return (
+        '<svg class="cielo" viewBox="0 0 1200 420" preserveAspectRatio="xMidYMax slice" '
+        'aria-hidden="true">'
+        '<defs>'
+        '<linearGradient id="hc" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#0b1a2e"/><stop offset=".45" stop-color="#1d3352"/>'
+        '<stop offset=".72" stop-color="#b4562a"/><stop offset=".82" stop-color="#f2a04a"/>'
+        '<stop offset="1" stop-color="#ffd27a"/></linearGradient>'
+        '<linearGradient id="ha" x1="0" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="#d98a3c"/><stop offset=".35" stop-color="#3b3a46"/>'
+        '<stop offset="1" stop-color="#0a121c"/></linearGradient>'
+        '<radialGradient id="hs" cx=".5" cy=".5" r=".5">'
+        '<stop offset="0" stop-color="#fff2c4"/><stop offset=".55" stop-color="#ffb347"/>'
+        '<stop offset="1" stop-color="#ffb347" stop-opacity="0"/></radialGradient>'
+        '</defs>'
+        '<rect width="1200" height="330" fill="url(#hc)"/>'
+        '<circle cx="640" cy="318" r="120" fill="url(#hs)" opacity=".85"/>'
+        '<circle cx="640" cy="318" r="22" fill="#fff4cc"/>'
+        '<path d="M0 330 L0 200 L90 150 L170 215 L260 120 L340 190 L430 145 L520 235 '
+        'L600 205 L700 240 L790 160 L880 210 L960 130 L1050 200 L1130 150 L1200 190 '
+        'L1200 330 Z" fill="#1a2c44" opacity=".85"/>'
+        '<path d="M0 330 L0 250 L80 225 L150 268 L240 205 L330 262 L410 232 L500 285 '
+        'L590 260 L680 292 L760 245 L850 282 L930 228 L1020 275 L1110 240 L1200 270 '
+        'L1200 330 Z" fill="#101d2e"/>'
+        '<rect y="330" width="1200" height="90" fill="url(#ha)"/>'
+        '<ellipse cx="640" cy="352" rx="80" ry="7" fill="#ffc46a" opacity=".35"/>'
+        '<ellipse cx="640" cy="372" rx="130" ry="6" fill="#ff9d3f" opacity=".18"/>'
+        '</svg>')
+
+
 def now_observed_html(live):
     """La parte OSSERVATA delle condizioni attuali: vento, direzione, raffica, ora.
 
@@ -582,22 +688,33 @@ def now_observed_html(live):
     dt = parse_dt_any(live.get("ts") or "")
     if dt:
         hhmm_txt = to_local(dt).strftime("%H:%M")
-    gust = ('<div class="nowgust">raffica <b>%.0f kn</b></div>' % live["gust"]
+    # Quattro celle, nell'ordine del mockup: vento, direzione, raffica, e per
+    # ultimo l'orario del dato. Le classi di prima (nowbig .v, compass,
+    # nowgust, nowmeta/nowage) restano sugli stessi elementi: sono quelle che
+    # il browser aggiorna e che le prove cercano.
+    gust = ('<span class="v">%.0f <small>kn</small></span>' % live["gust"]
             if live.get("gust") else
-            '<div class="nowgust" style="color:var(--ink-3)">'
-            'raffica non disponibile</div>')
+            '<span class="v" style="color:var(--ink-3);font-size:14px">'
+            'non disponibile</span>')
+    dir_deg = live.get("dir")
     return (
-        '<div class="nowbig"><div class="v">%.0f <small>kn</small></div>'
-        '<div class="compass">%s<span><b>%s</b>%s</span></div></div>'
-        '%s<div class="nowmeta"><span class="nowage">%s</span>'
-        '<span>%s</span></div>'
-        % (live["wind"], arrow(live.get("dir"), 26, "var(--pc)"),
-           E(compass(live.get("dir")) or "\u2014"),
-           ('<small>da %s</small>' % E(direzione_parole(live.get("dir"))))
-           if live.get("dir") is not None else "",
-           gust,
-           E(eta_parole(live.get("age_min"))),
-           ("ultimo dato %s" % hhmm_txt) if hhmm_txt else ""))
+        '<div class="cella nowbig">%s<span><span class="k">Vento ora</span>'
+        '<span class="v">%.0f <small>kn</small></span></span></div>'
+        '<div class="cella compass">%s<span><span class="k">Direzione</span>'
+        '<span class="v"><b>%s</b> <small>%s</small></span></span></div>'
+        '<div class="cella nowgust">%s<span><span class="k">Raffica</span>%s'
+        '</span></div>'
+        '<div class="cella nowmeta">%s<span><span class="k nowage">%s</span>'
+        '<span class="v">%s</span></span></div>'
+        % (icona("manica"), live["wind"],
+           ('<span class="ic">%s</span>'
+            % arrow(dir_deg, 30, "currentColor")) if dir_deg is not None
+           else icona("freccia"),
+           E(compass(dir_deg) or "—"),
+           E("da " + direzione_parole(dir_deg)) if dir_deg is not None else "",
+           icona("raffica"), gust,
+           icona("orologio"), E(eta_parole(live.get("age_min"))),
+           E(hhmm_txt) if hhmm_txt else "—"))
 
 
 # La finestra utile non e' la finestra del regime, e non e' la finestra del
@@ -761,21 +878,37 @@ def card_regime(place, regime, label, quando, profile, sessions,
     parola, classe = giudizio.voto(num["kn"], num["minuti"], num["spot"])
     conf = data.get("affidabilita")
     pct = giudizio.affidabilita(data.get("prob"), conf)
+    motori = motori_valori(place, sessions)
+    righe_motori = ""
+    if motori:
+        pg, tg, verso = motori
+        righe_motori = (
+            '<div title="temperatura in pianura meno temperatura in valle">'
+            '%s<dt>Contrasto termico</dt><dd>%+.1f °C</dd></div>'
+            '<div title="pressione media a nord del lago meno pressione media '
+            'a sud: %s">%s<dt>ΔP nord – sud</dt><dd>%+.1f hPa</dd></div>'
+            % (icona("termo"), tg, E(verso), icona("pressione"), pg))
     return (
         '<div class="rq q-%s">'
-        '<div class="rq-t">%s <span>%s</span></div>'
+        '<div class="rq-h"><div class="rq-t">%s <span>· %s</span></div>'
+        '<span class="pill q-%s">%s</span></div>'
+        # Il voto resta anche come testo semplice, nascosto: e' quello che le
+        # prove leggono e che uno screen reader dice per primo.
         '<div class="rq-v">%s</div>'
+        '<div class="rq-b">%s<div>'
         '<div class="rq-kn"><b>%.0f</b><small>medio</small> '
         '<b>%.0f</b><small>raffica</small> <small>kn</small></div>'
         '<dl class="rq-d">'
-        '<div><dt>finestra</dt><dd>%s\u2013%s</dd></div>'
-        '<div><dt>sopra %.0f kn</dt><dd>%s</dd></div>'
-        '<div><dt>affidabilit\u00e0</dt><dd>%s</dd></div>'
-        '</dl></div>'
-        % (classe, E(label.upper()), E(quando), E(parola),
-           num["kn"], num["raffica"], hhmm(num["inizio"]), hhmm(num["fine"]),
-           num["spot"]["min_kn"], _durata_parole(num["minuti"], num["limite"]),
-           ("<b>%d%%</b>" % pct) if pct is not None else "\u2014"))
+        '<div>%s<dt>Finestra</dt><dd>%s – %s</dd></div>'
+        '<div>%s<dt>Sopra %.0f kn</dt><dd>%s</dd></div>'
+        '%s</dl></div></div></div>'
+        % (classe, E(label.upper()), E(quando), classe, E(parola), E(parola),
+           anello_pct(pct, classe),
+           num["kn"], num["raffica"],
+           icona("finestra"), hhmm(num["inizio"]), hhmm(num["fine"]),
+           icona("raffica"), num["spot"]["min_kn"],
+           _durata_parole(num["minuti"], num["limite"]),
+           righe_motori))
 
 
 def riquadri(place, profile, sessions, giorno=None, live=None, today=False):
@@ -811,31 +944,38 @@ def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
     voti.sort(reverse=True)
     top = voti[0]
     if top[0] == 0:                  # il voto piu' basso di giudizio.VOTI
-        return ('<p class="meglio no">Niente da fare: n\u00e9 la mattina '
-                'n\u00e9 il pomeriggio arrivano a vento navigabile.</p>')
+        return ('<p class="meglio no">%s<span class="tx">Niente da fare: '
+                'né la mattina né il pomeriggio arrivano a vento '
+                'navigabile.</span></p>' % icona("sole"))
     if len(voti) > 1 and voti[1][0] == top[0]:
-        return ('<p class="meglio %s">Mattina e pomeriggio si equivalgono: '
-                '<b>%s</b> in entrambe.</p>' % (top[2], E(top[1])))
+        return ('<p class="meglio q-%s">%s<span class="tx">Mattina e pomeriggio '
+                'si equivalgono: <b>%s</b> in entrambe.</span></p>'
+                % (top[2], icona("sole"), E(top[1])))
     _o, parola, classe, lab, quando, num = top
-    return ('<p class="meglio %s">Meglio <b>%s</b>: %s %s, '
-            'dalle <b>%s</b>.</p>'
-            % (classe, E(quando), E(lab), E(parola), hhmm(num["inizio"])))
+    return ('<p class="meglio q-%s">%s<span class="tx">Meglio <b>%s</b>: '
+            '%s %s, dalle <b>%s</b>.</span></p>'
+            % (classe, icona("sole"), E(quando), E(lab), E(parola),
+               hhmm(num["inizio"])))
 
 
-def motori_riga(place, sessions):
-    """I due motori dei venti del lago, in una riga: DP nord-sud e contrasto termico.
+def motori_valori(place, sessions):
+    """I due motori dei venti del lago: DP nord-sud e contrasto termico.
 
     E' il numero che ogni windsurfista del Garda guarda da trent'anni - il
     "Bolzano meno Ghedi" delle tabelle di profiwetter, che ventogarda.it e
     wwwind mostrano come primo indicatore - e noi lo avevamo gia', in forma
     piu' generale: sei punti su 150 km invece di una coppia, piu' il contrasto
     termico pianura-valle che e' il motore vero della brezza e che gli altri
-    non hanno. Era dentro il modello e non compariva in pagina.
+    non hanno.
 
     Mostrarlo non e' decorazione: e' l'unico numero della pagina che chi
     legge puo' confrontare con la propria esperienza ("con meno tre entra
     sempre"), ed e' il modo piu' onesto di far vedere DA COSA viene la
-    previsione invece di chiedere di fidarsi.
+    previsione invece di chiedere di fidarsi. Nel mockup sta dentro i
+    riquadri, in due righe con l'icona; qui si calcola una volta e i due
+    riquadri lo scrivono.
+
+    Ritorna (dp_hpa, contrasto_c, verso) o None.
     """
     feats = None
     for name in place_spots(place).values():
@@ -844,19 +984,44 @@ def motori_riga(place, sessions):
             feats = f
             break
     if not feats:
-        return ""
+        return None
     pg, tg = float(feats["pgrad"]), float(feats.get("tgrad") or 0.0)
     # pgrad > 0: pressione piu' alta a nord, spinge verso sud lungo il lago,
     # favorisce il Peler; < 0 favorisce l'Ora (features._gradients).
-    verso = ("spinge il Pel\u00e8r" if pg > 0.3 else
-             "spinge l\u2019Ora" if pg < -0.3 else "neutro")
+    verso = ("spinge il Pelèr" if pg > 0.3 else
+             "spinge l’Ora" if pg < -0.3 else "neutro")
+    return pg, tg, verso
+
+
+def anello_pct(pct, classe, size=76):
+    """L'affidabilita' come anello con il numero dentro, dal mockup.
+
+    Quando non c'e' (None: non verificata) l'anello e' vuoto e dentro c'e' un
+    trattino, non uno zero: "non sappiamo" e "zero" sono due cose diverse.
+    """
+    r = size / 2.0 - 6
+    circ = 2 * math.pi * r
+    pieno = circ * (max(0, min(100, pct or 0)) / 100.0)
+    colore = {"no": "var(--crit)", "meh": "var(--warn)", "go": "var(--good)",
+              "big": "var(--big)"}.get(classe, "var(--ink-3)")
     return (
-        '<p class="motori"><span title="pressione media a nord del lago meno '
-        'pressione media a sud, in hPa">\u0394P nord\u2013sud '
-        '<b>%+.1f hPa</b> \u00b7 %s</span>'
-        '<span title="temperatura in pianura meno temperatura in valle">'
-        'contrasto termico <b>%+.1f \u00b0C</b></span></p>'
-        % (pg, E(verso), tg))
+        '<div class="anello">'
+        '<svg width="%d" height="%d" viewBox="0 0 %d %d" role="img" '
+        'aria-label="Affidabilità %s">'
+        '<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="var(--line)" '
+        'stroke-width="7"/>'
+        '<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="%s" '
+        'stroke-width="7" stroke-linecap="round" stroke-dasharray="%.2f %.2f" '
+        'transform="rotate(-90 %.1f %.1f)"/>'
+        '<text x="50%%" y="50%%" dy=".36em" text-anchor="middle" '
+        'font-weight="800" fill="var(--ink)">%s</text></svg>'
+        '<span>Affidabilità</span></div>'
+        % (size, size, size, size,
+           ("%d%%" % pct) if pct is not None else "non verificata",
+           size / 2.0, size / 2.0, r,
+           size / 2.0, size / 2.0, r, colore, pieno, circ - pieno,
+           size / 2.0, size / 2.0,
+           ("%d%%" % pct) if pct is not None else "—"))
 
 
 def adesso_riquadro(place, live, profile):
@@ -870,21 +1035,28 @@ def adesso_riquadro(place, live, profile):
     risposta sola, e ce l'hanno tutte e due.
     """
     cond = sky_words(profile)
-    bits = []
+    testo = []
     if cond.get("tmax") is not None:
-        bits.append("<b>%.0f \u00b0C</b>" % cond["tmax"])
+        testo.append("<b>%.0f °C</b>" % cond["tmax"])
     if cond.get("sky"):
-        bits.append(E(cond["sky"]))
+        testo.append(E(cond["sky"]))
+    cella_cielo = ""
+    if testo:
+        cella_cielo = ('<div class="cella nowcond">%s<span>'
+                       '<span class="k">%s</span><span class="v">%s</span>'
+                       '</span></div>'
+                       % (icona("cielo"), E(cond.get("sky") or "cielo")
+                          if cond.get("tmax") is not None else "cielo",
+                          ("%.0f <small>°C</small>" % cond["tmax"])
+                          if cond.get("tmax") is not None
+                          else E(cond.get("sky") or "")))
     return (
         '<section class="adesso">'
         '<div class="nowblock" data-live-place="%s" data-ts="%s">'
-        '<p class="lbl">Adesso</p>'
-        '<div class="nowobs">%s</div></div>'
-        '%s</section>'
+        '<div class="nowstrip"><div class="nowobs">%s</div>%s</div>'
+        '</div></section>'
         % (E(place), E((live or {}).get("ts") or ""),
-           now_observed_html(live),
-           ('<div class="nowcond">%s</div>' % " \u00b7 ".join(bits))
-           if bits else ""))
+           now_observed_html(live), cella_cielo))
 
 
 def scarto_line(profile, osservato):
@@ -1278,6 +1450,16 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
                      for r in rows)
 
     return (
+        # Titolo e legenda sopra il disegno, sulla stessa riga: e' la prima
+        # cosa che si legge, e dice cosa sono le due curve prima che l'occhio
+        # le cerchi.
+        '<div class="gtesta"><h2>Vento previsto e misurato</h2>'
+        '<div class="legend">'
+        '<span style="color:var(--pc)"><i></i>vento medio</span>'
+        '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
+        '<span style="color:var(--ink-3)"><i class="box" '
+        'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
+        '%s%s</div></div>'
         '<div class="chartwrap">'
         # I numeri della mappa del disegno, scritti addosso al disegno.
         # Servono al browser per due cose: la riga di "adesso" e la curva del
@@ -1292,12 +1474,6 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         'aria-label="Vento previsto a %s, ora per ora">%s</svg>'
         '<div class="tip" id="%s-tip"></div></div>'
         '%s'
-        '<div class="legend">'
-        '<span style="color:var(--pc)"><i></i>vento medio</span>'
-        '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
-        '<span style="color:var(--ink-3)"><i class="box" '
-        'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
-        '%s%s</div>'
         '<details class="tbl"><summary>i numeri, %s</summary>'
         '<div class="scroller"><table><tr><th>Ora</th><th class="num">Medio</th>'
         '<th class="num">Raffica</th><th class="num">Da</th></tr>%s</table></div>'
@@ -1308,24 +1484,19 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         # not defined" dieci volte per pagina, e il tooltip dei grafici non
         # ha mai funzionato. La coda viene svuotata quando la funzione esiste.
         '<script>(window.gwq=window.gwq||[]).push([%s,%s,%g,%g,%g,%g,%g]);</script>'
-        % (chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
-           H, pt, pb, top, OPACITA_PREVISTO, E(place),
-           E(place), "".join(p), chart_id,
-           ('<p class="scarto">%s</p>' % scarto_words(_sc)) if _sc else "",
+        % (
            # La voce della finestra utile compare solo quando la fetta chiara
            # e' davvero disegnata: una legenda che spiega un segno assente
            # fa cercare una cosa che non c'e'.
-           # Il quadretto va SCHIARITO, non decorato: nel grafico la fetta
-           # utile e' la stessa banda piu' chiara, e in legenda due grigi a
-           # meta' opacita' si leggono identici. Un bordo tratteggiato su un
-           # quadretto di nove pixel non si vede - provato.
            ('<span style="color:var(--ink-3)"><i class="box" '
             'style="background:currentColor;opacity:1"></i>finestra utile'
             '</span>') if disegnata_utile else "",
-           # Corto: la definizione della raffica misurata sta nel cassetto
-           # dei dettagli, non in legenda.
            ('<span>pieno: misurato &middot; tenue: previsto</span>')
            if oss_righe else "",
+           chart_id, W, H, 1 if oggi else 0, W, pl, pr, hours[0], hours[-1],
+           H, pt, pb, top, OPACITA_PREVISTO, E(place),
+           E(place), "".join(p), chart_id,
+           ('<p class="scarto">%s</p>' % scarto_words(_sc)) if _sc else "",
            "passo per passo" if passo_fine else "ora per ora",
            body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
@@ -1410,7 +1581,7 @@ def sezione_giorno(place, entry, visible):
     profile = pl.get("profile") or []
     return (
         '<section class="giorno" data-day="%d"%s>'
-        '%s%s%s'
+        '%s%s'
         '<div class="grafico">%s</div>'
         '%s</section>'
         % (entry["_i"], "" if visible else " hidden",
@@ -1418,7 +1589,6 @@ def sezione_giorno(place, entry, visible):
                     live, today),
            riga_meglio(place, profile, entry["sessions"], entry.get("day"),
                        live, today),
-           motori_riga(place, entry["sessions"]),
            place_chart(place, profile,
                        regime_bands(place, entry.get("day")),
                        "c%s%d" % (_slug(place), entry["_i"]),
@@ -1702,6 +1872,29 @@ def _slug(place):
             .replace("\u00f2", "o").replace("\u00f9", "u"))
 
 
+def testa_sfondo():
+    """(classe, svg): la foto di Gian se c'e', altrimenti il cielo disegnato.
+
+    Ritorna (" foto", "") con la foto - il CSS la mette come sfondo della
+    testa e l'export la copia accanto alla pagina - oppure ("", <svg>) senza.
+    Le due cose non si sommano: con la foto il cielo disegnato non serve, e
+    disegnarlo sotto sarebbe un kilobyte e mezzo che nessuno vede.
+    """
+    if config.sfondo_path():
+        return " foto", ""
+    return "", cielo_svg()
+
+
+def titolo_html(nome):
+    """"Time to <em>Foil</em>": l'ultima parola nel colore d'accento, dal
+    mockup. Si ricava dal nome in config, non si riscrive qui: se il nome
+    cambia, cambia anche la testa della pagina."""
+    parole = nome.split()
+    if len(parole) < 2:
+        return E(nome)
+    return "%s <em>%s</em>" % (E(" ".join(parole[:-1])), E(parole[-1]))
+
+
 def nav_luoghi(corrente, suffisso=""):
     """Le localita' come linguette. Una sola riga, nessuna parola in piu'."""
     voci = []
@@ -1740,7 +1933,7 @@ def dettagli_panel(place, days):
     spot = config.SPOTS[place_spots(place).get("ORA")
                         or list(place_spots(place).values())[0]]
     return (
-        '<details class="dettagli"><summary>dettagli</summary>'
+        '<details class="dettagli"><summary>Dettagli</summary>'
         '<div class="dcont">'
         '<h3>Il voto</h3>'
         '<p>Viene da due cose: quanti nodi e per quanto tempo, dentro la '
@@ -1880,7 +2073,9 @@ def page_luogo(place=None):
 
     valori = {
         "title": "%s \u00b7 %s" % (place, config.APP_NAME),
-        "css": CSS, "place": E(place), "marchio": E(config.APP_NAME),
+        "css": CSS, "place": E(place), "titolo": titolo_html(config.APP_NAME),
+        "tag": E(config.APP_TAGLINE), "cielo": testa_sfondo()[1],
+        "foto": testa_sfondo()[0],
         "pcls": "p%d" % (config.PLACES.index(place) + 1),
         "anteprima": anteprima_link(place, days),
         "luoghi": nav_luoghi(place),
@@ -2113,7 +2308,8 @@ def page_diagnostics():
     valori = {
         "title": "Diagnostica \u00b7 %s" % config.APP_NAME,
         "css": CSS, "place": "Diagnostica", "pcls": "", "anteprima": "",
-        "marchio": E(config.APP_NAME),
+        "titolo": titolo_html(config.APP_NAME), "tag": "Diagnostica",
+        "cielo": testa_sfondo()[1], "foto": testa_sfondo()[0],
         "luoghi": nav_luoghi(None),
         "live": E(text), "livecls": "",
         "body": sources_panel() + "".join(r),
@@ -2142,12 +2338,13 @@ TEMPLATE = """<!doctype html><html lang="it"><head><meta charset="utf-8">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 %(anteprima)s<title>%(title)s</title><style>%(css)s</style></head>
 <body class="%(pcls)s">
-<header><div class="wrap">
-<p class="marchio">%(marchio)s</p>
+<header class="hero%(foto)s">%(cielo)s<div class="wrap">
 <div class="hbar">%(luoghi)s
 <span class="live"><span class="dot %(livecls)s" id="gwdot"></span
 ><span id="gwlive">%(live)s</span></span>
 </div>
+<h1 class="titolo">%(titolo)s</h1>
+<p class="tag">%(tag)s</p>
 </div></header>
 <main class="wrap">%(body)s</main>
 <footer class="wrap"><a href="/diagnostica">dati e modelli</a>
@@ -2305,9 +2502,10 @@ function gwPaintAge(){
     var min=(now-t)/60000;
     if(fresca===null||min<fresca) fresca=min;
     el.textContent=gwEtaParole(min);
-    var meta=el.parentNode;
-    if(meta&&meta.className.indexOf('nowmeta')>=0)
-      meta.className='nowmeta'+(min>%(stale)g?' stale':'');
+    /* La cella dell'orario: un antenato, non per forza il genitore. Si
+       aggiunge o toglie SOLO 'stale', senza riscrivere le altre classi. */
+    var meta=el.closest?el.closest('.nowmeta'):null;
+    if(meta){ if(min>%(stale)g) meta.classList.add('stale'); else meta.classList.remove('stale'); }
   }
   /* L'intestazione dice la stessa cosa della scheda piu' fresca, con le sue
      parole: due frasi diverse sullo stesso dato sarebbero una bugia e mezza. */

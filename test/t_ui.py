@@ -226,10 +226,13 @@ ok("non misurata" in giudizio.affidabilita_parole(None, fiducia(0)),
    "e la spiegazione dice che non e' misurata, col motivo")
 ok("verdetto" in giudizio.affidabilita_parole(80, val_misurata),
    "mentre dove c'e' dice di cosa e' la probabilita'")
-ok(re.search(r"<dt>affidabilità</dt><dd><b>\d+%</b></dd>", H) is not None,
-   "in pagina la percentuale compare come tale")
-ok(re.search(r"<dt>affidabilità</dt><dd>—</dd>", M) is not None,
-   "e a Malcesine, dove la verifica non c'e', c'e' un trattino")
+# Dal mockup: la percentuale sta dentro un anello, con la parola sotto.
+ok(re.search(r'aria-label="Affidabilità \d+%"', H) is not None
+   and re.search(r'fill="var\(--ink\)">\d+%</text>', H) is not None,
+   "in pagina la percentuale compare come tale, dentro l'anello")
+ok('aria-label="Affidabilità non verificata"' in M
+   and 'fill="var(--ink)">—</text>' in M,
+   "e a Malcesine, dove la verifica non c'e', c'e' un trattino, non uno zero")
 
 # --------------------------------------------------------------------------
 # 6. Quando e' meglio, mattina o pomeriggio
@@ -312,9 +315,11 @@ for pagina, nome, vento in ((H, "Torbole", "14"), (M, "Malcesine", "8")):
        "%s: un blocco del dato osservato" % nome)
     ok('data-live-place="%s"' % nome in pagina,
        "%s: intestato alla sua localita', cosi' il browser lo aggiorna" % nome)
-    ok(re.search(r'<div class="v">%s <small>kn</small>' % vento, pagina)
+    ok(re.search(r'<span class="k">Vento ora</span>'
+                 r'<span class="v">%s <small>kn</small>' % vento, pagina)
        is not None, "%s: col suo vento misurato" % nome)
-    ok("raffica <b>" in pagina, "%s: e la sua raffica" % nome)
+    ok(re.search(r'<span class="k">Raffica</span><span class="v">\d+ <small>kn',
+                 pagina) is not None, "%s: e la sua raffica" % nome)
     ok("ultimo dato" in pagina, "%s: con l'orario del campione" % nome)
 ok("11:42" in H or "09:42" in H,
    "l'ora e' quella vera del campione, convertita in locale")
@@ -479,5 +484,60 @@ _sc = web.scarto_line(profilo(20.0), OSS)
 ok(_sc is not None and float(_sc["hour"]) == int(_sc["hour"]),
    "la riga dello scarto continua a confrontare su un'ora intera (%s)"
    % (_sc and _sc["hour"]))
+
+# --------------------------------------------------------------------------
+# 12. L'aspetto del mockup (2026-09-18): "Time to Foil"
+# --------------------------------------------------------------------------
+# Gian ha mandato un'immagine di come vuole la pagina. Qui non si controlla
+# l'estetica - quella si guarda - ma le cose che il mockup dice e che il
+# codice deve fare, e i due difetti trovati guardando la prima resa.
+ok(config.APP_NAME == "Time to Foil",
+   "il nome e' quello scelto sul mockup")
+ok("<h1 class=\"titolo\">Time to <em>Foil</em></h1>" in H,
+   "e in testa e' scritto con l'ultima parola nel colore d'accento")
+ok('<p class="tag">%s</p>' % web.E(config.APP_TAGLINE) in H,
+   "con la riga sotto, che viene da config e non e' riscritta qui")
+ok(web.titolo_html("Solo") == "Solo",
+   "un nome di una parola sola non si spezza")
+ok('<header class="hero' in H and ('class="cielo"' in H or 'hero foto' in H),
+   "la testa porta il cielo: disegnato, o la foto se c'e'")
+# Il primo difetto: le pillole verdi e azzurre venivano vuote, perche' .q-go
+# da solo colora il testo di verde e vinceva sulla regola della pillola.
+css = web.CSS
+ok(".q-go.gv,.q-go.pill{background:var(--good);color:" in css
+   and ".q-big.gv,.q-big.pill{background:var(--big);color:" in css,
+   "le pillole del voto dichiarano il colore del testo nella regola a due classi")
+ok(re.search(r'<span class="gv q-\w+">\w+</span>', H) is not None,
+   "e nei giorni la parola del voto c'e' dentro la pillola")
+ok(re.search(r'<span class="pill q-\w+">\w+</span>', H) is not None,
+   "come nel riquadro del regime")
+# Il secondo difetto: etichetta e numero della cella dell'adesso sulla
+# stessa riga. Il contenitore deve essere una griglia.
+ok(".cella>span:not(.ic){display:grid" in css,
+   "nelle celle dell'adesso l'etichetta sta sopra il numero")
+ok(H.count('<div class="cella') == 5,
+   "cinque celle nell'adesso: vento, direzione, raffica, orario, cielo (%d)"
+   % H.count('<div class="cella'))
+ok(H.count('<div class="anello">') == H.count('class="rq '),
+   "ogni riquadro porta l'anello dell'affidabilita' (%d su %d)"
+   % (H.count('<div class="anello">'), H.count('class="rq ')))
+# I motori stanno nei riquadri, quando la sessione li ha: qui la sessione di
+# prova non li porta, quindi si costruisce un riquadro con i motori a mano.
+_prof = [{"hour": h, "wind": 14.0 if 13 <= h <= 17 else 6.0,
+          "gust": 21.0 if 13 <= h <= 17 else 9.0, "dir": 190}
+         for h in range(4, 21)]
+_card = web.card_regime("Torbole", "ORA", "Ora", "pomeriggio", _prof,
+                        {"Torbole-Ora": {"prob": 0.7, "affidabilita": None,
+                                         "features": {"pgrad": 0.7, "tgrad": 3.0}}},
+                        "2026-07-10")
+ok("Contrasto termico</dt><dd>+3.0 \u00b0C" in _card
+   and "\u0394P nord \u2013 sud</dt><dd>+0.7 hPa" in _card,
+   "e i due motori, con l'icona, quando la sessione li ha")
+ok('<p class="motori">' not in H,
+   "e la vecchia riga dei motori sotto i riquadri non c'e' piu'")
+ok(H.index('<div class="gtesta"><h2>Vento previsto e misurato</h2>')
+   < H.index('<svg class="chart"'),
+   "titolo e legenda del grafico stanno SOPRA il disegno")
+ok('<summary>Dettagli</summary>' in H, "il cassetto si chiama Dettagli")
 
 print("%d controlli di pagina" % passati)

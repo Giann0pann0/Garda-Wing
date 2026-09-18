@@ -236,7 +236,7 @@ ok(H.count('class="rq ') == 2 * len(GG),
    % (H.count('class="rq '), len(GG)))
 ok("finestra" in H and "affidabilit" in H,
    "i riquadri sopravvivono al profilo fine")
-fin = re.search(r"<dd>(\d\d):(\d\d)\u2013", H)
+fin = re.search(r"<dd>(\d\d):(\d\d) ?\u2013", H)
 ok(fin is not None and int(fin.group(1)) >= 6,
    "e la prima finestra utile resta un'ora vera, non 04:00 (%s)"
    % (fin.group(0)[-5:] if fin else "assente"))
@@ -297,7 +297,8 @@ ok("Math.round(best.h*60)" in H and "best.h+':00'" not in H,
    " concatenazione scriveva 13.1666...:00")
 
 # La legenda spiega la fetta chiara solo dove la fetta esiste.
-grafici = re.findall(r'<div class="chartwrap">.*?</details>', H, re.S)
+# Dalla testa del grafico (titolo e legenda) alla tabella dei numeri.
+grafici = re.findall(r'<div class="gtesta">.*?</details>', H, re.S)
 con_fetta = sum(1 for g in grafici if 'opacity=".045"' in g)
 con_voce = sum(1 for g in grafici if "finestra utile</span>" in g)
 ok(con_fetta > 0 and con_voce == con_fetta,

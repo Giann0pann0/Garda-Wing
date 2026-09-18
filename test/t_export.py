@@ -15,7 +15,8 @@ paths = X.export("/tmp/sitotest")
 # d'altro, e soprattutto non deve poter NON avere la sua pagina.
 from gardawind import config
 # I file comuni: diagnostica, live.json, manifesto, due icone, previsione.
-attesi = len(config.PLACES) + 6
+# Piu' la foto di sfondo, se Gian l'ha messa nella cartella del progetto.
+attesi = len(config.PLACES) + 6 + (1 if config.sfondo_path() else 0)
 ok(len(paths) == attesi,
    "una pagina per localita' piu' i file comuni, anche a database vuoto"
    " (%d su %d)" % (len(paths), attesi))
@@ -66,3 +67,17 @@ except Exception as e:
 # --ci e --export sono davvero esposti dalla riga di comando
 m=open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','gardawind','__main__.py'),encoding='utf-8').read()
 ok('"--export"' in m and '"--ci"' in m, "le opzioni esistono in __main__")
+
+# La foto di sfondo: se c'e' nel progetto, finisce accanto alla pagina e la
+# testa la usa; se non c'e', la pagina disegna il cielo e non cerca un file
+# che non esiste.
+import os as _os
+OUT = "/tmp/sitotest"
+_html = open(_os.path.join(OUT, "index.html"), encoding="utf-8").read()
+if config.sfondo_path():
+    ok(_os.path.exists(_os.path.join(OUT, config.SFONDO_FILE))
+       and 'class="hero foto"' in _html and 'class="cielo"' not in _html,
+       "con la foto: copiata accanto alla pagina, e niente cielo disegnato")
+else:
+    ok('class="hero"' in _html and 'class="cielo"' in _html,
+       "senza foto: il cielo disegnato, e nessun riferimento a un file assente")

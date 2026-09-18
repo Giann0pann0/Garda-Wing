@@ -12,6 +12,7 @@ relativi, e l'assenza delle azioni che avrebbero bisogno di un processo vivo
 
 import json
 import os
+import shutil
 import re
 
 from . import config, engine, icona, live, store, web
@@ -57,11 +58,14 @@ def _banner(built_at):
     guarda per decidere se andare in acqua.
     """
     return (
-        '<div class="panel"><p style="margin:0">Previsione calcolata il '
+        # Una riga piccola, non un riquadro: e' un'avvertenza, non un
+        # contenuto, e in cima alla pagina un riquadro grigio era la prima
+        # cosa che si vedeva dopo il titolo.
+        '<p class="costruita">Previsione calcolata il '
         '<b>%s</b>: per cambiarla la pagina va ricostruita. Le '
         '<b>condizioni attuali</b>, invece, si aggiornano da sole ogni pochi '
         'minuti, e l\u2019orario accanto dice sempre di quando è il dato: se '
-        'invecchia, lo vedi.</p></div>'
+        'invecchia, lo vedi.</p>'
         % built_at)
 
 
@@ -88,8 +92,8 @@ def export(directory, with_json=True):
                   for place in config.PLACES]
     finally:
         web.LIVE_URL = url_prima
-    pagine = [(nome, testo.replace('<main class="wrap">',
-                                   '<main class="wrap">' + _banner(built_local)))
+    # In coda al contenuto, non in testa: e' un'avvertenza, si legge dopo.
+    pagine = [(nome, testo.replace('</main>', _banner(built_local) + '</main>'))
               for nome, testo in pagine]
     diag = _staticize(web.page_diagnostics())
 
@@ -118,6 +122,13 @@ def export(directory, with_json=True):
         path = os.path.join(directory, nome)
         with open(path, "wb") as fh:
             fh.write(contenuto)
+        written.append(path)
+
+    # La foto di sfondo, se Gian l'ha messa nella cartella del progetto.
+    foto = config.sfondo_path()
+    if foto:
+        path = os.path.join(directory, config.SFONDO_FILE)
+        shutil.copyfile(foto, path)
         written.append(path)
 
     if with_json:
