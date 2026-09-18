@@ -1,6 +1,7 @@
 """Orchestrazione: raccolta dati, addestramento, produzione della previsione."""
 
 import datetime as _dt
+import os
 import math
 import threading
 import time
@@ -199,20 +200,57 @@ def promuovi_storico_addicted(station=None):
             continue
         gia = {r["hour"] for r in store._obs_hours_grezze(stazione)}
         righe = []
-        for r in store.connect().execute(
-                "SELECT hour, wind_mean_kn, hourly_max_kn FROM addicted_hour "
-                "WHERE station=? AND wind_mean_kn IS NOT NULL ORDER BY hour",
-                (slug,)):
-            chiave = r["hour"][:13]
+        for ora, media, massimo in storico_addicted(slug):
+            chiave = ora[:13]
             if chiave in gia:
                 continue
-            righe.append({"hour": chiave, "wind_mean": r["wind_mean_kn"],
-                          "wind_max": None, "gust_max": r["hourly_max_kn"],
+            righe.append({"hour": chiave, "wind_mean": media,
+                          "wind_max": None, "gust_max": massimo,
                           "gust_rec": None, "dir_deg": None, "dir_const": None,
                           "n_samples": N_CAMPIONI_ORA_ADDICTED})
         if righe:
             store.upsert_obs_hours(stazione, righe)
         out[stazione] = len(righe)
+    return out
+
+
+def storico_addicted(slug):
+    """[(ora_utc, media, massimo)] dello storico Addicted di una stazione.
+
+    Prima dal database (addicted_hour, il censimento fatto sul Mac di Gian);
+    se li' non c'e' niente, dal file nel progetto, storico/<slug>-addicted
+    .csv.gz. Il file esiste per una ragione precisa: il censimento Addicted
+    - novecento richieste a un sito che non ci ha chiesto niente - e' stato
+    fatto UNA volta, sul Mac, e il database con cui GitHub costruisce il sito
+    e' un altro. Senza il file, Campione online sarebbe rimasta senza
+    storico, quindi senza modello, mentre sul Mac funzionava. E' anche la
+    rete di sicurezza se la cache di GitHub viene sfrattata: 326 KB per
+    nove anni di ore.
+    """
+    righe = [(r["hour"], r["wind_mean_kn"], r["hourly_max_kn"])
+             for r in store.connect().execute(
+                 "SELECT hour, wind_mean_kn, hourly_max_kn FROM addicted_hour "
+                 "WHERE station=? AND wind_mean_kn IS NOT NULL ORDER BY hour",
+                 (slug,))]
+    if righe:
+        return righe
+    import csv
+    import gzip
+    import io
+    radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(radice, "storico", "%s-addicted.csv.gz" % slug)
+    if not os.path.isfile(path):
+        return []
+    with gzip.open(path, "rb") as fh:
+        testo = fh.read().decode("utf-8")
+    out = []
+    for r in csv.DictReader(io.StringIO(testo)):
+        try:
+            media = float(r["wind_mean_kn"])
+        except (TypeError, ValueError):
+            continue
+        massimo = float(r["hourly_max_kn"]) if r.get("hourly_max_kn") else None
+        out.append((r["hour"], media, massimo))
     return out
 
 

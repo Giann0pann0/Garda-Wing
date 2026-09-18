@@ -148,4 +148,21 @@ camp = list(c.execute("SELECT wind_kn, gust_kn, dir_deg, source FROM obs_sample 
 ok(len(camp) == 1 and camp[0][0] == 12.0 and camp[0][2] is None
    and camp[0][3] == "addicted-json",
    "e in obs_sample, cosi' l'adesso ha da leggere - senza direzione inventata")
-print("%d controlli su Campione" % passati)
+
+# ---- 4. lo storico nel progetto, per il database di GitHub -----------------
+# Il censimento Addicted e' stato fatto una volta, sul Mac; il database con
+# cui GitHub costruisce il sito e' un altro. Senza il file nel progetto,
+# Campione online sarebbe rimasta senza storico e senza modello.
+c.execute("DELETE FROM addicted_hour WHERE station='campione'")
+c.commit()
+dal_file = engine.storico_addicted("campione")
+ok(len(dal_file) > 60000 and dal_file[0][0].startswith("2017-10")
+   and all(isinstance(m, float) for _h, m, _g in dal_file[:100]),
+   "senza addicted_hour lo storico viene dal file nel progetto: %d ore dal %s"
+   % (len(dal_file), dal_file[0][0][:10] if dal_file else "?"))
+ok(engine.storico_addicted("brenzone") == [],
+   "e per una stazione senza file ne' tabella, niente: non si inventa")
+esito = engine.promuovi_storico_addicted("campione")
+ok(esito.get("campione", 0) > 60000,
+   "e la promozione le porta in obs_hour (%d)" % esito.get("campione", 0))
+print("%d controlli su Campione (totale)" % passati)
