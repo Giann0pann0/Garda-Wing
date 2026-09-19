@@ -20,6 +20,7 @@ import shutil
 shutil.rmtree("/tmp/gwui", ignore_errors=True)
 
 from gardawind import store, config, engine, giudizio, web
+from gardawind.util import day_shift, local_day, utc_now
 store.init()
 passati = 0
 
@@ -33,6 +34,17 @@ def ok(c, m):
         print("FAIL " + m)
 
 
+# La pagina ancora il "oggi" al calendario vero, quindi il finto deve partire
+# da OGGI. Con le date scritte a mano il controllo su "oggi" passava il giorno
+# in cui era stato scritto e ha cominciato a fallire cinque giorni dopo: un
+# controllo che scade non difende niente.
+OGGI = local_day(utc_now())
+
+
+def giorno(lead):
+    return day_shift(OGGI, lead)
+
+
 def profilo(base):
     """Due gobbe: Peler al mattino, Ora nel pomeriggio, buco in mezzo."""
     out = []
@@ -40,7 +52,7 @@ def profilo(base):
         peler = 0.55 * base * max(0.0, 1 - abs(h - 7) / 3.2)
         ora = base * max(0.0, 1 - abs(h - 16) / 5.0)
         w = max(1.2, peler + ora)
-        out.append({"hour": h, "key": "2026-09-14T%02d:00:00Z" % h,
+        out.append({"hour": h, "key": OGGI + "T%02d:00:00Z" % h,
                     "wind": w, "gust": w * 1.4, "lo": max(0.0, w - 2),
                     "hi": w + 2, "dir": 200 if h >= 11 else 20,
                     "t2m": 24.0, "cloud": 20.0, "precip": 0.0})
@@ -70,7 +82,7 @@ def sessione(speed, prob, liv, source="appreso"):
 GIORNI = []
 for lead in range(8):
     GIORNI.append({
-        "day": "2026-09-%02d" % (14 + lead), "lead": lead,
+        "day": giorno(lead), "lead": lead,
         "sessions": {
             "Torbole-Ora": sessione(18.0, 0.86, 2),
             "Torbole-Peler": sessione(12.0, 0.55, 1),
@@ -81,11 +93,11 @@ for lead in range(8):
         "places": {
             "Torbole": {"profile": profilo(20.0),
                         "live": {"wind": 14.0, "gust": 20.0, "dir": 20.0,
-                                 "ts": "2026-09-14T09:42:00Z", "age_min": 6.0,
+                                 "ts": OGGI + "T09:42:00Z", "age_min": 6.0,
                                  "stale": False}},
             "Malcesine": {"profile": profilo(13.0),
                           "live": {"wind": 8.0, "gust": 12.0, "dir": 30.0,
-                                   "ts": "2026-09-14T09:40:00Z",
+                                   "ts": OGGI + "T09:40:00Z",
                                    "age_min": 8.0, "stale": False}},
         },
     })
