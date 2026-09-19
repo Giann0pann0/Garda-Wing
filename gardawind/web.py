@@ -1350,7 +1350,13 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         # 4,2 - e nel 25% dei giri in cui il buco c'e' la media lo cancella.
         # Il CONFRONTO con la previsione resta invece sull'asse orario, dove
         # e' stato validato: scarto_line continua a leggere `righe`.
-        serie = oss_fini if len(oss_fini) >= 12 else oss_righe
+        # Se i campioni fini non bastano a fare una curva, campioni_fini non
+        # li da' affatto (util.serie_disegnabile), e qui si ripiega sulle medie
+        # orarie. La decisione sta la', non qui: prima il numero 12 era scritto
+        # in due posti, e una centralina oraria disegnava le ore in pagina
+        # mentre il processo veloce non le riconosceva - risultato, la curva
+        # c'era e non si aggiornava mai.
+        serie = oss_fini or oss_righe
         w_oss = [(r["hour"], r["wind"]) for r in serie if r.get("wind") is not None]
         g_oss = [(r["hour"], r["gust"]) for r in serie if r.get("gust") is not None]
         if len(g_oss) >= 2:

@@ -381,3 +381,48 @@ ok('data-stale="180"' in blocco,
 import inspect  # noqa: E402
 ok("getAttribute('data-stale')" in inspect.getsource(W),
    "e il ricalcolo nel browser la legge da li'")
+
+# --------------------------------------------------------------------------
+# 7. La curva del misurato esce anche da una centralina ORARIA
+#
+# Gian: "per torbole funziona ma per campione e malcesine non si aggiorna".
+# La curva richiedeva dodici campioni: due ore a Torbole, che misura ogni
+# dieci minuti, e mezza giornata a Campione, che pubblica una volta all'ora.
+# Cosi' il processo veloce non riconosceva la serie di una centralina oraria e
+# non pubblicava la sua curva, mentre la PAGINA la disegnava dalle medie orarie
+# - risultato: la curva c'era e restava ferma all'ora della costruzione.
+#
+# Il numero 12 stava in due posti (engine.campioni_fini e il grafico in
+# web.py), che e' come questi difetti sopravvivono. Ora la regola e' una,
+# util.serie_disegnabile, ed e' in ARCO DI TEMPO: quanta giornata coprono
+# questi campioni, non quanti sono.
+from gardawind.util import serie_disegnabile as SD  # noqa: E402
+
+ok(SD([0.0, 60.0, 120.0]) and not SD([0.0, 60.0]),
+   "tre campioni su due ore bastano; due no, quale che sia la cadenza")
+ok(not SD([0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]),
+   "e nove campioni stretti in quaranta minuti non fanno una curva: "
+   "e' l'arco che conta, non il conto")
+ok(SD([10 * k for k in range(12)]),
+   "i dodici campioni da dieci minuti di prima restano disegnabili: "
+   "per Torbole non cambia niente")
+
+ST_O = "oraria_curva"
+G7 = dt.datetime(2026, 9, 20, 2, 0, tzinfo=UTC)          # 04:00 locali
+scrivi_campioni(ST_O, [(iso_utc(G7 + dt.timedelta(hours=k)),
+                        8.0 + k, 12.0 + k, None) for k in range(4)],
+                fonte="addicted-json")
+fo = engine.campioni_fini(ST_O, "2026-09-20")
+ok(len(fo) == 4,
+   "quattro letture orarie sono una serie disegnabile (%d campioni su %g ore)"
+   % (len(fo), (fo[-1]["hour"] - fo[0]["hour"]) if fo else 0))
+ok(engine.campioni_fini(ST_O, "2026-09-21") == [],
+   "e un giorno senza letture resta senza curva: non si inventa")
+# Due letture sole - la prima ora e mezza di una centralina oraria - non
+# bastano: una curva su un'ora e' un segmento, e un segmento non descrive
+# una giornata.
+ST_O2 = "oraria_poche"
+scrivi_campioni(ST_O2, [(iso_utc(G7 + dt.timedelta(hours=k)), 8.0, 12.0, None)
+                        for k in range(2)], fonte="addicted-json")
+ok(engine.campioni_fini(ST_O2, "2026-09-20") == [],
+   "con due letture sole non si disegna ancora niente")

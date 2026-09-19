@@ -31,7 +31,7 @@ os.environ.setdefault("GARDAWIND_HOME", "/tmp/gwdef")
 os.makedirs("/tmp/gwdef", exist_ok=True)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from gardawind import analogs, config, orari, regimes, web
+from gardawind import analogs, config, orari, regimes, util, web
 
 RADICE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gardawind")
 passati = 0
@@ -272,5 +272,26 @@ ok(analogs._raccordo_min() * 2 <= orari.PERSISTENZA_MIN,
    "il raccordo intero (%g') resta sotto la persistenza (%g'): un falso"
    " allarme non puo' nascere dall'aritmetica"
    % (analogs._raccordo_min() * 2, orari.PERSISTENZA_MIN))
+
+# --------------------------------------------------------------------------
+# 7. Quando una serie e' una curva: una regola, non due costanti
+# --------------------------------------------------------------------------
+# Il numero 12 stava in due posti - engine.campioni_fini e il grafico in
+# web.py - e la conseguenza si e' vista in pagina: una centralina oraria non
+# arrivava mai a dodici campioni prima delle sedici, quindi il processo veloce
+# non pubblicava la sua curva mentre la pagina la disegnava dalle medie orarie.
+# La curva c'era e non si aggiornava, a Campione e a Malcesine.
+soglie_a_mano = []
+for nome, testo in sorgenti():
+    for riga in righe_di_codice(testo):
+        if re.search(r'len\(\s*(oss_)?fini\s*\)\s*[<>]=?\s*\d', riga) \
+                or re.search(r'len\(\s*minuti\s*\)\s*<\s*\d\d', riga):
+            soglie_a_mano.append((nome, riga.strip()[:70]))
+ok(not soglie_a_mano,
+   "nessuno decide da se' se una serie e' disegnabile: si chiede a"
+   " util.serie_disegnabile (%s)" % soglie_a_mano[:2])
+ok(util.CURVA_MIN_ARCO_MIN >= 10 * 11,
+   "e la soglia e' un ARCO (%g minuti), che per una centralina da dieci minuti"
+   " vale quanto i dodici campioni di prima" % util.CURVA_MIN_ARCO_MIN)
 
 print("%d controlli di struttura" % passati)

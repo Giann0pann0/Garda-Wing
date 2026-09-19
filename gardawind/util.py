@@ -791,6 +791,34 @@ def window_estimable(cadence_min, window_min=30.0, min_samples=3):
     return int(window_min // cadence_min) + 1 >= min_samples
 
 
+# Quando una serie di campioni e' abbastanza per essere una CURVA. Non un
+# numero di campioni: un ARCO DI TEMPO.
+#
+# Un conto fisso vuol dire soglie diverse per centraline diverse. La regola
+# precedente - "almeno dodici campioni" - sono due ore a Torbole, che misura
+# ogni dieci minuti, e mezza giornata a Campione, che pubblica una volta
+# all'ora: percio' a Campione e a Malcesine la curva del misurato non si
+# aggiornava mai prima delle sedici, e per il Peler mai. Visto in pagina da
+# Gian: "per torbole funziona ma per campione e malcesine non si aggiorna".
+#
+# E' la stessa famiglia della finestra della raffica e della soglia di
+# "non recente": una costante tarata su una centralina e applicata a tutte.
+# 110 minuti sono esattamente l'arco che coprivano dodici campioni da dieci
+# minuti, quindi per Torbole non cambia niente.
+CURVA_MIN_PUNTI = 3
+CURVA_MIN_ARCO_MIN = 110.0
+
+
+def serie_disegnabile(minuti, min_punti=CURVA_MIN_PUNTI,
+                      arco_min=CURVA_MIN_ARCO_MIN):
+    """Questi istanti (minuti dalla mezzanotte) coprono abbastanza giornata
+    da disegnarci una curva sopra?"""
+    z = [m for m in minuti if m is not None]
+    if len(z) < min_punti:
+        return False
+    return (max(z) - min(z)) >= arco_min
+
+
 def covered_minutes(times, cadence_min=None, max_gap_min=None):
     """Minuti effettivamente coperti da una serie di campioni.
 

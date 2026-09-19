@@ -12,7 +12,8 @@ from .sources import addicted, malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
                    local_minute_of_day, mean, median, parse_dt_any, pstdev,
-                   recurrent_gust, sampling_cadence, utc_now,
+                   recurrent_gust, sampling_cadence, serie_disegnabile,
+                   utc_now,
                    vector_mean_direction, window_estimable,
                    FINESTRA_RICORRENTE_MIN)
 
@@ -1755,7 +1756,10 @@ def campioni_fini(station, day):
     # un'ora finivano tutti alla stessa ascissa, e la curva fra loro era un
     # salto verticale. Disegnavamo dei gradini e li chiamavamo vento.
     minuti, venti = serie(fonte_w, "wind_kn")
-    if len(minuti) < 12:
+    # Abbastanza per essere una curva si misura in ARCO DI TEMPO, non in
+    # numero di campioni: vedi util.serie_disegnabile. Con il conto fisso,
+    # una centralina oraria non arrivava mai a dodici prima delle sedici.
+    if not serie_disegnabile(minuti):
         return []
 
     # La raffica: la RICORRENTE a trenta minuti dove la cadenza la sostiene;
