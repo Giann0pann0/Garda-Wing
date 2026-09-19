@@ -17,9 +17,15 @@ on:
     paths:
       - "gardawind/**"
       - ".github/workflows/garda-wind.yml"
+      # "storico/**" NON e' in elenco, di proposito: il job stesso scrive li'
+      # dentro (vedi "Metti al sicuro le serie irripetibili"), e un push che
+      # rilancia il job che lo ha fatto e' un ciclo che non si ferma piu'.
 
 permissions:
-  contents: read
+  # contents: write, e non read, per una ragione sola: dopo il ciclo il job
+  # rimette nel progetto le serie che NON si riscaricano (storico/vivo,
+  # storico/emesse, storico/altrui). Vedi gardawind/archivio.py.
+  contents: write
   pages: write
   id-token: write
 
@@ -70,6 +76,33 @@ jobs:
         run: |
           mkdir -p dati
           python3 -m gardawind --ci --export site
+
+      # Le serie irripetibili tornano nel repository. La cache di GitHub
+      # cancella le copie non usate da 7 giorni e ne tiene 10 GB in tutto:
+      # col database da mezzo giga riscritto a ogni esecuzione fa circa
+      # quattro giorni di profondita'. Per i quattordici anni di Torbole -
+      # che si riscaricano - va benissimo; per i dieci minuti del canale
+      # vivo, che non esistono da nessun'altra parte, no.
+      #
+      # Il passo non fa fallire la build: se il push non riesce (un altro
+      # push nel frattempo), i dati restano nella cache e il giro dopo ci
+      # riprova. Perdere la pubblicazione del sito per un conflitto di git
+      # sarebbe peggio del ritardo di sei ore nel salvataggio.
+      - name: Metti al sicuro le serie irripetibili
+        continue-on-error: true
+        run: |
+          if [ -z "$(git status --porcelain storico)" ]; then
+            echo "niente di nuovo da archiviare"; exit 0
+          fi
+          git config user.name  "garda-wind (archivio)"
+          git config user.email "noreply@anthropic.com"
+          git add storico
+          git commit -m "Archivio: le serie che non si riscaricano, $(date -u +%Y-%m-%d)"
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            echo "tentativo $i non riuscito, riprovo"; sleep 5
+          done
+          echo "non sono riuscito a spingere l'archivio: resta in cache, riprovo al prossimo giro"
 
       # Rete di sicurezza: se la cache viene sfrattata, il database resta
       # scaricabile dalla pagina dell'esecuzione per 90 giorni.

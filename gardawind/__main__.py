@@ -2183,6 +2183,12 @@ def main(argv=None):
                          "processo veloce che tiene aggiornato l'\"adesso\"")
     ap.add_argument("--export", metavar="DIR",
                     help="scrive il cruscotto come pagine statiche in DIR")
+    ap.add_argument("--salva-storico", action="store_true",
+                    dest="salva_storico",
+                    help="porta le serie irripetibili nei file del progetto")
+    ap.add_argument("--recupera-storico", action="store_true",
+                    dest="recupera_storico",
+                    help="rimette nel database le serie irripetibili dai file")
     ap.add_argument("--ci", action="store_true",
                     help="ciclo completo non interattivo: raccogli, addestra, esporta "
                          "(pensato per girare in cloud senza il Mac acceso)")
@@ -2293,8 +2299,14 @@ def main(argv=None):
         return 0
 
     if args.ci:
-        from . import export as exporter
+        from . import archivio, export as exporter
         print("Ciclo completo non interattivo.", flush=True)
+        # PRIMA di tutto: rimettere nel database quello che sta nei file del
+        # progetto e nel database non c'e'. Se la cache di GitHub e' stata
+        # sfrattata, il ciclo riparte da un database vuoto - e queste tre
+        # serie non si riscaricano da nessuna parte. Qui tornano a posto.
+        for f, n in archivio.recupera():
+            print("  ripreso da %s: %d righe" % (f, n), flush=True)
         engine.update_cycle(force=False, deep=True)
         for line in engine.backfill_station_history(
                 force=False, on_progress=lambda m: print(m, flush=True)):
@@ -2309,6 +2321,12 @@ def main(argv=None):
               ("APERTA" if opened else "CHIUSA",
                "" if opened else " - " + "; ".join(reasons or [str(ar.get("diagnostic") or ar.get("reason"))])),
               flush=True)
+        # E alla fine: le serie irripetibili escono dalla cache e vanno nei
+        # file del progetto, che git tiene per sempre. Non si rimpiccioliscono
+        # mai: vedi archivio.py.
+        for path, n, nuove in archivio.esporta():
+            if nuove:
+                print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
         target = args.export or "site"
         for path in exporter.export(target):
             print("  scritto " + path, flush=True)
@@ -2341,6 +2359,18 @@ def main(argv=None):
         print("Addestro…")
         for r in engine.train_all():
             print("  " + json.dumps(r, default=str, ensure_ascii=False))
+        return 0
+
+    if args.salva_storico:
+        from . import archivio
+        for path, n, nuove in archivio.esporta():
+            print("%-52s %7d righe (+%d)" % (path, n, nuove))
+        return 0
+
+    if args.recupera_storico:
+        from . import archivio
+        for f, n in archivio.recupera():
+            print("ripreso da %s: %d righe" % (f, n))
         return 0
 
     if args.verify:

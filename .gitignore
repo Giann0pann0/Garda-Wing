@@ -20,3 +20,8 @@ Garda Wind/
 __pycache__/
 *.py[cod]
 .DS_Store
+
+# I residui delle misure fatte a mano sul Mac: utili da tenere, ma non sono
+# il progetto. Stanno in una cartella loro cosi' `git status` torna a dire
+# solo quello che conta.
+misure/

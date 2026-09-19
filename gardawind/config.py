@@ -81,10 +81,15 @@ def scala_vento(source):
     return SCALA_ADDICTED_A_MT if source == "addicted" else None
 
 
+# La cartella del progetto: quella che contiene gardawind/, storico/, test/.
+# Non e' la cartella dei dati (GARDAWIND_HOME): qui dentro sta cio' che
+# viaggia con il codice, e quindi con git.
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def sfondo_path():
     """Il percorso della foto di sfondo, o None se non c'e'."""
-    radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    p = os.path.join(radice, SFONDO_FILE)
+    p = os.path.join(PROJECT_DIR, SFONDO_FILE)
     return p if os.path.isfile(p) else None
 DB_FILENAME = "gardawind_v3.sqlite"
 

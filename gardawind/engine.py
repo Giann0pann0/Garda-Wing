@@ -303,8 +303,8 @@ def storico_addicted(slug):
     import csv
     import gzip
     import io
-    radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(radice, "storico", "%s-addicted.csv.gz" % slug)
+    path = os.path.join(config.PROJECT_DIR, "storico",
+                        "%s-addicted.csv.gz" % slug)
     if not os.path.isfile(path):
         return []
     with gzip.open(path, "rb") as fh:
