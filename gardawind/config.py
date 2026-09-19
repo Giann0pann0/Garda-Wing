@@ -492,9 +492,32 @@ METEOTRENTINO_UTC_OFFSET_HOURS = 1
 # addicted-sports: una pagina, non un'API. I numeri sono nel corpo servito dal
 # server (verificato scaricando il corpo grezzo), e la pagina stessa usa
 # "?json=wind&from=YYYY-MM-DD" per il suo grafico: quella risposta contiene la
-# serie ORARIA misurata (mavg, mmax) con i decimali. La direzione pubblicata e'
-# quella PREVISTA, non misurata, e non va usata come osservazione.
+# serie ORARIA misurata (mavg, mmax) con i decimali. La direzione pubblicata
+# LI' e' quella PREVISTA, non misurata, e non va usata come osservazione.
 URL_ADDICTED_TORBOLE = "https://it.addicted-sports.com/forecast/gardasee/torbole/"
+
+# E c'e' un terzo canale, che per due settimane non abbiamo visto. Gian:
+# "sport addicted pubblica i dati in tempo reale ogni 10 minuti!". Ha ragione:
+# la pagina d'insieme del lago interroga questo indirizzo, e lo dichiara lei
+# stessa nel suo javascript. Risposta piccola, tutte le centraline in una
+# richiesta, e un "interval" che dice ogni quanto la pagina lo rilegge.
+#
+# Per stazione: "live" (l'istante: avg, max, dir, temp) e "rec" (la finestra
+# dichiarata: avg, max, dir, n campioni, min minuti). Si legge "rec", non
+# "live": "rec" e' la media e il massimo su una finestra dichiarata - la
+# stessa grandezza dei dieci minuti di Meteotrentino - mentre "live" e' uno
+# scatto di un minuto, e due definizioni di "vento misurato" sulla stessa
+# pagina sono il modo piu' sicuro di far leggere un numero per un altro.
+#
+# Qui la direzione E' misurata, ed e' la differenza che conta. Verificato il
+# 19/09/2026 confrontando, nella stessa risposta, il campo del MODELLO (la
+# mappa animata delle correnti, chiave "wind" allineata a "times") con la
+# misura: il modello dava 334-343 gradi a tutte e cinque le stazioni - un
+# campo liscio - e le misure davano 8, 358, 337, 10; e Capo Reamol, che il
+# modello prevede come le altre, ha "live": null e "stale": true, cioe' la
+# centralina che il 20 marzo 2025 ha smesso di misurare. Un campo previsto
+# c'e' per tutti; una misura manca dove manca lo strumento.
+URL_ADDICTED_LIVE = "https://it.addicted-sports.com/forecast/gardasee/?json=cams"
 URL_ADDICTED_WEBCAM = "https://it.addicted-sports.com/webcam/gardasee/torbole/"
 # Le inquadrature orarie archiviate: .../YYYY/MM/DD/HHMM_lm.jpg. Non misurano
 # il vento; provano che a quell'ora il sito stava registrando.

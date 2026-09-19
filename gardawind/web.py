@@ -2042,18 +2042,21 @@ def prestito_parole(place):
     if not donatrici:
         return ""
     nomi = [config.nome_centralina(d) for d in donatrici]
-    return ('<p>La centralina di %s non misura la <i>direzione</i>: la si '
-            'prende in prestito, ora per ora, da %s. Misurato su 4.600 ore in '
+    return ('<p>La <i>direzione</i> di adesso arriva dalla centralina stessa: '
+            'il canale in tempo reale la misura, e la pubblica insieme al '
+            'vento. Nella <i>serie oraria</i>, su cui il modello \u00e8 '
+            'addestrato, la direzione \u00e8 invece ancora presa in prestito '
+            'ora per ora da %s \u2014 perch\u00e9 quella serie risale a prima '
+            'che leggessimo il canale vivo. Misurato su 4.600 ore in '
             'comune: quando c\u2019\u00e8 vento le centraline dell\u2019alto lago '
-            'concordano sul settore il 99\u2013100%% delle volte. La serie \u00e8 '
-            'oraria, non a dieci minuti.</p>'
+            'concordano sul settore il 99\u2013100%% delle volte.</p>'
             '<p>Il <i>vento medio</i> \u00e8 riportato sulla scala della '
             'Meteotrentino di Torbole, cos\u00ec che le localit\u00e0 si possano '
             'confrontare: le centraline Addicted, sull\u2019acqua, leggono pi\u00f9 '
             'basso (a Torbole, con i due strumenti fianco a fianco su %s ore, '
             'la Meteotrentino legge 1,3 volte l\u2019Addicted sopra gli 8 kn). '
             'La raffica no: i due strumenti coincidono.</p>'
-            % (E(place), E(" e, prima, ".join(nomi)),
+            % (E(" e, prima, ".join(nomi)),
                "{:,}".format(config.SCALA_ADDICTED_A_MT_N).replace(",", ".")))
 
 

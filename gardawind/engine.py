@@ -8,7 +8,8 @@ import time
 
 from . import (aggregate, analogs, config, confidence as CONF, features as F,
                model as M, store, validate as V, verify)
-from .sources import addicted, malcesine, meteotrentino, openmeteo
+from .sources import (addicted, addicted_live, malcesine, meteotrentino,
+                      openmeteo)
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
                    local_minute_of_day, mean, median, parse_dt_any, pstdev,
@@ -155,6 +156,43 @@ def update_stations():
             # finisce nel registro, la giornata continua.
             _note("error", "centralina/%s" % stazione,
                   "%s: %s" % (type(e).__name__, str(e)[:140]))
+
+    # E il canale VIVO, una richiesta per tutte le centraline Addicted. E'
+    # quello che rende la curva del misurato di Campione e Malcesine fitta
+    # come quella di Torbole: la serie oraria qui sopra da' un punto all'ora,
+    # questo ne da' uno ogni giro del processo veloce.
+    done += leggi_addicted_vivo()
+    return done
+
+
+def leggi_addicted_vivo():
+    """Il canale vivo di Addicted -> obs_sample, per le stazioni della pagina.
+
+    Scrive SOLO campioni. obs_hour resta della serie oraria: quella e' la
+    grandezza su cui i modelli sono addestrati, e cambiarne la provenienza a
+    meta' storia vorrebbe dire un bersaglio che cambia definizione nel tempo.
+    """
+    done = []
+    try:
+        letture, _meta = addicted_live.fetch()
+    except Exception as e:                            # noqa: BLE001
+        _note("warn", "centralina/addicted-vivo",
+              "%s: %s" % (type(e).__name__, str(e)[:140]))
+        return done
+    for stazione, slug in stazioni_addicted():
+        r = letture.get(slug)
+        if not r or r["wind"] is None:
+            continue
+        if r["stale"] or (r["eta_min"] or 0) > addicted_live.ETA_MAX_MIN:
+            # Il sito stesso dichiara quando una centralina non sta misurando:
+            # si crede a lui invece di scrivere una riga vecchia come nuova.
+            continue
+        n = store.save_samples(stazione, [(r["ts"], r["wind"], r["gust"], r["dir"])],
+                               addicted_live.SOURCE)
+        if n:
+            done.append("%s vivo: %.1f kn (media %g', %s campioni)"
+                        % (stazione, r["wind"], r["finestra_min"] or 0,
+                           r["n_campioni"]))
     return done
 
 

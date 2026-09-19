@@ -410,3 +410,52 @@ Torbole entra quattro ore dopo. Campione, che è viva, non ha anticipo affatto
 (mediana 0, precede nel 30% dei giorni). E soprattutto: un predittore
 spaziale serve solo se è **vivo**. Capo Reamol aveva l'anticipo ed è morta;
 Campione è viva e anticipo non ne ha.
+
+---
+
+## La direzione misurata di Campione e Malcesine nel bersaglio
+
+**Dove siamo.** Dal 19/09/2026 leggiamo il canale vivo di Addicted
+(`sources/addicted_live.py`, patch 0072), e quel canale **misura la
+direzione** — cosa che la pagina della singola stazione non fa, perché lì la
+direzione è quella prevista. La prova che è misurata sta dentro la stessa
+risposta: il campo del modello dava 334–343 gradi a tutte e cinque le stazioni
+— un campo liscio — mentre le misure dello stesso istante dicevano 8, 358, 337
+e 10 gradi; e Capo Reamol, che il modello prevede come le altre, non ha
+`live` né `rec` e porta `stale: true`. Un campo previsto c'è per tutti; una
+misura manca dove manca lo strumento.
+
+**Cosa usa quella direzione, oggi.** Solo la freccia dell'**adesso**. La
+serie oraria — cioè il bersaglio su cui i modelli sono addestrati, e quindi il
+filtro che decide se una giornata è Ora o Pelèr — continua a prendere la
+direzione **in prestito** dalla Fraglia e da Torbole, com'era. Non è pigrizia:
+è che il bersaglio non deve cambiare definizione a metà storia. Nove anni di
+ore a Campione hanno la direzione in prestito; adottare da oggi quella
+propria vorrebbe dire un bersaglio fatto di due grandezze diverse, e il
+confronto fra il modello vecchio e il nuovo non direbbe più niente.
+
+**Il protocollo, dichiarato prima di guardare.** La domanda è se la banderuola
+di Addicted concordi con uno strumento di cui ci fidiamo. Il banco esiste già
+ed è lo stesso usato per la scala del vento: **a Torbole i due strumenti
+stanno fianco a fianco** — l'Addicted e la Meteotrentino T0193, che misura la
+direzione da quattordici anni. Quindi:
+
+1. si accumulano campioni del canale vivo per almeno **trenta giorni**, che a
+   dieci minuti fanno circa 4.300 istanti;
+2. si accoppiano gli istanti di Torbole-Addicted e T0193 entro cinque minuti,
+   tenendo solo quelli con vento ≥ 6 kn — sotto quella soglia una banderuola
+   gira e il confronto misura il rumore, non lo strumento;
+3. si misurano la **mediana dello scarto angolare** (l'offset: se c'è ed è
+   costante, si corregge, come si è fatto con la scala della velocità) e la
+   **quota di accordo sul settore** (Ora contro Pelèr), che è ciò che il
+   filtro dei regimi usa davvero;
+4. la porta si apre se l'accordo sul settore è **≥ 98%** — cioè non peggiore
+   del 99–100% misurato sul prestito, che è la cosa che sostituirebbe.
+
+**Perché non basta il confronto già fatto.** Il 19/09 alle 10 la T0193 dava
+52–56 gradi e l'Addicted di Torbole 8 gradi sulla finestra di dieci minuti.
+Sembra un disaccordo grosso, e non si può dire: il canale realtime della
+Meteotrentino era indietro di più di un'ora, quindi i due numeri non sono
+dello stesso istante. È esattamente l'errore che questo protocollo serve a
+non fare — confrontare due misure che non sono contemporanee e chiamarlo
+risultato.
