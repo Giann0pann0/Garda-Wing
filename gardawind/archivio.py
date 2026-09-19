@@ -166,7 +166,13 @@ def recupera():
         for f in sorted(os.listdir(cartella)):
             if not f.endswith(".csv.gz"):
                 continue
-            nome = f.rsplit("-", 1)[0]
+            # Il nome del file e' "<stazione>-<AAAA-MM>.csv.gz", e il mese
+            # contiene un trattino: tagliare all'ultimo trattino dava
+            # "campione-2026". Le righe rientravano sotto una stazione
+            # inventata, il recupero non recuperava niente, e la scrittura
+            # successiva creava "campione-2026-2026-09.csv.gz" - un file
+            # spazzatura in piu' a ogni giro. Si tolgono i DUE pezzi del mese.
+            nome = f[:-len(".csv.gz")].rsplit("-", 2)[0]
             righe = _leggi(os.path.join(cartella, f))
             if not righe:
                 continue

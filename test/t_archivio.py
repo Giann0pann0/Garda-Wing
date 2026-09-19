@@ -130,4 +130,32 @@ ok("archivio.recupera()" in open(os.path.join(QUI, "..", "gardawind",
                                               "__main__.py"),
                                  encoding="utf-8").read(),
    "e il ciclo in cloud ricarica i file PRIMA di lavorare")
+
+# ---- 6. i nomi dei file tornano a essere stazioni --------------------------
+# Il difetto che questo controllo impedisce di rimettere: il nome del file e'
+# "<stazione>-<AAAA-MM>.csv.gz" e il mese contiene un trattino, quindi
+# tagliare all'ULTIMO trattino dava "campione-2026". Le righe rientravano
+# sotto una stazione che non esiste, il recupero non recuperava niente, e
+# l'esportazione dopo creava "campione-2026-2026-09.csv.gz": un file
+# spazzatura in piu' a ogni giro, committato in main dal flusso.
+#
+# I sedici controlli qui sopra passavano lo stesso, perche' verificavano i
+# valori e la direzione e mai la STAZIONE. Un controllo che guarda il carico
+# e non l'indirizzo lascia passare i pacchi consegnati a casa d'altri.
+stazioni = [r[0] for r in store.connect().execute(
+    "SELECT DISTINCT station FROM obs_sample ORDER BY station")]
+ok(stazioni == ["campione"],
+   "le righe rientrano sotto la LORO stazione, non sotto un nome inventato "
+   "(%s)" % stazioni)
+posti = [r[0] for r in store.connect().execute(
+    "SELECT DISTINCT place FROM issued_profile")]
+sta2 = [r[0] for r in store.connect().execute(
+    "SELECT DISTINCT station FROM fc_altrui")]
+ok(posti == ["Torbole"] and sta2 == ["torbole_addicted"],
+   "vale per tutte e tre le serie, compresi i nomi con un trattino dentro "
+   "(%s, %s)" % (posti, sta2))
+prima = sorted(os.listdir(os.path.join(config.PROJECT_DIR, "storico/vivo")))
+archivio.esporta()
+ok(sorted(os.listdir(os.path.join(config.PROJECT_DIR, "storico/vivo"))) == prima,
+   "e una esportazione dopo un recupero non crea file nuovi: %s" % prima)
 print("%d controlli sull'archivio irripetibile" % passati)

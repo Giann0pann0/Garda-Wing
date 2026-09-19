@@ -14,7 +14,7 @@ import sqlite3
 import threading
 
 from . import config
-from .util import iso_utc, utc_now
+from .util import iso_hour_utc, iso_utc, utc_now
 
 _LOCAL = threading.local()
 
@@ -285,6 +285,27 @@ def close():
 
 def init():
     connect()
+    _migra_chiavi_ora()
+
+
+def _migra_chiavi_ora():
+    """Le ore scritte con la chiave corta diventano canoniche. Una volta sola.
+
+    In archivio ci sono 160.000 ore di Campione e Malcesine scritte come
+    "2026-09-19T10": finche' restano cosi' non si incontrano con quelle delle
+    donatrici, e la direzione in prestito non arriva. Si riscrivono.
+    """
+    c = connect()
+    if meta_get("migrazione_chiavi_ora"):
+        return 0
+    corte = [(r["station"], r["hour"]) for r in c.execute(
+        "SELECT station, hour FROM obs_hour WHERE length(hour)<20")]
+    for station, hour in corte:
+        c.execute("UPDATE OR REPLACE obs_hour SET hour=? WHERE station=? AND hour=?",
+                  (chiave_ora(hour), station, hour))
+    c.commit()
+    meta_set("migrazione_chiavi_ora", iso_utc(utc_now()))
+    return len(corte)
 
 
 # --------------------------------------------------------------------------
@@ -504,18 +525,48 @@ def samples_recent(station, limit=40):
     return _campioni_in_scala(station, rows)
 
 
+def chiave_ora(valore):
+    """La chiave oraria canonica: "2026-09-19T10:00:00Z". UN posto solo.
+
+    Serviva, e si e' visto come. Chi scriveva in obs_hour usava due formati:
+    aggregate passava da iso_hour_utc ("...T10:00:00Z") e il canale Addicted
+    tagliava la stringa a tredici caratteri ("...T10"). Sono chiavi diverse, e
+    due chiavi diverse per la stessa ora non si incontrano mai:
+
+      - la direzione in PRESTITO a Campione e a Malcesine-spiaggia non e' mai
+        arrivata, perche' il confronto fra le ore della centralina e quelle
+        della donatrice non poteva combaciare. Il filtro di settore, quello
+        che distingue l'Ora dal Peler, e' rimasto spento: ogni giornata
+        ventosa entrava come "regime instaurato";
+      - e un intervallo (a, b) perdeva l'ora di bordo, perche' "...T23"
+        confrontato come stringa sta prima di "...T23:00:00Z".
+
+    Il controllo che avrebbe dovuto accorgersene scriveva le sue righe finte
+    in UN formato solo, e passava. Adesso la chiave la decide chi scrive in
+    tabella, non chi chiama.
+    """
+    if valore is None:
+        return None
+    from .util import parse_dt_any
+    s = str(valore)
+    dt = parse_dt_any(s if len(s) > 13 else s + ":00:00Z")
+    return iso_hour_utc(dt) if dt is not None else s
+
+
 def upsert_obs_hours(station, rows):
     """rows: iterabile di dict con hour, wind_mean, wind_max, gust_max,
     gust_rec, dir_deg, dir_const, n_samples."""
     c = connect()
+    payload = [(station, chiave_ora(r["hour"]), r["wind_mean"], r["wind_max"],
+                r["gust_max"], r.get("gust_rec"), r["dir_deg"], r["dir_const"],
+                r["n_samples"]) for r in rows]
+    prima = c.total_changes
     c.executemany(
         "INSERT OR REPLACE INTO obs_hour(station, hour, wind_mean, wind_max, gust_max,"
         " gust_rec, dir_deg, dir_const, n_samples) VALUES(?,?,?,?,?,?,?,?,?)",
-        [(station, r["hour"], r["wind_mean"], r["wind_max"], r["gust_max"],
-          r.get("gust_rec"), r["dir_deg"], r["dir_const"], r["n_samples"])
-         for r in rows])
+        payload)
     c.commit()
-    return c.total_changes
+    return c.total_changes - prima
 
 
 def _obs_hours_grezze(station, start_hour=None, end_hour=None):
@@ -688,13 +739,13 @@ def save_fc_altrui(fonte, station, righe, letto_a=None):
     if not payload:
         return 0
     c = connect()
+    prima = c.total_changes
     c.executemany(
         "INSERT OR IGNORE INTO fc_altrui"
         "(fonte,station,letto_il,letto_a,valid_hour,wind_kn,lo_kn,hi_kn) "
         "VALUES(?,?,?,?,?,?,?,?)", payload)
-    n = c.total_changes
     c.commit()
-    return len(payload) if n else 0
+    return c.total_changes - prima
 
 
 def conta_archivi():

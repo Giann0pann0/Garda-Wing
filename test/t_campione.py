@@ -61,8 +61,21 @@ ok("body.p3{" in web.CSS, "la terza localita' ha il suo colore")
 
 # ---- 2. la direzione in prestito -------------------------------------------
 def ora(giorno, h):
+    """La chiave oraria CANONICA, la stessa che scrive aggregate in esercizio.
+
+    Prima questo aiutante tagliava a tredici caratteri, e siccome scriveva
+    cosi' sia le ore di Campione sia quelle delle donatrici, il prestito
+    sembrava funzionare. In esercizio le donatrici hanno la forma intera: le
+    due chiavi non combaciavano e il prestito non e' mai avvenuto. Un banco di
+    prova che usa un formato solo non puo' scoprire un difetto che nasce
+    dall'averne due.
+    """
     naive = dt.datetime.fromisoformat(giorno + "T00:00:00") + dt.timedelta(hours=h)
-    return iso_utc(local_naive_to_utc(naive))[:13]
+    return iso_utc(local_naive_to_utc(naive))
+
+
+def ora_corta(giorno, h):
+    return ora(giorno, h)[:13]
 
 
 G = "2026-07-10"
@@ -125,11 +138,11 @@ c = store.connect()
 for h, w, g in ((10, 8.0, 14.0), (11, 9.0, 15.0), (14, 99.0, 99.0)):
     c.execute("INSERT OR REPLACE INTO addicted_hour(station,hour,wind_mean_kn,"
               "hourly_max_kn,source,series_group,raw_origin) VALUES(?,?,?,?,?,?,?)",
-              ("campione", ora(G, h) + ":00:00Z", w, g, "addicted-sports-history",
+              ("campione", ora(G, h), w, g, "addicted-sports-history",
                "campione", "prova"))
     c.execute("INSERT OR REPLACE INTO addicted_hour(station,hour,wind_mean_kn,"
               "hourly_max_kn,source,series_group,raw_origin) VALUES(?,?,?,?,?,?,?)",
-              ("torbole", ora(G, h) + ":00:00Z", w, g, "addicted-sports-history",
+              ("torbole", ora(G, h), w, g, "addicted-sports-history",
                "torbole", "prova"))
 c.commit()
 esito = engine.promuovi_storico_addicted("campione")
@@ -145,7 +158,7 @@ ok(not store._obs_hours_grezze("torbole") and
    "e Torbole non viene toccata: la sua pagina mostra Meteotrentino, non Addicted")
 
 # Il canale vivo scrive obs_hour E un campione per ora, senza direzione.
-n = engine.salva_ore_addicted("campione", [(ora(G, 17) + ":00:00Z", 12.0, 19.0, None)])
+n = engine.salva_ore_addicted("campione", [(ora(G, 17), 12.0, 19.0, None)])
 ok(n == 1 and store._obs_hours_grezze("campione", ora(G, 17), ora(G, 17))[0]["wind_mean"] == 12.0,
    "la lettura viva finisce in obs_hour")
 camp = list(c.execute("SELECT wind_kn, gust_kn, dir_deg, source FROM obs_sample "
@@ -170,6 +183,36 @@ ok(engine.storico_addicted("brenzone") == [],
 esito = engine.promuovi_storico_addicted("campione")
 ok(esito.get("campione", 0) > 60000,
    "e la promozione le porta in obs_hour (%d)" % esito.get("campione", 0))
+
+# ---- 4bis. UNA chiave oraria sola, o il prestito non arriva mai ------------
+# Il difetto peggiore trovato nella revisione del 19/09, e questo file lo
+# aveva mancato: i controlli qui sopra scrivono le ore di Campione E quelle
+# delle donatrici nello STESSO formato, quello corto ("...T14"). In esercizio
+# no: aggregate scrive "...T14:00:00Z" e il canale Addicted scriveva "...T14".
+# Sono due stringhe diverse, il confronto non combaciava mai, e a Campione e
+# a Malcesine-spiaggia la direzione in prestito non e' MAI arrivata - quindi
+# il filtro di settore, quello che distingue l'Ora dal Peler, era spento e
+# ogni giornata ventosa entrava come "regime instaurato".
+#
+# Adesso la chiave la decide store.chiave_ora, cioe' chi scrive in tabella.
+CORTA = ora_corta(G, 14)
+ok(len(CORTA) == 13, "il chiamante puo' ancora passare la forma corta")
+ok(store.chiave_ora(CORTA) == store.chiave_ora(CORTA + ":00:00Z")
+   and len(store.chiave_ora(CORTA)) == 20,
+   "ma in tabella finisce sempre quella canonica: %s" % store.chiave_ora(CORTA))
+chiavi = {r["hour"] for r in store._obs_hours_grezze("campione")}
+ok(all(len(k) == 20 for k in chiavi),
+   "le ore di Campione sono scritte per intero (%s)" % sorted(chiavi)[:1])
+donatrice = {r["hour"] for r in store._obs_hours_grezze("T0193")}
+ok(chiavi & donatrice,
+   "e combaciano con quelle della donatrice: e' la condizione perche' il "
+   "prestito possa avvenire (%d ore in comune)" % len(chiavi & donatrice))
+# E l'ora di bordo di un intervallo non si perde piu' per una questione di
+# lunghezza della stringa.
+bordo = store._obs_hours_grezze("campione", ora(G, 16), ora(G, 16))
+ok(len(bordo) == 1,
+   "un intervallo che comincia e finisce sulla stessa ora la trova (%d)"
+   % len(bordo))
 
 # ---- 5. una localita' nuova non pubblica il modello grezzo ------------------
 # Il difetto visto in pagina il 19/09: Campione aveva 66.507 ore di

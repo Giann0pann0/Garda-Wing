@@ -244,7 +244,7 @@ def salva_ore_addicted(station, righe):
     if not righe:
         return 0
     store.upsert_obs_hours(station, [{
-        "hour": ts[:13], "wind_mean": w, "wind_max": None, "gust_max": g,
+        "hour": store.chiave_ora(ts), "wind_mean": w, "wind_max": None, "gust_max": g,
         "gust_rec": None, "dir_deg": None, "dir_const": None,
         "n_samples": N_CAMPIONI_ORA_ADDICTED} for ts, w, g, _d in righe])
     store.save_samples(station, righe, "addicted-json")
@@ -267,7 +267,10 @@ def promuovi_storico_addicted(station=None):
         gia = {r["hour"] for r in store._obs_hours_grezze(stazione)}
         righe = []
         for ora, media, massimo in storico_addicted(slug):
-            chiave = ora[:13]
+            # La chiave canonica, la stessa che c'e' in tabella: con la
+            # forma corta il confronto con `gia` non combaciava, e lo storico
+            # tornava a sovrascrivere le ore gia' arrivate dal canale vivo.
+            chiave = store.chiave_ora(ora)
             if chiave in gia:
                 continue
             righe.append({"hour": chiave, "wind_mean": media,
@@ -1916,7 +1919,12 @@ def relazione_raffica(spot_name):
         if w is None or g is None or w < RAFFICA_SCALINI[0] or g < w:
             continue
         dt = parse_dt_any(r["hour"])
-        if dt is None or not (h0 <= local_hour(dt) < h1):
+        # La finestra di config e' INCLUSIVA agli estremi (start <= h <= end),
+        # e tutti gli altri lettori la usano cosi'. Qui c'era un "<", e l'ora
+        # di chiusura non entrava mai: a Torbole sull'Ora (11-19) si buttava
+        # via un nono del campione, sempre lo stesso - l'ora in cui la brezza
+        # cala, che e' anche quella con il rapporto piu' alto.
+        if dt is None or not (h0 <= local_hour(dt) <= h1):
             continue
         scalino = max(s for s in RAFFICA_SCALINI if s <= w)
         per_scalino[scalino].append(g / w)
