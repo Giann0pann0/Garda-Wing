@@ -343,3 +343,41 @@ sf = live.stazione(ST_F, adesso=G3 + dt.timedelta(minutes=210))
 ok(sf["gust"] is None,
    "mentre una raffica di due ore prima, su una centralina da dieci minuti,"
    " resta 'non disponibile'")
+
+# --------------------------------------------------------------------------
+# 6. "non recente" segue la cadenza della centralina, non un minuto fisso
+#
+# Visto in pagina: "Campione e' morta" mentre Campione stava rispettando il
+# suo ritmo. Le centraline Addicted pubblicano una volta all'ora: alle 23:18
+# il dato piu' recente e' quello delle 23:00, e una soglia fissa di 45 minuti
+# - pensata per Torbole, che aggiorna ogni dieci - ingialliva mezz'ora su
+# ogni ora, come se il dato non arrivasse piu'.
+#
+# E' lo stesso difetto della raffica qui sopra, la seconda volta: una soglia
+# fissa applicata a centraline con cadenze diverse. Percio' la soglia ha UN
+# posto (web.stantia_min) e il riquadro se la porta scritta addosso, cosi'
+# anche il ricalcolo nel browser usa quella e non una costante sua.
+from gardawind import web as W  # noqa: E402
+
+ok(W.stantia_min(10) == W.ETA_STANTIA_MIN,
+   "una centralina da dieci minuti mantiene la soglia di sempre (%.0f)"
+   % W.stantia_min(10))
+ok(W.stantia_min(60) > 60 and W.stantia_min(60) == 3 * 60,
+   "una centralina oraria no: la sua soglia sono tre suoi passi (%.0f min)"
+   % W.stantia_min(60))
+ok(W.stantia_min(None) == W.ETA_STANTIA_MIN and W.stantia_min(0) == W.ETA_STANTIA_MIN,
+   "e senza cadenza dichiarata si torna alla soglia fissa: non si inventa")
+snap = live.snapshot()
+ok(all("stale_min" in v for v in snap["luoghi"].values()),
+   "ogni luogo porta la sua soglia in live.json, cosi' il ricalcolo nel "
+   "browser non ha bisogno di sapere le cadenze")
+blocco = W.adesso_riquadro(config.PLACES[0],
+                           {"ts": "2026-09-14T12:00:00Z", "cadenza_min": 60.0}, {})
+ok('data-stale="' in blocco,
+   "e il riquadro se la porta scritta addosso, cosi' il ricalcolo nel browser "
+   "usa quella e non una costante sua")
+ok('data-stale="180"' in blocco,
+   "con il valore della SUA cadenza, non con la costante")
+import inspect  # noqa: E402
+ok("getAttribute('data-stale')" in inspect.getsource(W),
+   "e il ricalcolo nel browser la legge da li'")

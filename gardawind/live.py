@@ -237,6 +237,10 @@ def snapshot(adesso=None):
     from . import web
     for place, v in luoghi.items():
         v["html"] = web.now_observed_html(v)
+        # Da quanti minuti questo dato e' "non recente": dipende dalla
+        # cadenza della centralina, e la pagina non la conosce - gliela
+        # portiamo insieme al dato, come le parole.
+        v["stale_min"] = web.stantia_min(v.get("cadenza_min"))
         v["curve"] = curve(place, adesso=adesso)
     return {"generato": iso_utc(adesso), "versione": config.APP_VERSION,
             "luoghi": luoghi}

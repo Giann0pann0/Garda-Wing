@@ -477,7 +477,7 @@ def live_regime_state(live, spot, today=False):
     if not today or not live or live.get("wind") is None:
         return None
     age = live.get("age_min")
-    if age is not None and age > ETA_STANTIA_MIN:
+    if age is not None and age > stantia_min(live.get("cadenza_min")):
         return None
     dt = parse_dt_any(live.get("ts") or "")
     if dt is None:
@@ -600,7 +600,27 @@ ETA_PAROLE = ((12.0, "adesso"), (180.0, "%d min fa"),
               (None, "dato non recente"))
 
 # Oltre questa eta' il dato non e' piu' "adesso" e la riga si ingiallisce.
+# E' il valore per una centralina che pubblica ogni dieci minuti.
 ETA_STANTIA_MIN = 45.0
+
+# Ma non tutte pubblicano ogni dieci minuti: le Addicted (Campione, e da oggi
+# il vento di Malcesine) mandano UN DATO ALL'ORA. Alle 23:18 il piu' recente
+# e' quello delle 23:00, e con una soglia fissa a 45 minuti quelle centraline
+# passavano meta' di ogni ora ingiallite, come guaste, mentre stavano
+# rispettando il loro ritmo. Gian, guardando la pagina: "Campione e' morta".
+#
+# La soglia segue quindi la CADENZA misurata, come gia' fa la finestra della
+# raffica: un dato vecchio quanto tre suoi passi e' in ritardo davvero, prima
+# no. Il minimo resta quello dei dieci minuti, cosi' una centralina fitta non
+# diventa piu' tollerante di prima.
+STANTIA_PASSI = 3.0
+
+
+def stantia_min(cadenza_min):
+    """Da quanti minuti un dato di questa centralina e' 'non recente'."""
+    if not cadenza_min or cadenza_min <= 0:
+        return ETA_STANTIA_MIN
+    return max(ETA_STANTIA_MIN, STANTIA_PASSI * float(cadenza_min))
 
 
 def eta_parole(minuti):
@@ -1062,10 +1082,11 @@ def adesso_riquadro(place, live, profile):
                           else E(cond.get("sky") or "")))
     return (
         '<section class="adesso">'
-        '<div class="nowblock" data-live-place="%s" data-ts="%s">'
+        '<div class="nowblock" data-live-place="%s" data-ts="%s" data-stale="%g">'
         '<div class="nowstrip"><div class="nowobs">%s</div>%s</div>'
         '</div></section>'
         % (E(place), E((live or {}).get("ts") or ""),
+           stantia_min((live or {}).get("cadenza_min")),
            now_observed_html(live), cella_cielo))
 
 
@@ -2567,7 +2588,10 @@ function gwPaintAge(){
     /* La cella dell'orario: un antenato, non per forza il genitore. Si
        aggiunge o toglie SOLO 'stale', senza riscrivere le altre classi. */
     var meta=el.closest?el.closest('.nowmeta'):null;
-    if(meta){ if(min>%(stale)g) meta.classList.add('stale'); else meta.classList.remove('stale'); }
+    /* La soglia e' quella DELLA CENTRALINA, scritta sul blocco: una che
+       pubblica ogni ora non e' in ritardo a quaranta minuti. */
+    var soglia=parseFloat(b[i].getAttribute('data-stale'))||%(stale)g;
+    if(meta){ if(min>soglia) meta.classList.add('stale'); else meta.classList.remove('stale'); }
   }
   /* L'intestazione dice la stessa cosa della scheda piu' fresca, con le sue
      parole: due frasi diverse sullo stesso dato sarebbero una bugia e mezza. */
@@ -2657,7 +2681,13 @@ function gwApplyLive(d){
     if(isNaN(nuovo)) continue;
     if(!isNaN(vecchio)&&nuovo<=vecchio) continue;
     var box=b[i].querySelector('.nowobs');
-    if(box){ box.innerHTML=v.html; b[i].setAttribute('data-ts',v.ts); }
+    if(box){
+      box.innerHTML=v.html;
+      b[i].setAttribute('data-ts',v.ts);
+      /* La cadenza puo' cambiare (una centralina che rallenta, o una fonte
+         che subentra): la soglia di ritardo viaggia col dato. */
+      if(v.stale_min) b[i].setAttribute('data-stale',v.stale_min);
+    }
   }
   gwCurveLive(d);
   gwPaintAge();
