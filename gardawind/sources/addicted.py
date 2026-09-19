@@ -226,17 +226,68 @@ def parse_json(dati):
         if w is None:
             continue                      # ora futura, o non misurata
         g = num(mmax[i]) if i < len(mmax) else None
-        try:
-            anno, mese, giorno, hhmm = str(chiave).split("/")
-            naive = _dt.datetime(int(anno), int(mese), int(giorno),
-                                 int(hhmm[:2]), int(hhmm[2:]))
-        except (ValueError, IndexError):
+        ts = _istante(chiave)
+        if ts is None:
             continue
         if not (0.0 <= w <= MAX_WIND_KN):
             continue
         if g is not None and not (0.0 <= g <= MAX_GUST_KN):
             g = None
-        out.append((iso_utc(local_naive_to_utc(naive)), w, g, None))
+        out.append((ts, w, g, None))
+    out.sort()
+    return out
+
+
+def _istante(chiave):
+    """"2026/09/15/0600" (ora LOCALE) -> istante UTC in iso, o None.
+
+    Un posto solo: la serie misurata e quella prevista arrivano nella stessa
+    risposta e usano le stesse chiavi, e due conversioni di fuso scritte due
+    volte sono due occasioni di sbagliarne una.
+    """
+    try:
+        anno, mese, giorno, hhmm = str(chiave).split("/")
+        naive = _dt.datetime(int(anno), int(mese), int(giorno),
+                             int(hhmm[:2]), int(hhmm[2:]))
+    except (ValueError, IndexError):
+        return None
+    return iso_utc(local_naive_to_utc(naive))
+
+
+def parse_json_previsione(dati):
+    """La serie oraria PREVISTA DA LORO -> [(ts_utc, vento, lo, hi)].
+
+    Viene dalla stessa risposta della serie misurata - chiavi "avg", "lo",
+    "hi" accanto a "mavg" - quindi non costa nessuna richiesta in piu'.
+
+    A cosa serve: il 19/09/2026 il primo confronto con un concorrente
+    (docs/CONFRONTO-ADDICTED.md) ha dovuto dichiarare "non sappiamo a quale
+    scadenza fosse emessa questa previsione", perche' loro ripubblicano i
+    giorni passati senza dire quando li avevano previsti. L'unico modo di
+    togliere quel dubbio e' archiviarla noi, giorno per giorno, segnando
+    QUANDO l'abbiamo letta. Da li' la scadenza e' una sottrazione.
+
+    La direzione non entra nemmeno qui: e' prevista, e sarebbe una previsione
+    salvata accanto a misure.
+    """
+    if not isinstance(dati, dict) or not dati.get("ok"):
+        raise FetchError("risposta json senza ok=true")
+    arch = dati.get("arch") or []
+    avg = dati.get("avg") or []
+    lo, hi = dati.get("lo") or [], dati.get("hi") or []
+    if not arch or not avg:
+        return []
+    out = []
+    for i, chiave in enumerate(arch):
+        w = num(avg[i]) if i < len(avg) else None
+        if w is None or not (0.0 <= w <= MAX_WIND_KN):
+            continue
+        ts = _istante(chiave)
+        if ts is None:
+            continue
+        out.append((ts, w,
+                    num(lo[i]) if i < len(lo) else None,
+                    num(hi[i]) if i < len(hi) else None))
     out.sort()
     return out
 
@@ -324,10 +375,20 @@ def fetch_hourly(giorno=None, adesso=None, slug=None):
     meta = _registra("json", url, corpo, struct, True, n_rows=len(righe))
     # L'ultima ora misurata e' quella in corso: la sua media non e' ancora
     # definitiva e verra' sostituita dalla lettura successiva.
+    # La LORO previsione viaggia nella stessa risposta. Sta dentro meta e non
+    # fra le righe perche' righe sono OSSERVAZIONI e questa e' una previsione
+    # altrui: due grandezze diverse non vanno nella stessa lista. Ma viene da
+    # una sola richiesta, e rifarne una seconda per averla sarebbe traffico
+    # regalato al loro server.
+    try:
+        previste = parse_json_previsione(dati)
+    except FetchError:
+        previste = []
     meta.update({"giorno": giorno, "n_righe": len(righe),
                  "n_provvisorie": 1 if righe else 0,
                  "ultima": righe[-1][0] if righe else None,
                  "mae_dichiarato": dati.get("mae"),
+                 "previsione_loro": previste,
                  "direzione_misurata": False})
     return righe, meta
 

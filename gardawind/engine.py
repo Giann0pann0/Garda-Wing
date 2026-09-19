@@ -146,8 +146,15 @@ def update_stations():
             n = 0
             for giorno in (day_shift(local_day(utc_now()), -1),
                            local_day(utc_now())):
-                righe, _meta = addicted.fetch_hourly(giorno=giorno, slug=slug)
+                righe, meta = addicted.fetch_hourly(giorno=giorno, slug=slug)
                 n += salva_ore_addicted(stazione, righe)
+                # La LORO previsione viaggia nella stessa risposta, e finora
+                # la buttavamo. Archiviarla non costa una richiesta in piu' ed
+                # e' l'unica strada per un confronto che regga: loro
+                # ripubblicano i giorni passati senza dire a che scadenza li
+                # avevano previsti, e quel dubbio non si recupera dopo.
+                store.save_fc_altrui(addicted.SOURCE, stazione,
+                                     meta.get("previsione_loro") or [])
             done.append("%s %d ore" % (stazione, n))
         except Exception as e:                    # noqa: BLE001
             # Non solo FetchError: queste pagine cambiano senza avvisare, e
@@ -156,6 +163,20 @@ def update_stations():
             # finisce nel registro, la giornata continua.
             _note("error", "centralina/%s" % stazione,
                   "%s: %s" % (type(e).__name__, str(e)[:140]))
+
+    # A Torbole la centralina della pagina e' Meteotrentino, quindi il ciclo
+    # qui sopra non passa dalla pagina Addicted di Torbole - ed e' proprio
+    # quella su cui il confronto conta di piu', perche' li' abbiamo il modello
+    # migliore. Una richiesta al giro, solo per archiviare la loro previsione.
+    try:
+        _righe, meta = addicted.fetch_hourly(slug="torbole")
+        n = store.save_fc_altrui(addicted.SOURCE, "torbole_addicted",
+                                 meta.get("previsione_loro") or [])
+        if n:
+            done.append("previsione Addicted a Torbole: %d ore" % n)
+    except Exception as e:                                # noqa: BLE001
+        _note("warn", "previsione-altrui/torbole",
+              "%s: %s" % (type(e).__name__, str(e)[:140]))
 
     # E il canale VIVO, una richiesta per tutte le centraline Addicted. E'
     # quello che rende la curva del misurato di Campione e Malcesine fitta

@@ -2403,7 +2403,27 @@ def page_diagnostics():
                  "<td>%s</td><td>%s</td><td class='num'>%d</td></tr>"
                  % (E(station), st["samples"], st["hours"],
                     (st["hour_from"] or "—")[:10], (st["hour_to"] or "—")[:10], st["days"]))
-    r.append("</table><table><tr><th>Quando</th><th>Livello</th><th>Ambito</th>"
+    r.append("</table>")
+
+    # Gli archivi che NON si riscaricano. Tutto il resto - i quattordici anni
+    # di Torbole, lo storico orario di Addicted - se sparisse si riprenderebbe
+    # dalla fonte. Questi no: sono letture che esistono solo perche' le abbiamo
+    # registrate mentre passavano. Stanno in pagina perche' un archivio che si
+    # crede pieno e non lo e' e' il guasto peggiore: non si vede, e ci si
+    # accorge il giorno in cui serviva.
+    r.append('<h3>Quello che non si riscarica</h3>'
+             "<table><tr><th>Archivio</th><th class='num'>Righe</th>"
+             "<th>Da</th><th>A</th></tr>")
+    for nome, v in store.conta_archivi().items():
+        vuoto = " class='bad'" if not v["n"] else ""
+        r.append("<tr><td>%s</td><td class='num'%s>%s</td><td>%s</td><td>%s</td></tr>"
+                 % (E(nome), vuoto, "{:,}".format(v["n"]).replace(",", ".")
+                    if v["n"] else "<b>vuoto</b>",
+                    (v["da"] or "—")[:16].replace("T", " "),
+                    (v["a"] or "—")[:16].replace("T", " ")))
+    r.append("</table>")
+
+    r.append("<table><tr><th>Quando</th><th>Livello</th><th>Ambito</th>"
              "<th>Messaggio</th></tr>")
     for e in store.recent_events(40):
         dt = parse_dt_any(e["ts"])

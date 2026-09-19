@@ -116,6 +116,29 @@ CREATE TABLE IF NOT EXISTS issued_profile(
 );
 CREATE INDEX IF NOT EXISTS ix_issued_profile_valid ON issued_profile(place, valid_hour);
 
+-- La previsione ALTRUI, archiviata da noi con la data in cui l'abbiamo letta.
+-- Serve a una cosa sola, e va detta: il confronto con un concorrente non vale
+-- niente se non si sa a quale SCADENZA era emessa la sua previsione, e loro
+-- ripubblicano i giorni passati senza dirlo. Archiviandola noi, la scadenza
+-- diventa una sottrazione fra valid_hour e letto_il.
+--
+-- Una riga per (fonte, stazione, GIORNO di lettura, ora prevista): la prima
+-- lettura del giorno vince (INSERT OR IGNORE), cosi' l'ora di emissione resta
+-- confrontabile fra un giorno e l'altro invece di essere l'ultima passata a
+-- caso. `letto_a` conserva l'istante esatto di quella prima lettura.
+CREATE TABLE IF NOT EXISTS fc_altrui(
+  fonte      TEXT NOT NULL,
+  station    TEXT NOT NULL,
+  letto_il   TEXT NOT NULL,
+  letto_a    TEXT NOT NULL,
+  valid_hour TEXT NOT NULL,
+  wind_kn    REAL,
+  lo_kn      REAL,
+  hi_kn      REAL,
+  PRIMARY KEY(fonte, station, letto_il, valid_hour)
+);
+CREATE INDEX IF NOT EXISTS ix_fc_altrui_valid ON fc_altrui(station, valid_hour);
+
 -- Archivio storico delle previsioni (historical-forecast-api, best_match):
 -- la sorgente dei predittori usati in addestramento.
 CREATE TABLE IF NOT EXISTS arch_hour(
@@ -647,6 +670,60 @@ def save_issued_profile(place, issued_at, rows):
         "VALUES(?,?,?,?,?)", payload)
     c.commit()
     return len(payload)
+
+
+def save_fc_altrui(fonte, station, righe, letto_a=None):
+    """Archivia la previsione di qualcun altro, con QUANDO l'abbiamo letta.
+
+    righe: iterabile di (valid_hour_utc, vento, lo, hi). Si tiene solo la
+    PRIMA lettura di ogni giornata (INSERT OR IGNORE): cosi' l'ora di
+    emissione resta confrontabile da un giorno all'altro, e la scadenza -
+    l'unica cosa che rende sensato un confronto - e' una sottrazione.
+    """
+    from .util import local_day, parse_dt_any
+    letto_a = letto_a or iso_utc(utc_now())
+    giorno = local_day(parse_dt_any(letto_a))
+    payload = [(fonte, station, giorno, letto_a, ts, w, lo, hi)
+               for ts, w, lo, hi in righe if ts and w is not None]
+    if not payload:
+        return 0
+    c = connect()
+    c.executemany(
+        "INSERT OR IGNORE INTO fc_altrui"
+        "(fonte,station,letto_il,letto_a,valid_hour,wind_kn,lo_kn,hi_kn) "
+        "VALUES(?,?,?,?,?,?,?,?)", payload)
+    n = c.total_changes
+    c.commit()
+    return len(payload) if n else 0
+
+
+def conta_archivi():
+    """Quante righe ha ciascun archivio IRRIPETIBILE, e da quando.
+
+    "Irripetibile" vuol dire: se lo perdiamo non si riscarica da nessuna
+    parte. Sta in diagnostica perche' un archivio che si crede pieno e non lo
+    e' e' il guasto peggiore di tutti - non si vede, e ci si accorge il giorno
+    in cui serviva.
+    """
+    c = connect()
+    out = {}
+    for nome, sql in (
+            ("campioni a 10 minuti (canale vivo)",
+             "SELECT COUNT(*), MIN(ts), MAX(ts) FROM obs_sample "
+             "WHERE source='addicted-live'"),
+            ("direzione misurata, stesse letture",
+             "SELECT COUNT(*), MIN(ts), MAX(ts) FROM obs_sample "
+             "WHERE source='addicted-live' AND dir_deg IS NOT NULL"),
+            ("curve che abbiamo pubblicato",
+             "SELECT COUNT(*), MIN(issued_at), MAX(issued_at) FROM issued_profile"),
+            ("previsione altrui archiviata",
+             "SELECT COUNT(*), MIN(letto_a), MAX(letto_a) FROM fc_altrui")):
+        try:
+            n, a, b = c.execute(sql).fetchone()
+        except Exception:                                # pragma: no cover
+            n, a, b = 0, None, None
+        out[nome] = {"n": n or 0, "da": a, "a": b}
+    return out
 
 
 def save_archive(point, rows):
