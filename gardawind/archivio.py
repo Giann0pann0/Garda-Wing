@@ -151,6 +151,70 @@ def esporta():
     return fatti
 
 
+# ==========================================================================
+# Il ponte fra i due processi: il veloce raccoglie, il lento archivia
+# ==========================================================================
+
+def scrivi_vivo_recente(path, giorni=None, adesso=None):
+    """I campioni del canale vivo degli ultimi giorni, in un file compresso.
+
+    Lo scrive il processo VELOCE accanto a live.json, sul ramo "live". E'
+    l'unico modo perche' quei campioni arrivino al processo lento: i due hanno
+    due database separati - le cache sono immutabili e si ripescano "la piu'
+    recente", quindi il veloce non puo' salvare sopra quella dell'altro senza
+    rischiare di fargli perdere i modelli appena addestrati.
+
+    Senza questo ponte, della serie che NON si riscarica da nessuna parte ne
+    arrivava in archivio una lettura su trentasei: il veloce ne prende 144 al
+    giorno, il lento ne prendeva 4 da se'.
+    """
+    from .util import parse_dt_any, utc_now
+    import datetime as _dt
+    giorni = config.LIVE_VIVO_GIORNI if giorni is None else giorni
+    da = (adesso or utc_now()) - _dt.timedelta(days=giorni)
+    righe = [list(r) for r in store.connect().execute(
+        "SELECT station, ts, wind_kn, gust_kn, dir_deg FROM obs_sample "
+        "WHERE source=? AND ts>=? ORDER BY station, ts",
+        ("addicted-live", da.strftime("%Y-%m-%dT%H:%M:%SZ")))]
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(("station",) + VIVO["intestazione"])
+    for r in righe:
+        w.writerow(["" if x is None else x for x in r])
+    tmp = path + ".tmp"
+    with gzip.open(tmp, "wb") as fh:
+        fh.write(buf.getvalue().encode("utf-8"))
+    os.replace(tmp, path)
+    return len(righe)
+
+
+def leggi_vivo_pubblicato(fetch=None):
+    """Rimette nel database i campioni che il processo veloce ha pubblicato.
+
+    Lo chiama il processo LENTO, prima di archiviare. Se la lettura non riesce
+    - rete, ramo non ancora creato - non e' un errore fatale: si riprovera' al
+    giro dopo, e intanto restano i campioni che il lento prende da se'.
+    """
+    from .sources.http import fetch as _fetch
+    corpo = (fetch or _fetch)(config.LIVE_VIVO_URL, timeout=30)
+    testo = gzip.decompress(corpo).decode("utf-8")
+    per_stazione = {}
+    for r in list(csv.reader(io.StringIO(testo)))[1:]:
+        if len(r) < 5 or not r[0] or not r[1]:
+            continue
+        def _n(x):
+            try:
+                return float(x) if x not in ("", None) else None
+            except (TypeError, ValueError):
+                return None
+        per_stazione.setdefault(r[0], []).append((r[1], _n(r[2]), _n(r[3]), _n(r[4])))
+    n = 0
+    for stazione, righe in sorted(per_stazione.items()):
+        n += store.save_samples(stazione, righe, "addicted-live")
+    return n
+
+
 def recupera():
     """Rimette nel database quello che sta nei file e li' non c'e' piu'.
 

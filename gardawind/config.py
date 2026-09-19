@@ -626,6 +626,31 @@ LIVE_JSON_URL = os.environ.get(
     "GARDAWIND_LIVE_URL",
     "https://raw.githubusercontent.com/Giann0pann0/Garda-Wing/live/live.json")
 
+# E accanto a live.json, sullo stesso ramo, i CAMPIONI del canale vivo.
+#
+# Serve perche' i due processi hanno due database separati, e per un motivo
+# buono: le cache sono immutabili e si ripescano "la piu' recente", quindi un
+# processo veloce che salvasse sopra rischierebbe di far ripartire quello
+# lento da una copia priva dei modelli appena addestrati. La conseguenza pero'
+# non era stata vista: i campioni a dieci minuti con la DIREZIONE misurata li
+# legge il veloce, 144 volte al giorno, e li mette nel suo database; quello
+# lento - che addestra e che archivia - li raccoglieva da se' quattro volte al
+# giorno. Dell'unica serie che non si riscarica da nessuna parte ne salvavamo
+# una su trentasei.
+#
+# Il ramo "live" e' gia' il canale fra i due processi: si riscrive da zero a
+# ogni giro (un commit solo, niente storia che si gonfia), e ci passa gia'
+# live.json. Ci passano anche i campioni, e il processo lento li rilegge.
+LIVE_VIVO_URL = os.environ.get(
+    "GARDAWIND_VIVO_URL",
+    LIVE_JSON_URL.rsplit("/", 1)[0] + "/vivo.csv.gz")
+
+# Quanti giorni di campioni tiene quel file. Il processo lento passa quattro
+# volte al giorno: tre giorni sono un margine larghissimo, e restano pochi
+# kilobyte. Se il processo lento restasse fermo piu' a lungo, si perderebbe
+# l'eccedenza - ed e' scritto qui perche' sia una scelta e non una sorpresa.
+LIVE_VIVO_GIORNI = 3
+
 # L'indirizzo pubblico del sito. Serve SOLO alle anteprime dei link - quando
 # la pagina viene condivisa in una chat, l'immagine e il titolo devono avere
 # un indirizzo assoluto - e all'installazione sul telefono. Non entra in

@@ -133,3 +133,35 @@ ok(alba_tramonto("2026-12-21", 78.2, 15.6, 1.0) == (None, None),
    "a Svalbard a dicembre il sole non sorge, e la funzione lo dice")
 ok(alba_tramonto("2026-06-21", 78.2, 15.6, 2.0) == (None, None),
    "e a giugno non tramonta")
+
+# --------------------------------------------------------------------------
+# Il cambio d'ora di ottobre: l'ora che esiste due volte
+#
+# L'ultima domenica di ottobre le 02:00-02:59 italiane si ripetono, e le fonti
+# che pubblicano l'orologio da parete - la Fraglia, Addicted - le scrivono due
+# volte uguali. Convertite una per una finiscono sullo stesso istante UTC, e
+# siccome i campioni si salvano con INSERT OR REPLACE la seconda cancella la
+# prima: un'ora di misure persa e un'ora di UTC che nessuna chiave produce.
+# Il 25 ottobre 2026.
+# --------------------------------------------------------------------------
+from gardawind.util import (local_naive_to_utc as _loc,  # noqa: E402
+                            serie_locale_to_utc as _serie)
+import datetime as _dtu  # noqa: E402
+
+_doppia = [_dtu.datetime(2026, 10, 25, 1, 30), _dtu.datetime(2026, 10, 25, 2, 0),
+           _dtu.datetime(2026, 10, 25, 2, 30), _dtu.datetime(2026, 10, 25, 2, 0),
+           _dtu.datetime(2026, 10, 25, 2, 30), _dtu.datetime(2026, 10, 25, 3, 0)]
+_ist = _serie(_doppia)
+ok(len(set(_ist)) == len(_ist),
+   "l'ora doppia del 25 ottobre da' sei istanti distinti, non quattro (%d)"
+   % len(set(_ist)))
+ok(_ist == sorted(_ist),
+   "e in ordine crescente: l'ordine delle righe e' l'unica informazione che "
+   "la fonte ci da'")
+ok(_ist[3] - _ist[2] == _dtu.timedelta(minutes=30),
+   "il secondo passaggio sta mezz'ora dopo il primo, non un'ora prima")
+_normale = [_dtu.datetime(2026, 7, 10, 10, 0), _dtu.datetime(2026, 7, 10, 10, 10)]
+ok(_serie(_normale) == [_loc(_normale[0]), _loc(_normale[1])],
+   "e in una giornata qualunque non cambia niente")
+ok(_serie([None, _dtu.datetime(2026, 7, 10, 10, 0)])[0] is None,
+   "una riga illeggibile resta None invece di far saltare la serie")

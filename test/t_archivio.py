@@ -158,4 +158,68 @@ prima = sorted(os.listdir(os.path.join(config.PROJECT_DIR, "storico/vivo")))
 archivio.esporta()
 ok(sorted(os.listdir(os.path.join(config.PROJECT_DIR, "storico/vivo"))) == prima,
    "e una esportazione dopo un recupero non crea file nuovi: %s" % prima)
+
+# ---- 7. il ponte fra i due processi ----------------------------------------
+# Il difetto piu' grave della revisione: i due processi hanno due database
+# separati - per una ragione buona, le cache sono immutabili e il veloce non
+# puo' salvare sopra quella del lento senza rischiare di fargli perdere i
+# modelli - ma la conseguenza non era stata vista. I campioni a dieci minuti
+# CON LA DIREZIONE li legge il veloce, 144 volte al giorno, e li mette nel suo
+# database; il lento, che addestra e che archivia, ne prendeva 4 al giorno da
+# se'. Dell'unica serie che non si riscarica ne salvavamo una su trentasei.
+import datetime as _dt  # noqa: E402
+
+shutil.rmtree("/tmp/gwveloce", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwveloce"
+importlib.reload(store)
+store.init()
+ADESSO = _dt.datetime(2026, 9, 20, 12, 0, tzinfo=_dt.timezone.utc)
+store.save_samples("campione", [
+    ((ADESSO - _dt.timedelta(minutes=10 * k)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+     9.0 + k * 0.1, 14.0, 200.0 + k) for k in range(12)], "addicted-live")
+store.save_samples("campione", [("2026-09-01T10:00:00Z", 8.0, 12.0, 100.0)],
+                   "addicted-live")          # troppo vecchio per il ponte
+store.save_samples("malcesine_add", [
+    ((ADESSO - _dt.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+     13.0, 19.0, None)], "addicted-live")
+store.save_samples("T0193", [("2026-09-20T11:50:00Z", 12.0, 18.0, 55.0)],
+                   "meteotrentino")          # altra fonte: non e' questa serie
+
+PONTE = "/tmp/gwveloce/vivo.csv.gz"
+n = archivio.scrivi_vivo_recente(PONTE, adesso=ADESSO)
+ok(n == 13, "il processo veloce pubblica i campioni recenti del canale vivo "
+   "(%d: 12 di Campione e 1 di Malcesine, non quello di tre settimane fa "
+   "ne' quelli di un'altra fonte)" % n)
+
+# Ora il processo LENTO, con il suo database, li rilegge.
+shutil.rmtree("/tmp/gwlento", ignore_errors=True)
+os.environ["GARDAWIND_HOME"] = "/tmp/gwlento"
+importlib.reload(store)
+store.init()
+ok(store.connect().execute("SELECT COUNT(*) FROM obs_sample").fetchone()[0] == 0,
+   "il database del processo lento parte vuoto, come in cloud")
+letti = archivio.leggi_vivo_pubblicato(fetch=lambda url, timeout=None: open(PONTE, "rb").read())
+ok(letti == 13, "e li riprende tutti dal ramo (%d)" % letti)
+r = store.connect().execute(
+    "SELECT station, wind_kn, dir_deg, source FROM obs_sample "
+    "WHERE ts=? AND station='campione'",
+    (ADESSO.strftime("%Y-%m-%dT%H:%M:%SZ"),)).fetchone()
+ok(r and r[1] == 9.0 and r[2] == 200.0 and r[3] == "addicted-live",
+   "con la DIREZIONE misurata, che e' la ragione per cui quel canale esiste")
+ok(archivio.leggi_vivo_pubblicato(
+    fetch=lambda url, timeout=None: open(PONTE, "rb").read()) == 13,
+   "rileggerlo non duplica niente: stessa chiave, stessa riga")
+fatti = archivio.esporta()
+ok(any("vivo/campione" in p for p, _n, _nuove in fatti),
+   "e da li' finiscono nell'archivio mensile dentro git (%s)"
+   % [p for p, _n, _nuove in fatti])
+
+wf = open(os.path.join(QUI, "..", ".github", "workflows", "adesso.yml"),
+          encoding="utf-8").read()
+ok("vivo.csv.gz" in wf,
+   "il flusso veloce pubblica il file accanto a live.json")
+main = open(os.path.join(QUI, "..", "gardawind", "__main__.py"),
+            encoding="utf-8").read()
+ok("scrivi_vivo_recente" in main and "leggi_vivo_pubblicato" in main,
+   "e i due comandi lo scrivono e lo rileggono")
 print("%d controlli sull'archivio irripetibile" % passati)

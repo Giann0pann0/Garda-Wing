@@ -78,8 +78,10 @@ jobs:
           python3 -m gardawind --live-json pubblica/live.json
           cat pubblica/live.json
 
-      # Il ramo "live" contiene un solo file e un solo commit: e' un
-      # contenitore, non una storia. Si riscrive ogni volta da zero, cosi' il
+      # Il ramo "live" contiene due file e un solo commit: e' un
+      # contenitore, non una storia. Il secondo file - vivo.csv.gz - e' il
+      # ponte verso il processo lento, che ha un database separato e senza
+      # questo riceveva una lettura su trentasei del canale vivo. Si riscrive ogni volta da zero, cosi' il
       # repository non si gonfia di migliaia di commit di dieci minuti.
       - name: Pubblica sul ramo live
         run: |
@@ -88,7 +90,7 @@ jobs:
           git checkout -q -b live
           git config user.name "Garda Wind"
           git config user.email "noreply@anthropic.com"
-          git add live.json
+          git add live.json vivo.csv.gz
           git -c commit.gpgsign=false commit -q -m "adesso: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -q --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \

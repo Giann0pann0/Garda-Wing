@@ -148,7 +148,7 @@ def parse_dt_any(s, assume_offset_hours=None):
     return (naive - offset).replace(tzinfo=UTC)
 
 
-def local_naive_to_utc(dt_naive):
+def local_naive_to_utc(dt_naive, fold=0):
     """Interpreta un datetime senza fuso come ora civile italiana e lo porta in UTC.
 
     Serve per le sorgenti che pubblicano l'orologio da parete (le centraline
@@ -160,9 +160,45 @@ def local_naive_to_utc(dt_naive):
     if dt_naive.tzinfo is not None:
         return dt_naive.astimezone(UTC)
     if _TZ_ROME is not None:
-        return dt_naive.replace(tzinfo=_TZ_ROME).astimezone(UTC)
+        return dt_naive.replace(tzinfo=_TZ_ROME, fold=fold).astimezone(UTC)
     guess = dt_naive.replace(tzinfo=UTC)
     return (guess - _rome_offset_fallback(guess)).replace(tzinfo=UTC)
+
+
+def serie_locale_to_utc(naives):
+    """Una SERIE di orologi da parete -> istanti UTC, senza perdere l'ora doppia.
+
+    L'ultima domenica di ottobre le 02:00-02:59 italiane esistono due volte, e
+    le fonti che pubblicano l'orologio da parete - la Fraglia, Addicted - le
+    scrivono due volte uguali. Convertendole una per una con `fold=0` le due
+    coppie finiscono sullo stesso istante UTC, e siccome i campioni si salvano
+    con INSERT OR REPLACE la seconda cancella la prima: un'ora di misure persa
+    e un'ora di UTC che nessuna chiave produce piu'. Il 25 ottobre 2026.
+
+    Qui la serie si legge in ordine: quando un istante non avanza rispetto al
+    precedente vuol dire che siamo tornati indietro, e da li' in poi - fino a
+    che la sequenza non e' di nuovo crescente - si usa il secondo passaggio.
+    Non e' un indovinello: e' l'unica informazione che la fonte ci da', cioe'
+    l'ordine in cui ha scritto le righe.
+    """
+    out, ultimo, dentro = [], None, False
+    for n in naives:
+        if n is None:
+            out.append(None)
+            continue
+        t = local_naive_to_utc(n, fold=1 if dentro else 0)
+        if ultimo is not None and t is not None and t <= ultimo and not dentro:
+            dentro = True
+            t = local_naive_to_utc(n, fold=1)
+        if ultimo is not None and t is not None and t > ultimo and dentro:
+            # usciti dall'ora doppia: da qui l'orologio e' di nuovo unico
+            senza = local_naive_to_utc(n, fold=0)
+            if senza is not None and senza > ultimo:
+                dentro, t = False, senza
+        if t is not None:
+            ultimo = t
+        out.append(t)
+    return out
 
 
 def day_range(start_day, end_day):

@@ -39,7 +39,8 @@ import json as _json
 import re
 
 from .. import config, store
-from ..util import iso_utc, local_naive_to_utc, num, to_local, utc_now
+from ..util import (iso_utc, local_naive_to_utc, num,
+                    serie_locale_to_utc, to_local, utc_now)
 from .http import FetchError, fetch_text
 
 STATION = "torbole_addicted"
@@ -220,13 +221,14 @@ def parse_json(dati):
         raise FetchError("serie di lunghezze diverse: arch %d, mavg %d, mmax %d"
                          % (len(arch), len(mavg), len(mmax)))
 
+    istanti = _istanti(arch)
     out = []
     for i, chiave in enumerate(arch):
         w = num(mavg[i]) if i < len(mavg) else None
         if w is None:
             continue                      # ora futura, o non misurata
         g = num(mmax[i]) if i < len(mmax) else None
-        ts = _istante(chiave)
+        ts = istanti[i]
         if ts is None:
             continue
         if not (0.0 <= w <= MAX_WIND_KN):
@@ -236,6 +238,26 @@ def parse_json(dati):
         out.append((ts, w, g, None))
     out.sort()
     return out
+
+
+def _istanti(chiavi):
+    """Le chiavi "arch" di una risposta, convertite TUTTE INSIEME.
+
+    Sono orologi da parete in ordine: l'ultima domenica di ottobre le 02:00 e
+    le 02:30 compaiono due volte, e convertite una per una collasserebbero
+    sullo stesso istante UTC - un'ora di misure persa. In serie, l'ordine
+    delle chiavi dice qual e' il secondo passaggio.
+    """
+    naives = []
+    for c in chiavi:
+        try:
+            anno, mese, giorno, hhmm = str(c).split("/")
+            naives.append(_dt.datetime(int(anno), int(mese), int(giorno),
+                                       int(hhmm[:2]), int(hhmm[2:])))
+        except (ValueError, IndexError):
+            naives.append(None)
+    return [iso_utc(t) if t is not None else None
+            for t in serie_locale_to_utc(naives)]
 
 
 def _istante(chiave):
@@ -277,12 +299,13 @@ def parse_json_previsione(dati):
     lo, hi = dati.get("lo") or [], dati.get("hi") or []
     if not arch or not avg:
         return []
+    istanti = _istanti(arch)
     out = []
     for i, chiave in enumerate(arch):
         w = num(avg[i]) if i < len(avg) else None
         if w is None or not (0.0 <= w <= MAX_WIND_KN):
             continue
-        ts = _istante(chiave)
+        ts = istanti[i]
         if ts is None:
             continue
         out.append((ts, w,

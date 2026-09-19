@@ -2273,6 +2273,18 @@ def main(argv=None):
         for line in engine.update_stations():
             print(line)
         dati = live_mod.scrivi(args.live_json)
+        # E accanto, i campioni del canale vivo: e' l'unico modo perche'
+        # arrivino al processo lento, che ha un database suo. Vedi
+        # archivio.scrivi_vivo_recente.
+        try:
+            from . import archivio
+            import os as _os
+            vivo = _os.path.join(_os.path.dirname(_os.path.abspath(args.live_json)),
+                                 "vivo.csv.gz")
+            print("  scritti %d campioni del canale vivo in %s"
+                  % (archivio.scrivi_vivo_recente(vivo), vivo))
+        except Exception as e:                    # noqa: BLE001
+            print("campioni vivi: errore non fatale (%s: %s)" % (type(e).__name__, e))
         for nome, v in sorted(dati["luoghi"].items()):
             print("  %-10s %s  vento %s kn  raffica %s  ricorrente %s (%s)"
                   % (nome, v["ts"] or "-",
@@ -2307,6 +2319,14 @@ def main(argv=None):
         # serie non si riscaricano da nessuna parte. Qui tornano a posto.
         for f, n in archivio.recupera():
             print("  ripreso da %s: %d righe" % (f, n), flush=True)
+        # I campioni a dieci minuti li raccoglie il processo veloce, che ha un
+        # database suo: qui si rileggono dal ramo dove li pubblica.
+        try:
+            print("  campioni dal canale vivo pubblicato: %d"
+                  % archivio.leggi_vivo_pubblicato(), flush=True)
+        except Exception as e:                    # noqa: BLE001
+            print("  campioni pubblicati non letti (%s: %s) - si riprova al "
+                  "prossimo giro" % (type(e).__name__, str(e)[:80]), flush=True)
         engine.update_cycle(force=False, deep=True)
         for line in engine.backfill_station_history(
                 force=False, on_progress=lambda m: print(m, flush=True)):

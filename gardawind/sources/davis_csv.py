@@ -25,7 +25,7 @@ import datetime as _dt
 import io
 import re
 
-from ..util import KN_PER_KMH, iso_utc, local_naive_to_utc, num
+from ..util import KN_PER_KMH, iso_utc, num, serie_locale_to_utc
 from .http import FetchError, fetch_text
 
 MAX_WIND_KN = 60.0
@@ -69,7 +69,12 @@ def fetch_intervallo(base_url, dal, al, unita):
     if not text or text.lstrip().startswith("<"):
         raise FetchError("archivio intraday %s..%s non disponibile" % (dal, al))
 
-    out = []
+    # Prima gli orologi da parete, TUTTI INSIEME: l'ultima domenica di ottobre
+    # le 02:00-02:59 italiane esistono due volte e il file le scrive due volte
+    # uguali. Convertite una per una finirebbero sullo stesso istante UTC, e
+    # con INSERT OR REPLACE la seconda cancellerebbe la prima. In serie,
+    # l'ordine delle righe dice qual e' il secondo passaggio.
+    grezze = []
     for line in text.splitlines():
         m = _RE_ROW.match(line.strip())
         if not m:
@@ -81,8 +86,13 @@ def fetch_intervallo(base_url, dal, al, unita):
         naive = _dt.datetime(y, mo, d, hh % 24, mi)
         if hh >= 24:
             naive += _dt.timedelta(days=1)
-        stamp = local_naive_to_utc(naive)
+        grezze.append((naive, parts))
+    istanti = serie_locale_to_utc([n for n, _p in grezze])
 
+    out = []
+    for (naive, parts), stamp in zip(grezze, istanti):
+        if stamp is None:
+            continue
         wind = num(parts[COL_WIND])
         gust = num(parts[COL_GUST])
         wind = wind * f if wind is not None else None

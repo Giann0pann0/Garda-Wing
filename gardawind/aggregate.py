@@ -25,7 +25,23 @@ MIN_SAMPLES_FULL = 4
 
 
 def aggregate_station(station, since_iso=None):
-    """Ricalcola obs_hour per una stazione. Ritorna il numero di ore scritte."""
+    """Ricalcola obs_hour per una stazione. Ritorna il numero di ore scritte.
+
+    `since_iso` viene SEMPRE riportato all'inizio della sua ora, e non e' un
+    dettaglio: il chiamante passa l'istante del campione piu' vecchio che ha
+    ricevuto, che cade a meta' ora (il cron gira ai :20, e la finestra di
+    Meteotrentino e' scorrevole). Senza l'arrotondamento il primo secchio
+    veniva ricostruito con i soli campioni successivi e riscritto sopra quello
+    completo - un'ora da sei campioni diventava un'ora da uno, con media e
+    massimo di quell'uno. Misurato: 12,5 kn su sei campioni diventavano 15,0
+    su uno. E al giro dopo quell'ora era fuori finestra, quindi restava
+    sbagliata per sempre in obs_hour, che e' il bersaglio dell'addestramento.
+    Quattro ore al giorno.
+    """
+    if since_iso:
+        dt0 = parse_dt_any(since_iso)
+        if dt0 is not None:
+            since_iso = iso_hour_utc(dt0)
     samples = store.samples_since(station, since_iso or "0000")
     if not samples:
         return 0
