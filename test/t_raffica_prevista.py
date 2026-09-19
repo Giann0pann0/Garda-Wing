@@ -49,13 +49,22 @@ ORA, PELER = "Torbole-Ora", "Torbole-Peler"
 ST = config.SPOTS[ORA]["station"]
 
 
-def salva(giorno, ora, media, raffica):
+def salva(giorno, ora, media, raffica, direzione=None):
+    """Una riga oraria finta, CON la direzione che quel regime avrebbe.
+
+    La direzione non e' un riempitivo: il rapporto raffica/medio si impara nel
+    regime, e il regime lo decide il settore. Prima questo aiutante scriveva
+    190 gradi su tutte le ore - un'Ora anche alle sette del mattino - e il
+    banco non poteva accorgersi che il filtro di settore non c'era.
+    """
     naive = dt.datetime.fromisoformat(giorno + "T00:00:00") + dt.timedelta(hours=ora)
+    if direzione is None:
+        direzione = 190.0 if 11 <= ora <= 19 else 50.0
     store.connect().execute(
         "INSERT OR REPLACE INTO obs_hour(station,hour,wind_mean,wind_max,"
         "gust_max,gust_rec,dir_deg,dir_const,n_samples) VALUES(?,?,?,?,?,?,?,?,?)",
-        (ST, iso_utc(local_naive_to_utc(naive))[:13], media, media + 1, raffica,
-         None, 190.0, 0.9, 6))
+        (ST, store.chiave_ora(iso_utc(local_naive_to_utc(naive))), media,
+         media + 1, raffica, None, direzione, 0.9, 6))
 
 
 # ---- 2. senza ore: il predefinito, dichiarato ------------------------------
@@ -144,3 +153,21 @@ ok("<b>14</b><small>medio</small>" in card and "<b>21</b><small>raffica</small>"
 ok("1–29" not in card and "1–29" not in card,
    "e il '1-29' non c'e' piu'")
 print("%d controlli sulla raffica prevista" % passati)
+
+# ---- 5. il regime lo decide il SETTORE, non l'ora del giorno ---------------
+# La docstring diceva "nel suo regime" e il filtro era solo orario. Un nordico
+# sinottico nel pomeriggio, a pari media, e' piu' rafficato della brezza: il
+# rapporto usciva alto e la raffica prevista correva sopra quella misurata -
+# proprio quello che si vedeva nel grafico del 19/09. config lo quantifica: a
+# Torbole il 22% delle ore ventose pomeridiane non sono Ora per direzione.
+for g in range(1, 21):
+    salva("2026-08-%02d" % g, 15, 10.0, 25.0, direzione=20.0)   # nordico: x2.5
+engine.STATE.clear()
+rel = engine.relazione_raffica(ORA)
+ok(abs(rel["scalini"].get(8.0, 0) - 1.8) < 0.01,
+   "venti ore di nordico pomeridiano NON spostano il rapporto dell'Ora "
+   "(%.2f, sarebbe salito verso 2,5)" % rel["scalini"].get(8.0, 0))
+ok(rel.get("fuori_settore", 0) >= 20,
+   "e si sa quante ne ha scartate per direzione (%s: i venti nordici piu' le "
+   "ore di Peler, che per l'Ora sono fuori settore allo stesso modo)"
+   % rel.get("fuori_settore"))

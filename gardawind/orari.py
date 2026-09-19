@@ -79,7 +79,12 @@ LETTURE = ("vento", "regime")
 #   no_regime                 la soglia non e' mai stata superata
 REASONS = ("ok", "left_censored", "no_data", "insufficient_coverage",
            "gap_too_large", "direction_outside_sector",
-           "threshold_not_sustained", "no_regime")
+           "threshold_not_sustained", "no_regime",
+           # Una giornata in cui la finestra utile non esiste perche' non c'e'
+           # abbastanza luce: succede d'inverno sul Peler. Il codice lo
+           # restituiva gia' e non era in elenco - cioe' l'insieme "chiuso" non
+           # lo era, e il controllo che doveva proteggerlo non poteva vederlo.
+           "no_daylight")
 
 # I campi della struttura per giornata usano i nomi del contratto.
 EN = {"regime": "regime", "planata": "planing"}

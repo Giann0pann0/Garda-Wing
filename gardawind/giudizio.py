@@ -118,7 +118,7 @@ def voto(kn, minuti, spot):
 MINIMO = 50.0          # sotto, non e' un verdetto: e' una monetina
 
 
-def affidabilita(prob, valutazione):
+def affidabilita(prob, valutazione, fonte=None):
     """Percentuale che il verdetto sia giusto, o None se non e' misurabile.
 
     `prob`        la probabilita' del regime emessa dal modello (0..1).
@@ -126,6 +126,17 @@ def affidabilita(prob, valutazione):
                   scadenza: serve per sapere SE c'e' verifica e quanto vale
                   la calibrazione.
     """
+    # `fonte` e' la provenienza della probabilita' (`source_prob`), e senza
+    # questo controllo la scheda scriveva una percentuale di affidabilita'
+    # "addestrata e verificata" anche quando la probabilita' NON veniva da un
+    # modello: dove lo stadio non supera la porta, predict usa il tasso
+    # climatologico, uguale per tutti i giorni della fascia. Succedeva alle
+    # scadenze lunghe - il caso che il README stesso dichiara, "a sette giorni
+    # la probabilita' vale zero" - e usciva una percentuale costante descritta
+    # come misurata. E' la scritta piu' pericolosa della pagina, perche' e'
+    # quella che chi legge usa per decidere quanto fidarsi di tutto il resto.
+    if fonte is not None and fonte != "appreso":
+        return None
     if prob is None or not valutazione or not valutazione.get("misurato"):
         return None
     p = max(0.0, min(1.0, float(prob)))
@@ -159,7 +170,7 @@ def scala_parole(spot):
     return " ".join("<b>%s</b>: %s." % (p, f) for p, f in zip(VOTI, frasi))
 
 
-def affidabilita_parole(pct, valutazione):
+def affidabilita_parole(pct, valutazione, fonte=None):
     """Come si spiega quel numero, in una riga. Sta qui accanto a chi lo fa.
 
     La frase dice cosa il numero E', non quanto e' alto: "78%" senza
@@ -168,6 +179,11 @@ def affidabilita_parole(pct, valutazione):
     che non e' quello che misura.
     """
     if pct is None:
+        if fonte is not None and fonte != "appreso":
+            return ("affidabilità non misurabile: a questa scadenza la "
+                    "probabilità non viene da un modello addestrato ma dalla "
+                    "frequenza climatologica del regime, che è la stessa per "
+                    "tutti i giorni")
         motivo = (valutazione or {}).get("motivo") or "non ancora verificata"
         return "affidabilità non misurata a questa scadenza: %s" % motivo
     return ("probabilità che il verdetto “si naviga / non si naviga” "

@@ -7,7 +7,7 @@ import threading
 import time
 
 from . import (aggregate, analogs, config, confidence as CONF, features as F,
-               model as M, store, validate as V, verify)
+               giudizio, model as M, store, validate as V, verify)
 from .sources import (addicted, addicted_live, malcesine, meteotrentino,
                       openmeteo)
 from .sources.http import FetchError
@@ -1307,34 +1307,26 @@ def ensemble_hours(spot_name):
 # Prodotto finale
 # ==========================================================================
 
-GRADES = (
-    (22, "ECCEZIONALE"),
-    (18, "MOLTO BUONO"),
-    (14, "BUONO"),
-    (11, "SI PLANA A TRATTI"),
-    (8, "MARGINALE"),
-    (0, "TROPPO POCO"),
-)
+def grade(spot_name, speed, prob=None):
+    """Giudizio sintetico, con le parole e le soglie di giudizio.py.
 
-
-def grade(speed, prob=None):
-    """Giudizio sintetico: unisce quanto tira e quanto e' probabile che tiri.
-
-    Tenere separati i due numeri porta a schede incoerenti del tipo "90% di
-    probabilita'" accanto a "6 nodi". Il giudizio deve dire una cosa sola.
+    Qui c'era una scala TUTTA SUA - 22/18/14/11/8 kn - che riscriveva a mano
+    planing_kn e min_kn e non la leggeva nessuno: il prodotto usa
+    giudizio.voto. Non era il codice inutilizzato il problema, era che
+    sembrava autorevole: chi apriva engine.py per capire come si decide
+    "quanto vale la giornata" trovava quattro risposte diverse, e la sola
+    viva stava altrove. Adesso e' la stessa, e se le soglie cambiano cambia
+    con loro.
     """
-    label = GRADES[-1][1]
-    for threshold, name in GRADES:
-        if speed >= threshold:
-            label = name
-            break
+    parola, _classe = giudizio.voto(speed, None, config.SPOTS[spot_name])
+    parola = (parola or "").upper()
     if prob is None:
-        return label
+        return parola
     if prob < 0.25:
         return "IMPROBABILE"
     if prob < 0.45:
-        return label + " · INCERTO"
-    return label
+        return parola + " · INCERTO"
+    return parola
 
 
 def last_observed_peak(spot_name, today=None):
@@ -1493,7 +1485,7 @@ def forecast_days(spot_name, horizon=None):
             "spread": sp,
             "n_models": nmodels,
             "weights": weight_origin,
-            "grade": grade(pred["speed"], pred["prob"]),
+            "grade": grade(spot_name, pred["speed"], pred["prob"]),
             "profile": profile,
             "window": best,
             "features": feats,
@@ -1943,10 +1935,25 @@ def relazione_raffica(spot_name):
         return STATE[chiave]
     spot = config.SPOTS[spot_name]
     h0, h1 = spot["window"]
+    # L'asse della CENTRALINA, come per il bersaglio: qui si giudica una
+    # direzione misurata, non un vento di griglia.
+    axis_obs = spot.get("axis_obs", spot["axis"])
     per_scalino = {s: [] for s in RAFFICA_SCALINI}
+    fuori_settore = 0
     for r in store.obs_hours(spot["station"]):
         w, g = r.get("wind_mean"), r.get("gust_max")
         if w is None or g is None or w < RAFFICA_SCALINI[0] or g < w:
+            continue
+        # NEL SUO REGIME, come dice la docstring: prima il filtro era solo
+        # orario, e config dichiara quanto costa - "a Torbole il 22% delle ore
+        # ventose pomeridiane NON sono Ora per direzione: etichettare per sola
+        # ora del giorno sarebbe sbagliato una volta su cinque". Un nordico
+        # sinottico a pari media e' piu' rafficato della brezza, quindi il
+        # rapporto usciva alto e la raffica prevista correva sopra quella
+        # misurata - che e' proprio quello che si vedeva nel grafico.
+        d = r.get("dir_deg")
+        if d is not None and angle_diff(d, axis_obs) > config.REGIME_SECTOR_DEG:
+            fuori_settore += 1
             continue
         dt = parse_dt_any(r["hour"])
         # La finestra di config e' INCLUSIVA agli estremi (start <= h <= end),
@@ -1964,7 +1971,7 @@ def relazione_raffica(spot_name):
             v.sort()
             tabella[s] = clamp(v[len(v) // 2], *RAFFICA_LIMITI)
     esito = {"scalini": tabella, "ore": sum(len(v) for v in per_scalino.values()),
-             "fonte": spot["station"]}
+             "fuori_settore": fuori_settore, "fonte": spot["station"]}
     STATE[chiave] = esito
     return esito
 
@@ -2178,8 +2185,3 @@ WING_SIZES = (
 )
 
 
-def wing_hint(speed):
-    for threshold, label in WING_SIZES:
-        if speed >= threshold:
-            return label
-    return None

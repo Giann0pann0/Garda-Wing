@@ -580,6 +580,7 @@ MOTIVI = {
     "direction_outside_sector": "vento sufficiente, direzione fuori settore",
     "threshold_not_sustained": "soglia superata, ma non abbastanza a lungo",
     "no_regime": "soglia mai superata",
+    "no_daylight": "finestra utile inesistente: non c'e' abbastanza luce",
 }
 
 MESI_BREVI = ["gen", "feb", "mar", "apr", "mag", "giu",

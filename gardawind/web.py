@@ -423,21 +423,6 @@ def arrow(deg, size=24, color="currentColor"):
             '</g></svg>' % (size, size, (deg or 0) % 360, color))
 
 
-def verdict_chip(grade, speed, prob):
-    if prob is not None and prob < 0.25:
-        cls = "no"
-    elif speed >= 23:
-        cls = "big"
-    elif speed >= 16:
-        cls = "go"
-    elif speed >= 12:
-        cls = "ok"
-    elif speed >= 9:
-        cls = "meh"
-    else:
-        cls = "no"
-    mark = {"go": "✓", "big": "!", "ok": "~", "meh": "~", "no": "✕"}[cls]
-    return '<span class="chip %s">%s %s</span>' % (cls, mark, E(grade))
 
 
 # --------------------------------------------------------------------------
@@ -907,7 +892,8 @@ def card_regime(place, regime, label, quando, profile, sessions,
                 % E(label.upper()))
     parola, classe = giudizio.voto(num["kn"], num["minuti"], num["spot"])
     conf = data.get("affidabilita")
-    pct = giudizio.affidabilita(data.get("prob"), conf)
+    pct = giudizio.affidabilita(data.get("prob"), conf,
+                                data.get("source_prob"))
     motori = motori_valori(place, sessions)
     righe_motori = ""
     if motori:
@@ -1977,9 +1963,10 @@ def dettagli_panel(place, days):
         if not data:
             continue
         conf = data.get("affidabilita")
-        pct = giudizio.affidabilita(data.get("prob"), conf)
+        pct = giudizio.affidabilita(data.get("prob"), conf,
+                                data.get("source_prob"))
         righe.append("<li><b>%s</b>: %s</li>"
-                     % (E(lab), giudizio.affidabilita_parole(pct, conf)))
+                     % (E(lab), giudizio.affidabilita_parole(pct, conf, data.get("source_prob"))))
     spot = config.SPOTS[place_spots(place).get("ORA")
                         or list(place_spots(place).values())[0]]
     return (

@@ -28,10 +28,13 @@ BOOTSTRAP_N = 2000
 PROD_MIN_DAYS = 30
 PROD_MIN_TARGETS = 300
 
-REGIMES = {
-    "Torbole-Peler": {"hours": (6, 10)},
-    "Torbole-Ora": {"hours": (11, 19)},
-}
+# Le finestre vengono da config, non riscritte qui. C'era "(6, 10)" per il
+# Peler: non e' la finestra del regime (4, 10) ne' quella utile calcolata
+# giorno per giorno - era un TERZO orario, e le ore 04-05, dove d'inverno il
+# Peler e' piu' forte, non entravano nel banco su cui si decide se accendere
+# la correzione intraday del prodotto.
+REGIMES = {nome: {"hours": config.SPOTS[nome]["window"]}
+           for nome in ("Torbole-Peler", "Torbole-Ora")}
 
 REASON_OK = "ok"
 REASON_NO_HISTORY = "no_history"
@@ -165,7 +168,15 @@ def _regime_days(rows, spot_name):
     for r in rows:
         if r["obs"] < spot["min_kn"] or r.get("dir") is None:
             continue
-        if angle_diff(r["dir"], spot["axis"]) <= config.REGIME_SECTOR_DEG:
+        # L'asse della CENTRALINA: qui si giudica una direzione MISURATA, e
+        # config e' esplicito - "il bersaglio si giudica nel sistema della
+        # centralina". Per il Peler di Torbole sono 54 gradi contro i 24
+        # dell'asse geometrico: trenta gradi, dichiarati "non rumore". Col
+        # riferimento sbagliato il settore accettato si sposta di trenta gradi,
+        # e le ore di Peler vero finivano fra quelle "senza regime" mentre un
+        # nordico sinottico ci entrava.
+        if angle_diff(r["dir"], spot.get("axis_obs", spot["axis"])) \
+                <= config.REGIME_SECTOR_DEG:
             good[r["day"]].add(r["hour"])
     out = set()
     for day, hs in good.items():

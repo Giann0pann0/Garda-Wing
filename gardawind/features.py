@@ -196,7 +196,11 @@ def daily_features(spot_name, day, hours, ctx, persist=None, persist_age=None,
     h0, h1 = spot["window"]
 
     win_keys = [k for k in window_hours(day, h0, h1) if k in hours]
-    if len(win_keys) < max(3, int(0.5 * (h1 - h0 + 1))):
+    # La copertura minima e' UNA, ed e' in config: qui c'era un 0,5 scritto a
+    # mano contro lo 0,55 che usano il bersaglio (engine) e la verifica. Un
+    # giorno col 52% delle ore veniva accettato dal lato dei predittori e
+    # rifiutato dal lato dell'osservato: due numeri per una regola sola.
+    if len(win_keys) < max(3, int(config.MIN_WINDOW_COVERAGE * (h1 - h0 + 1))):
         return None
 
     win = [hours[k] for k in win_keys]
