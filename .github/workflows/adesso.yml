@@ -90,7 +90,17 @@ jobs:
           git checkout -q -b live
           git config user.name "Garda Wind"
           git config user.email "noreply@anthropic.com"
-          git add live.json vivo.csv.gz
+          # live.json prima e da solo: il ponte verso il processo lento e' un
+          # extra, e un extra non deve poter fermare la pubblicazione
+          # dell'"adesso". Il passo che scrive vivo.csv.gz sta dentro un try
+          # che di proposito non e' fatale; ma "git add" di un file che non
+          # c'e' fallisce, e con lui il commit e il push - il sito resterebbe
+          # fermo sull'ultimo dato buono senza che nessuna esecuzione risulti
+          # fallita. Cioe' l'esatto guasto silenzioso che questo ramo esiste
+          # per evitare.
+          git add live.json
+          if [ -f vivo.csv.gz ]; then git add vivo.csv.gz; \
+          else echo "vivo.csv.gz assente: pubblico solo live.json"; fi
           git -c commit.gpgsign=false commit -q -m "adesso: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -q --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
