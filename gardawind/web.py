@@ -2199,6 +2199,22 @@ def page_diagnostics():
             r.append("<tr><td>%s</td><td colspan='9'>non ancora addestrato</td></tr>" % E(label))
             continue
         m = L["metrics"]
+        # Un modello che non c'e' ancora non e' un modello scadente: dice da
+        # quante giornate manca e cosa si pubblica al suo posto. Prima questa
+        # riga diceva solo "non ancora addestrato", e il perche' restava nel
+        # registro di un'esecuzione che nessuno legge.
+        if m.get("solo_climatologia"):
+            r.append("<tr><td>%s</td><td colspan='9'>nessun modello: %s. "
+                     "In pagina c'è la <b>climatologia misurata</b> di questa "
+                     "centralina — %s su %d giornate osservate, di cui %d "
+                     "entrate nel regime (%s → %s)</td></tr>"
+                     % (E(label), E(str(m.get("status") or "in attesa")),
+                        ("%.1f kn di mediana del picco" % m["clim_median"])
+                        if m.get("clim_median") is not None
+                        else "solo la frequenza d'ingresso",
+                        m.get("n") or 0, m.get("n_established") or 0,
+                        E(str(m.get("days_from"))), E(str(m.get("days_to")))))
+            continue
         used = ("<span class='good'>sì</span>" if m.get("usable") else
                 "<span class='bad'>solo probabilità</span>" if m.get("usable_occurrence")
                 else "<span class='bad'>no, stima fisica</span>")

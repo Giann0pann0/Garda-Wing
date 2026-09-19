@@ -170,4 +170,90 @@ ok(engine.storico_addicted("brenzone") == [],
 esito = engine.promuovi_storico_addicted("campione")
 ok(esito.get("campione", 0) > 60000,
    "e la promozione le porta in obs_hour (%d)" % esito.get("campione", 0))
+
+# ---- 5. una localita' nuova non pubblica il modello grezzo ------------------
+# Il difetto visto in pagina il 19/09: Campione aveva 66.507 ore di
+# osservazioni e NESSUN modello, e i numeri pubblicati erano il prior fisico,
+# cioe' il vento grezzo d'ensemble. Due cause, entrambe strutturali:
+# i predittori storici del suo punto si scaricavano solo allo scadere di un
+# orologio, e dove il modello manca la previsione ripiegava sul prior.
+from gardawind import model as M  # noqa: E402
+
+PUNTO = store.point_key(config.SPOTS["Campione-Ora"]["lat"],
+                        config.SPOTS["Campione-Ora"]["lon"])
+
+# a) la copertura, non l'orologio
+scoperti = dict((p, (ha, serve)) for p, ha, serve in engine.predittori_scoperti())
+ok(PUNTO in scoperti and scoperti[PUNTO][0] is None,
+   "il punto di Campione e' dichiarato scoperto: osservazioni dal %s, predittori nessuno"
+   % scoperti[PUNTO][1])
+ok(scoperti[PUNTO][1] >= "2021",
+   "e cio' che serve e' limitato dall'orizzonte dell'archivio, non il 2017 (%s)"
+   % scoperti[PUNTO][1])
+# Due punti diversi hanno bisogni diversi: Torbole misura dal 2012, Campione
+# dal 2017, e chiedere a entrambi la stessa data era traffico buttato.
+ok(engine._inizio_utile(["campione"], "2010-01-01") == "2017-10-19"
+   and engine._inizio_utile(["T0193"], "2010-01-01")
+   != engine._inizio_utile(["campione"], "2010-01-01"),
+   "ogni punto parte da dove partono le SUE osservazioni")
+
+store.save_archive(PUNTO, [(scoperti[PUNTO][1] + "T12:00:00Z", {"w10": 9.0})])
+ok(any(p == PUNTO for p, _h, _s in engine.predittori_scoperti()) is False,
+   "appena i predittori arrivano dove arrivano le osservazioni, non e' piu' scoperto")
+c.execute("DELETE FROM arch_hour WHERE point=?", (PUNTO,))
+c.commit()
+ok(any(p == PUNTO for p, _h, _s in engine.predittori_scoperti()),
+   "e se si svuotano torna scoperto")
+store.meta_set("predittori_tentati_%s" % PUNTO, "2000-01-01")
+ok(all(p != PUNTO for p, _h, _s in engine.predittori_scoperti()),
+   "ma un punto GIA' tentato da quella data non e' scoperto: riprovare a ogni "
+   "ciclo sarebbe traffico infinito")
+store.meta_set("predittori_tentati_%s" % PUNTO, "2099-01-01")
+
+# b) dove il modello manca, la previsione e' la climatologia MISURATA
+clim = engine.climatologia_osservata("Campione-Ora")
+ok(clim and clim["n"] > 2000 and clim["clim_median"] is not None,
+   "la climatologia osservata si calcola dalle sole osservazioni: %s giornate, "
+   "mediana del picco %.1f kn"
+   % ((clim or {}).get("n"), (clim or {}).get("clim_median") or -1))
+ok(clim["clim_median"] >= config.SPOTS["Campione-Ora"]["min_kn"],
+   "ed e' la mediana delle giornate ENTRATE, quindi non sotto la soglia (%.1f)"
+   % clim["clim_median"])
+ok(0.0 < clim["base_rate"] < 1.0 and clim["solo_climatologia"],
+   "viaggia con la frequenza d'ingresso, e si dichiara per quello che e'")
+salvata = engine._salva_climatologia("Campione-Ora", "pochi dati: 4 giornate")
+ok(salvata is not None
+   and store.load_learned("Campione-Ora", "daily")["metrics"]["solo_climatologia"],
+   "e finisce in archivio come il modello che non c'e'")
+
+# Il numero pubblicato cambia, e cambia la parola che lo accompagna.
+finti = {"w10_win": 4.0, "g10_win": 6.0, "w10_max": 5.0, "pgrad": 1.0,
+         "tgrad": 1.0, "doy_sin": 0.0, "doy_cos": 1.0}
+senza = M.predict("Campione-Ora", finti, None, 0, 3.0)
+con = M.predict("Campione-Ora", finti,
+                store.load_learned("Campione-Ora", "daily"), 0, 3.0)
+ok(senza["source_int"] == "prior" and con["source_int"] == "climatologia",
+   "senza nulla in archivio la previsione e' il modello grezzo; con la "
+   "climatologia e' una misura")
+ok(con["speed"] > senza["speed"],
+   "e il numero sale, perche' il modello grezzo sul Garda legge meno del vero "
+   "(%.1f -> %.1f kn)" % (senza["speed"], con["speed"]))
+
+# c) un modello vero non viene declassato da un giro andato male
+store.save_learned("Campione-Ora", "daily", "full", 1200, {"tier": "full"},
+                   {"tier": "full", "usable": True, "n": 1200})
+ok(engine._salva_climatologia("Campione-Ora", "pochi dati") is None
+   and store.load_learned("Campione-Ora", "daily")["tier"] == "full",
+   "la climatologia non sovrascrive un modello appreso")
+
+# d) la pagina di diagnostica dice PERCHE', non solo 'non ancora addestrato'
+c.execute("DELETE FROM learned WHERE spot='Campione-Ora'")
+c.commit()
+engine._salva_climatologia("Campione-Ora", "pochi dati: 4 giornate allineate")
+diag = web.page_diagnostics()
+ok("climatologia misurata" in diag and "4 giornate allineate" in diag,
+   "la diagnostica dichiara il motivo e cosa si pubblica al suo posto")
+riga = [r for r in diag.split("<tr>") if "Campione · Ora" in r]
+ok(riga and "non ancora addestrato" not in riga[0],
+   "e la riga di Campione non viene liquidata con 'non ancora addestrato'")
 print("%d controlli su Campione (totale)" % passati)

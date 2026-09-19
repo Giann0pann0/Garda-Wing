@@ -11,7 +11,7 @@ from . import (aggregate, analogs, config, confidence as CONF, features as F,
 from .sources import addicted, malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
-                   local_minute_of_day, mean, parse_dt_any, pstdev,
+                   local_minute_of_day, mean, median, parse_dt_any, pstdev,
                    recurrent_gust, sampling_cadence, utc_now,
                    vector_mean_direction, window_estimable,
                    FINESTRA_RICORRENTE_MIN)
@@ -421,6 +421,75 @@ def _obs_span(station):
     return start, max(d[:10] for d in ends)
 
 
+def _punti_stazioni():
+    """{chiave del punto: (lat, lon, [stazioni che stanno in quel punto])}.
+
+    Serve per chiedere a ogni punto la cosa giusta: i predittori di Campione
+    devono coprire le osservazioni di CAMPIONE, non il 2012 di Torbole.
+    """
+    out = {}
+    for s in config.SPOTS.values():
+        chiave = store.point_key(s["lat"], s["lon"])
+        rec = out.setdefault(chiave, (s["lat"], s["lon"], []))
+        if s["station"] not in rec[2]:
+            rec[2].append(s["station"])
+    return out
+
+
+def _inizio_utile(stazioni, orizzonte):
+    """Da quando servono i predittori per queste stazioni: l'inizio delle
+    loro osservazioni, non prima dell'orizzonte dell'archivio."""
+    inizi = [a for a in (_obs_span(st)[0] for st in stazioni) if a]
+    if not inizi:
+        return None
+    return max(min(inizi), orizzonte)
+
+
+# Quanto scarto si accetta fra l'inizio dei predittori e l'inizio delle
+# osservazioni prima di dire "questo punto e' scoperto". Un mese: meno
+# sarebbe rumore (l'archivio non comincia al giorno esatto), piu' vorrebbe
+# dire buttare via giornate di addestramento.
+SCOPERTO_GIORNI = 30
+
+
+def predittori_scoperti(source="forecast", max_years=5):
+    """I punti i cui predittori storici NON arrivano dove arrivano le
+    osservazioni: [(punto, inizio_servito, inizio_che_serve)].
+
+    E' la domanda giusta da fare prima di scaricare. Prima si chiedeva
+    soltanto "quanto tempo e' passato dall'ultima volta?", e una localita'
+    aggiunta oggi restava senza predittori - e quindi senza modello, e quindi
+    in pagina col vento grezzo d'ensemble - fino a quando un orologio non
+    scadeva. E' successo a Campione: osservazioni dal 2017 in archivio,
+    modello assente, pagina con i numeri del modello nudo.
+
+    Un punto che e' gia' stato tentato da quella data non e' scoperto: se
+    l'archivio non ha quei giorni non li avra' nemmeno al prossimo giro, e
+    riprovare a ogni ciclo sarebbe traffico infinito.
+    """
+    if source == "era5":
+        # La rianalisi risale molto piu' indietro dell'archivio delle
+        # previsioni: il suo orizzonte e' dichiarato in config, non cinque anni.
+        orizzonte = config.ERA5_START
+    else:
+        orizzonte = (_dt.date.today()
+                     - _dt.timedelta(days=int(365.25 * max_years))).isoformat()
+    out = []
+    for chiave, (lat, lon, stazioni) in _punti_stazioni().items():
+        serve = _inizio_utile(stazioni, orizzonte)
+        if not serve:
+            continue
+        punto = store.point_key(lat, lon, source)
+        tentato = store.meta_get("predittori_tentati_%s" % punto)
+        if tentato and tentato <= serve:
+            continue
+        ha, _b, _n = store.archive_span(punto)
+        if ha and ha[:10] <= day_shift(serve, SCOPERTO_GIORNI):
+            continue
+        out.append((punto, ha[:10] if ha else None, serve))
+    return out
+
+
 def backfill_era5_features(chunk_days=730):
     """Rianalisi ERA5 di superficie, dall'inizio delle osservazioni.
 
@@ -432,23 +501,27 @@ def backfill_era5_features(chunk_days=730):
     today = _dt.date.today()
     end_day = (today - _dt.timedelta(days=6)).isoformat()   # ERA5 ha ~5 gg di ritardo
 
-    starts = []
-    for station in {s["station"] for s in config.SPOTS.values()}:
-        a, _b = _obs_span(station)
-        if a:
-            starts.append(a)
-    if not starts:
+    punti = _punti_stazioni()
+    inizi = [g for g in (_inizio_utile(st, config.ERA5_START)
+                         for _la, _lo, st in punti.values()) if g]
+    if not inizi:
         return ["nessuna osservazione: niente da allineare"]
-    start_day = max(min(starts), config.ERA5_START)
+    start_day = min(inizi)      # per il contesto, che e' comune a tutti i punti
 
     out = []
-    for _key, (lat, lon) in _points().items():
+    for _key, (lat, lon, stazioni) in punti.items():
         point = store.point_key(lat, lon, "era5")
+        # Ogni punto parte da dove partono le SUE osservazioni: scaricare il
+        # 2012 per una centralina che misura dal 2017 e' traffico buttato.
+        da = _inizio_utile(stazioni, config.ERA5_START)
+        if not da:
+            continue
         _a, have_b, _n = store.archive_span(point)
-        cursor = start_day
-        if have_b and have_b[:10] >= start_day:
+        cursor = da
+        if have_b and have_b[:10] >= da:
             cursor = day_shift(have_b[:10], 1)
         got = 0
+        completo = True
         while cursor <= end_day:
             stop = min(day_shift(cursor, chunk_days - 1), end_day)
             try:
@@ -457,8 +530,14 @@ def backfill_era5_features(chunk_days=730):
                 got += len(rows)
             except FetchError as e:
                 _note("warn", "era5", "%s %s: %s" % (point, cursor, str(e)[:100]))
+                completo = False
                 break
             cursor = day_shift(stop, 1)
+        if completo:
+            # Il giro e' arrivato in fondo: da qui in avanti questo punto non
+            # e' "scoperto" nemmeno se l'archivio non ha quei giorni, perche'
+            # riprovare non li farebbe comparire.
+            store.meta_set("predittori_tentati_%s" % point, da)
         if got:
             out.append("%s: %d ore ERA5" % (point, got))
 
@@ -561,22 +640,24 @@ def backfill_archive_features(max_years=5, chunk_days=180):
     today = _dt.date.today()
     horizon = (today - _dt.timedelta(days=int(365.25 * max_years))).isoformat()
 
-    starts = []
-    for station in {s["station"] for s in config.SPOTS.values()}:
-        a, _b = _obs_span(station)
-        if a:
-            starts.append(a)
-    if not starts:
+    punti = _punti_stazioni()
+    inizi = [g for g in (_inizio_utile(st, horizon)
+                         for _la, _lo, st in punti.values()) if g]
+    if not inizi:
         return ["nessuna osservazione: niente da allineare"]
-    start_day = max(min(starts), horizon)
+    start_day = min(inizi)      # per il contesto, che e' comune a tutti i punti
     end_day = (today - _dt.timedelta(days=1)).isoformat()
 
     out = []
-    for point, (lat, lon) in _points().items():
+    for point, (lat, lon, stazioni) in punti.items():
+        da = _inizio_utile(stazioni, horizon)
+        if not da:
+            continue
         have_a, have_b, _n = store.archive_span(point)
-        cursor = start_day
-        if have_b and have_b[:10] >= start_day:
+        cursor = da
+        if have_b and have_b[:10] >= da:
             cursor = day_shift(have_b[:10], 1)
+        completo = True
         while cursor <= end_day:
             stop = min(day_shift(cursor, chunk_days - 1), end_day)
             try:
@@ -584,8 +665,11 @@ def backfill_archive_features(max_years=5, chunk_days=180):
                 store.save_archive(point, rows)
             except FetchError as e:
                 _note("warn", "archivio-feature", "%s %s: %s" % (point, cursor, str(e)[:100]))
+                completo = False
                 break
             cursor = day_shift(stop, 1)
+        if completo:
+            store.meta_set("predittori_tentati_%s" % point, da)
         out.append("%s fino a %s" % (point, cursor))
 
     for place, (lat, lon, _side) in config.CONTEXT_POINTS.items():
@@ -877,6 +961,66 @@ def learned_by_band(spot_name):
     return out
 
 
+# Quante giornate servono perche' una climatologia osservata sia una misura e
+# non un aneddoto. E' la stessa soglia che il modello chiede allo stadio B.
+CLIM_MIN_GIORNATE = 40
+
+
+def climatologia_osservata(spot_name):
+    """Quanto tira di solito, e quanto spesso entra, dalle sole OSSERVAZIONI.
+
+    Non serve nessun predittore: si legge il bersaglio. E' cio' che si
+    pubblica quando un modello non c'e' - una localita' appena aggiunta, i cui
+    predittori storici stanno ancora arrivando - al posto del prior fisico,
+    che e' il vento grezzo d'ensemble e sul Garda legge sistematicamente meno
+    del vero. Misurato a Campione sulle 55.830 ore in comune con Malcesine:
+    la mediana del picco dell'Ora e' 9,9 kn (10,2 a settembre), e il modello
+    nudo in pagina ne dava 5.
+
+    Le due grandezze hanno gli stessi nomi che avrebbero se un modello ci
+    fosse - base_rate e clim_median - perche' chi le usa e' lo stesso codice:
+    model.predict le sceglie gia' quando il modello non batte la climatologia.
+    Qui il caso e' solo piu' estremo: il modello non c'e' affatto.
+    """
+    t = _targets(spot_name)
+    if len(t) < CLIM_MIN_GIORNATE:
+        return None
+    picchi = [v[0] for v in t.values() if v[1] and v[0] is not None]
+    if len(picchi) < 5:
+        # Entra troppo poche volte per dire "quanto": si dichiara solo il "se".
+        picchi = []
+    giorni = sorted(t)
+    return {
+        "source": "climatologia osservata",
+        "tier": None,
+        "solo_climatologia": True,
+        "n": len(t),
+        "n_eval": len(t),
+        "n_established": sum(1 for v in t.values() if v[1]),
+        "base_rate": sum(1 for v in t.values() if v[1]) / float(len(t)),
+        "clim_median": median(picchi) if picchi else None,
+        "days_from": giorni[0], "days_to": giorni[-1],
+    }
+
+
+def _salva_climatologia(spot_name, motivo):
+    """Dove non c'e' un modello, la climatologia misurata e' la previsione.
+
+    Non sovrascrive un modello vero: se in archivio c'e' gia' qualcosa di
+    appreso, quello resta - un giro di addestramento andato male non deve
+    declassare un modello che funzionava.
+    """
+    gia = store.load_learned(spot_name, "daily")
+    if gia and not (gia.get("metrics") or {}).get("solo_climatologia"):
+        return None
+    m = climatologia_osservata(spot_name)
+    if not m:
+        return None
+    m["status"] = motivo
+    store.save_learned(spot_name, "daily", None, m["n"], {}, m)
+    return m
+
+
 def train_all():
     report = []
     for spot_name in config.SPOTS:
@@ -887,13 +1031,19 @@ def train_all():
                 sources[src] = got
         fc = sources.get("forecast") or []
         if len(fc) < 30:
-            report.append({"spot": spot_name, "n": len(fc), "status": "pochi dati"})
+            motivo = ("pochi dati: %d giornate allineate fra predittori e "
+                      "osservazioni" % len(fc))
+            clim = _salva_climatologia(spot_name, motivo)
+            report.append({"spot": spot_name, "n": len(fc), "status": "pochi dati",
+                           "climatologia": (clim or {}).get("clim_median")})
             continue
 
         chosen, candidates = M.train(spot_name, sources)
         if chosen is None:
+            clim = _salva_climatologia(spot_name, "nessun candidato adottabile")
             report.append({"spot": spot_name, "n": len(fc),
-                           "status": "nessun candidato adottabile"})
+                           "status": "nessun candidato adottabile",
+                           "climatologia": (clim or {}).get("clim_median")})
             continue
         metrics = M.metrics_of(chosen)
         learned = {"payload": M.serialize(chosen), "metrics": metrics}
@@ -1379,14 +1529,26 @@ def update_cycle(force=False, deep=True):
                     store.meta_set("last_malcesine_refresh", iso_utc(utc_now()))
             except Exception as e:                      # pragma: no cover
                 _note("warn", "intraday/Malcesine", str(e)[:140])
+            # I predittori si scaricano quando MANCANO, non quando scade un
+            # orologio. La differenza si e' vista aggiungendo Campione: il
+            # giorno dopo aveva 66.507 ore di osservazioni in archivio e
+            # nessun modello, perche' l'orologio dei predittori era stato
+            # rimesso a zero poche ore prima - e la pagina intanto mostrava
+            # il vento grezzo d'ensemble, che sul Garda legge troppo poco.
+            # L'orologio resta, per il seguito quotidiano; la copertura ha la
+            # precedenza, e lo sposta solo un giro arrivato in fondo.
             STATE["phase"] = "predittori storici"
-            if force or _age_minutes("last_archive_backfill") > 24 * 60:
+            if force or predittori_scoperti("forecast") or \
+                    _age_minutes("last_archive_backfill") > 24 * 60:
                 backfill_archive_features()
-                store.meta_set("last_archive_backfill", iso_utc(utc_now()))
+                if not predittori_scoperti("forecast"):
+                    store.meta_set("last_archive_backfill", iso_utc(utc_now()))
             STATE["phase"] = "rianalisi ERA5"
-            if force or _age_minutes("last_era5_backfill") > 7 * 24 * 60:
+            if force or predittori_scoperti("era5") or \
+                    _age_minutes("last_era5_backfill") > 7 * 24 * 60:
                 backfill_era5_features()
-                store.meta_set("last_era5_backfill", iso_utc(utc_now()))
+                if not predittori_scoperti("era5"):
+                    store.meta_set("last_era5_backfill", iso_utc(utc_now()))
             STATE["phase"] = "predittori per scadenza"
             if force or _age_minutes("last_lead_backfill") > 24 * 60:
                 backfill_lead_features()
