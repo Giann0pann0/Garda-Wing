@@ -143,7 +143,12 @@ for lead, rows in by_lead.items():
         atteso_giorno = (dt.date.fromisoformat(s["day"])
                          - dt.timedelta(days=lead + 1)).isoformat()
         atteso = targets.get(atteso_giorno)
-        atteso_val = atteso[0] if atteso else 0.0
+        # Dove quel giorno non c'e', la memoria NON e' zero nodi: e' il valore
+        # neutro (la mediana del picco), lo stesso che riceve la previsione in
+        # esercizio. Lo zero era l'affermazione piu' forte possibile nella
+        # direzione sbagliata, e faceva crollare la probabilita' all'1% su
+        # tutto l'orizzonte quando la centralina taceva qualche giorno.
+        atteso_val = atteso[0] if atteso else engine.memoria_predefinita(SPOT)
         if abs(s["features"]["persist_obs"] - atteso_val) > 1e-9:
             bad.append((lead, s["day"]))
         if s["features"]["persist_age"] != lead + 1:

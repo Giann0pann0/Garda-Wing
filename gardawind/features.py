@@ -161,7 +161,8 @@ def _gradients(ctx, keys):
 # Vettore giornaliero
 # --------------------------------------------------------------------------
 
-def daily_features(spot_name, day, hours, ctx, persist=None, persist_age=None):
+def daily_features(spot_name, day, hours, ctx, persist=None, persist_age=None,
+                   persist_default=None):
     """Costruisce {nome: valore} per un giorno. Ritorna None se inutilizzabile.
 
     hours : {chiave_oraria_utc: {colonna: valore}}  (ensemble o archivio)
@@ -259,7 +260,23 @@ def daily_features(spot_name, day, hours, ctx, persist=None, persist_age=None):
     synoptic = _or(mean(col("w925")), 0.0)
     f["breeze"] = clamp(f["tgrad"] / max(1.0, (synoptic * 0.5144) ** 2), -30.0, 30.0)
 
-    f["persist_obs"] = persist if persist is not None else 0.0
+    # MEMORIA MANCANTE NON E' ZERO NODI, ed e' la seconda volta che questo
+    # campo lo dimentica: la prima fu l'ETA', che restava plausibile su un
+    # valore inventato, e la docstring qui sopra la dichiara corretta. Lo zero
+    # no. Se la centralina tace per piu' di quattro giorni - o se quattro
+    # giorni di fila non hanno copertura sufficiente, cosa normale d'inverno
+    # sul Peler - il modello riceveva "l'ultimo picco osservato e' 0 kn", che
+    # e' l'affermazione piu' forte possibile nella direzione sbagliata: la
+    # probabilita' crollava all'1% su TUTTO l'orizzonte, e la pagina non aveva
+    # modo di dire che il crollo veniva da un dato che non c'era.
+    #
+    # Al suo posto si mette un valore NEUTRO - la mediana del picco di quella
+    # sessione, che il chiamante passa - e lo passano allo stesso modo le due
+    # strade, addestramento e previsione, perche' altrimenti si ricrea la
+    # divergenza che questo file esiste per impedire.
+    if persist is None:
+        persist = persist_default if persist_default is not None else 0.0
+    f["persist_obs"] = persist
     f["persist_age"] = float(persist_age if persist_age is not None else 1)
 
     # Ora (locale) in cui la previsione grezza mette il suo massimo nella

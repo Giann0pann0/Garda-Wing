@@ -902,6 +902,22 @@ def _ctx_kind(source):
     return source                      # "era5", "lead1".. usano il proprio
 
 
+def memoria_predefinita(spot_name):
+    """Il valore da usare quando la memoria non c'e': la mediana del picco.
+
+    Un posto solo, e lo chiamano tutte e due le strade - l'addestramento e la
+    previsione. Se lo calcolassero ognuna per conto suo tornerebbe la
+    divergenza fra la distribuzione su cui il modello impara e quella che
+    riceve in esercizio, che e' il difetto che features.py esiste per evitare.
+    """
+    chiave = "memoria:%s" % spot_name
+    if chiave not in STATE:
+        picchi = [v[0] for v in _targets(spot_name).values()
+                  if v[0] is not None]
+        STATE[chiave] = median(picchi) if len(picchi) >= 20 else None
+    return STATE[chiave]
+
+
 def build_samples(spot_name, source="forecast"):
     """Coppie (predittori storici, bersaglio osservato) pronte per l'addestramento.
 
@@ -939,7 +955,8 @@ def build_samples(spot_name, source="forecast"):
         prev = targets.get(day_shift(day, -age))
         feats = F.daily_features(spot_name, day, hours, ctx,
                                  persist=prev[0] if prev else None,
-                                 persist_age=age)
+                                 persist_age=age,
+                                 persist_default=memoria_predefinita(spot_name))
         if feats is None:
             continue
         peak, established, peak_hour, onset = targets[day]
@@ -1110,9 +1127,11 @@ def train_all():
             continue
         metrics = M.metrics_of(chosen)
         learned = {"payload": M.serialize(chosen), "metrics": metrics}
-        cov, ncov = M.verify_intervals(fc, learned)
-        metrics["coverage"] = cov
-        metrics["coverage_n"] = ncov
+        # La copertura viene ora da dentro la valutazione, misurata sulle
+        # previsioni FUORI CAMPIONE: verify_intervals la calcolava applicando
+        # il modello finale agli stessi campioni con cui era stato addestrato,
+        # e il numero usciva gonfiato di otto-dieci punti proprio dove le
+        # giornate sono poche.
         metrics["candidates"] = [
             {"source": c.get("source"), "tier": c["tier"], "n": c["n"],
              "brier": c["brier"], "mae": c["mae"], "usable": c["usable"]}
@@ -1242,21 +1261,6 @@ def ensemble_hours(spot_name):
                 v = r[col]
                 if v is None:
                     continue
-                if col == "w10":
-                    v = max(0.0, v - bias)
-                elif col == "g10":
-                    # La correzione di bias va applicata a ENTRAMBE le
-                    # grandezze, e in modo relativo. Correggendo solo la media
-                    # si rompe il rapporto raffica/media del modello: dove i
-                    # modelli sottostimano il Peler il bias e' negativo, la
-                    # media corretta sale SOPRA la raffica grezza, e piu' a
-                    # valle il rapporto viene stretto a 1,0 - cioe' la curva
-                    # della raffica si appiattisce su quella del vento medio e
-                    # sparisce dal grafico. Il livello si corregge, la
-                    # turbolenza del modello no: si scala.
-                    w10 = r["w10"]
-                    if w10 is not None and w10 > 0.5:
-                        v = v * max(0.0, w10 - bias) / w10
                 num += w * v
                 den += w
             agg[col] = (num / den) if den > 0 else None
@@ -1268,6 +1272,31 @@ def ensemble_hours(spot_name):
             agg[dcol] = vector_mean_direction(pairs)[0]
 
         out[valid] = agg
+        # IL VALORE ESCE GREZZO, e questa e' una correzione a come funzionava.
+        #
+        # Qui il vento d'ensemble veniva corretto del bias per modello prima di
+        # diventare una feature. In ADDESTRAMENTO no: build_samples legge
+        # l'archivio e passa i valori come stanno. Lo stesso nome di feature
+        # aveva due scale diverse fra le due strade, e siccome sul Garda il
+        # bias e' sistematicamente negativo - i modelli sottostimano la brezza -
+        # la correzione finiva applicata DUE VOLTE: una qui e una dentro lo
+        # stadio B, che era stato addestrato proprio a portare il grezzo
+        # sull'osservato. Stimato: +2 kn, cioe' abbastanza da attraversare la
+        # soglia del "si plana" e cambiare il verdetto.
+        #
+        # E' il difetto che features.py dichiara di voler evitare: "una sola
+        # funzione costruisce il vettore sia in addestramento sia in
+        # previsione". Condividevano il codice, non la distribuzione.
+        #
+        # Correggere anche in addestramento non era una strada: il bias e' per
+        # MODELLO, e l'archivio dei predittori ha un modello solo. Quindi il
+        # grezzo resta grezzo, e a correggerlo ci pensa lo stadio B, che e'
+        # esattamente il suo mestiere.
+        #
+        # La DISPERSIONE invece resta sul corretto: non e' una feature, e'
+        # l'incertezza. Misurarla sui valori corretti vuol dire misurare quanto
+        # i modelli sono in disaccordo DOPO aver tolto gli scarti noti, che e'
+        # la cosa che la banda deve rappresentare.
         vals = [max(0.0, r["w10"] - b) for _m, _w, r, b in members if r["w10"] is not None]
         spread[valid] = pstdev(vals, 0.0)
 
@@ -1356,7 +1385,8 @@ def forecast_days(spot_name, horizon=None):
         age = (_dt.date.fromisoformat(day)
                - _dt.date.fromisoformat(mem_day)).days if mem_day else lead + 1
         feats = F.daily_features(spot_name, day, hours, ctx,
-                                 persist=mem_peak, persist_age=age)
+                                 persist=mem_peak, persist_age=age,
+                                 persist_default=memoria_predefinita(spot_name))
         if feats is None:
             continue
 

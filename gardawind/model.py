@@ -260,6 +260,19 @@ def _fit_cross(eval_samples, train_samples, tier, kind, folds=5):
     return final, oof, lam, fold_of
 
 
+def _copertura(resid, pred, obs):
+    """Quante volte l'osservato cade nella banda, sulle previsioni out-of-fold."""
+    q10, q90 = quantile(resid, 0.10), quantile(resid, 0.90)
+    if q10 is None or q90 is None or not pred:
+        return None
+    coppie = [(p, o) for p, o in zip(pred, obs)
+              if p is not None and o is not None]
+    if not coppie:
+        return None
+    dentro = sum(1 for p, o in coppie if p + q10 <= o <= p + q90)
+    return dentro / float(len(coppie))
+
+
 def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
     """Addestra su `train_samples` e valuta su `eval_samples`.
 
@@ -380,10 +393,42 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
                 base_mae = min(x for x in (mae_med, mae_raw) if x is not None)
                 clim_median = med
 
-    ok_occ = b_model is not None and b_base is not None and \
-        b_model < b_base * (1 - config.PROMOTION_MARGIN)
-    ok_int = model_mae is not None and base_mae is not None and \
-        model_mae < base_mae * (1 - config.PROMOTION_MARGIN)
+    # LA PORTA: il margine NON BASTA, ci vuole anche il bootstrap.
+    #
+    # Qui si promuoveva col solo margine, mentre validate._gate - che governa i
+    # modelli per fascia - chiede entrambe le cose, e il README promette la
+    # regola forte per tutti: "un modello entra in produzione solo se batte i
+    # riferimenti banali... con un intervallo bootstrap che non attraversa lo
+    # zero". Il modello "daily" e' quello usato a D+0 e ogni volta che la
+    # fascia manca, e il suo `usable` decide sia la fonte dell'intensita' sia
+    # la colonna "In uso" della diagnostica: era il piu' importante dei due, e
+    # aveva la porta piu' larga.
+    #
+    # Misurato su bersagli di puro rumore: con 120-200 giornate la porta della
+    # probabilita' si apriva in circa un caso su quindici. Riguarda le
+    # localita' nuove, cioe' Campione e Malcesine.
+    from .validate import bootstrap_gain
+    err_occ_m = [(occ_cal[i] - y_occ[i]) ** 2 for i in scored]
+    err_occ_b = [(base_rate - y_occ[i]) ** 2 for i in scored]
+    _p, lo_occ, _h = bootstrap_gain(err_occ_m, err_occ_b) if scored else (None, None, None)
+    ok_occ = (b_model is not None and b_base is not None
+              and b_model < b_base * (1 - config.PROMOTION_MARGIN)
+              and lo_occ is not None and lo_occ > 0)
+
+    lo_int = None
+    if m_int and base_mae is not None:
+        # Solo le giornate in cui la previsione fuori campione esiste: con
+        # pochi fold qualcuna resta None, e accoppiarla con l'osservato
+        # sarebbe un confronto fra un numero e un buco.
+        coppie = [(p, o) for p, o in zip(pred, obs) if p is not None]
+        med_o = median(obs)
+        if coppie:
+            err_int_m = [abs(p - o) for p, o in coppie]
+            base_each = [abs(med_o - o) for _p, o in coppie]
+            _p, lo_int, _h = bootstrap_gain(err_int_m, base_each)
+    ok_int = (model_mae is not None and base_mae is not None
+              and model_mae < base_mae * (1 - config.PROMOTION_MARGIN)
+              and lo_int is not None and lo_int > 0)
 
     return {
         "tier": tier,
@@ -405,7 +450,23 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
         # modello deve battere, e dove non lo batte e' anche la previsione
         # migliore che abbiamo - vedi predict_day.
         "clim_median": clim_median,
+        "gain_lo_occ": lo_occ,
+        "gain_lo_int": lo_int,
         "rmse": m_int["rmse"] if m_int else None,
+        # La COPERTURA, misurata sulle previsioni fuori campione.
+        #
+        # Prima la calcolava verify_intervals applicando il modello FINALE -
+        # quello riaddestrato su tutti i campioni - agli stessi campioni con
+        # cui era stato addestrato. Il numero usciva gonfiato: misurato su dati
+        # sintetici, 83-85% dichiarato contro 73-77% vero, con 80-200 giornate.
+        # E finiva sotto l'intestazione che promette "tutti i numeri sono
+        # misurati su giorni che il modello non aveva mai visto".
+        #
+        # Qui le previsioni sono quelle out-of-fold, quindi il grosso
+        # dell'ottimismo sparisce. Resta quello dei quantili, che sono stimati
+        # sugli stessi residui: la pagina lo dichiara invece di tacerlo.
+        "coverage": _copertura(resid, pred, obs) if resid else None,
+        "coverage_n": len(resid) if resid else 0,
         "q10": quantile(resid, 0.10) if resid else None,
         "q50": quantile(resid, 0.50) if resid else None,
         "q90": quantile(resid, 0.90) if resid else None,
