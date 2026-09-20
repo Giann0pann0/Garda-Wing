@@ -114,11 +114,9 @@ def _num(v):
 
 
 def _dir(v):
-    """I gradi, riportati in [0, 360). Il sito scrive 360 per il nord."""
-    g = _num(v)
-    if g is None:
-        return None
-    return g % 360.0
+    """I gradi, o None. La regola sta in util.direzione_o_niente, in un posto solo."""
+    from ..util import direzione_o_niente
+    return direzione_o_niente(v)
 
 
 def fetch():

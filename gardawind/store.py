@@ -18,6 +18,12 @@ from .util import iso_hour_utc, iso_utc, utc_now
 
 _LOCAL = threading.local()
 
+# La migrazione delle chiavi orarie porta un numero di versione invece di una
+# data: la prima stesura fondeva male (vedi _migra_chiavi_ora) e un database
+# che l'aveva gia' fatta non l'avrebbe mai ripetuta. Cambiando il numero si
+# rifa' una volta, con il codice giusto.
+VERSIONE_MIGRAZIONE_ORE = "2"
+
 
 def support_dir():
     base = os.environ.get("GARDAWIND_HOME")
@@ -288,23 +294,60 @@ def init():
     _migra_chiavi_ora()
 
 
+CAMPI_ORA = ("wind_mean", "wind_max", "gust_max", "gust_rec",
+             "dir_deg", "dir_const", "n_samples")
+
+
 def _migra_chiavi_ora():
     """Le ore scritte con la chiave corta diventano canoniche. Una volta sola.
 
     In archivio ci sono 160.000 ore di Campione e Malcesine scritte come
     "2026-09-19T10": finche' restano cosi' non si incontrano con quelle delle
     donatrici, e la direzione in prestito non arriva. Si riscrivono.
+
+    SI FONDE, NON SI SOVRASCRIVE. La prima versione di questa migrazione
+    faceva "UPDATE OR REPLACE ... SET hour=?", e quando la stessa ora esisteva
+    in entrambe le forme SQLite cancellava la riga CANONICA per far posto a
+    quella corta - cioe' buttava via la riga piu' ricca (wind_max, gust_rec,
+    n_samples: quella arrivata dal canale orario) per tenere quella piu'
+    povera (la promozione dello storico, che ha solo media e massimo).
+
+    Il danno era silenzioso tre volte: nessun errore; a migrazione fatta la
+    chiave canonica esiste, quindi chi ripopola le ore dallo storico la trova
+    in `gia` e non la riscrive; e un contrassegno in meta impediva di rifare
+    la migrazione. Percio' qui si tiene la riga canonica e si usa quella corta
+    solo per COLMARE i campi che alla canonica mancano. A parita' di campo
+    vince chi ha un valore; se entrambe l'hanno, vince la canonica.
     """
     c = connect()
-    if meta_get("migrazione_chiavi_ora"):
+    if meta_get("migrazione_chiavi_ora") == VERSIONE_MIGRAZIONE_ORE:
         return 0
-    corte = [(r["station"], r["hour"]) for r in c.execute(
-        "SELECT station, hour FROM obs_hour WHERE length(hour)<20")]
-    for station, hour in corte:
-        c.execute("UPDATE OR REPLACE obs_hour SET hour=? WHERE station=? AND hour=?",
-                  (chiave_ora(hour), station, hour))
+    corte = [dict(r) for r in c.execute(
+        "SELECT station, hour, wind_mean, wind_max, gust_max, gust_rec, "
+        "dir_deg, dir_const, n_samples FROM obs_hour WHERE length(hour)<20")]
+    for riga in corte:
+        station, hour = riga["station"], riga["hour"]
+        canonica = chiave_ora(hour)
+        if canonica == hour:                       # gia' a posto: niente da fare
+            continue
+        vecchia = c.execute(
+            "SELECT wind_mean, wind_max, gust_max, gust_rec, dir_deg, "
+            "dir_const, n_samples FROM obs_hour WHERE station=? AND hour=?",
+            (station, canonica)).fetchone()
+        if vecchia is None:
+            c.execute("UPDATE obs_hour SET hour=? WHERE station=? AND hour=?",
+                      (canonica, station, hour))
+            continue
+        fusa = [vecchia[k] if vecchia[k] is not None else riga[k]
+                for k in CAMPI_ORA]
+        c.execute(
+            "UPDATE obs_hour SET wind_mean=?, wind_max=?, gust_max=?, "
+            "gust_rec=?, dir_deg=?, dir_const=?, n_samples=? "
+            "WHERE station=? AND hour=?", tuple(fusa) + (station, canonica))
+        c.execute("DELETE FROM obs_hour WHERE station=? AND hour=?",
+                  (station, hour))
     c.commit()
-    meta_set("migrazione_chiavi_ora", iso_utc(utc_now()))
+    meta_set("migrazione_chiavi_ora", VERSIONE_MIGRAZIONE_ORE)
     return len(corte)
 
 

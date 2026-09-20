@@ -37,8 +37,8 @@ import os
 import re
 
 from .. import config, store
-from ..util import (iso_utc, local_naive_to_utc, median, num,
-                    sampling_cadence, utc_now)
+from ..util import iso_utc, median, num, sampling_cadence, utc_now
+from .addicted import _istanti
 from .http import FetchError, fetch_text
 
 PARSER_VERSION = "addicted-audit/1"
@@ -545,14 +545,18 @@ SERIES_GROUP = {
 }
 
 
-def _ora_utc_da_arch(chiave):
-    m = _RE_CHIAVE.match(str(chiave))
-    if not m:
-        return None
-    import datetime as _dt
-    naive = _dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                         int(m.group(4)), int(m.group(5)))
-    return iso_utc(local_naive_to_utc(naive))
+def _ore_utc_da_arch(chiavi):
+    """Le chiavi "arch" di una risposta -> istanti UTC, TUTTE INSIEME.
+
+    Era la terza copia della conversione di fuso del progetto, e convertiva una
+    chiave per volta con fold=0: l'ultima domenica di ottobre le due 02:00
+    locali collassavano sullo stesso istante e la seconda veniva scartata come
+    doppione. Il danno e' nei file spediti - l'ora 01:00Z manca in TUTTI i
+    cambi d'ora con dati, 11 su 11 a Malcesine e 5 su 5 a Campione, dal 2014 a
+    oggi - mentre il lettore normale (addicted._istanti) lo faceva giusto da
+    mesi. Qui adesso si chiama quello.
+    """
+    return _istanti(list(chiavi))
 
 
 def righe_cache(slug, base_raw=None):
@@ -575,8 +579,9 @@ def righe_cache(slug, base_raw=None):
         arch = dati.get("arch") or []
         mavg = dati.get("mavg") or []
         mmax = dati.get("mmax") or []
+        istanti = _ore_utc_da_arch(arch)
         for i, chiave in enumerate(arch):
-            ts = _ora_utc_da_arch(chiave)
+            ts = istanti[i]
             g = _chiave_giorno(chiave)
             if not ts or not g:
                 continue

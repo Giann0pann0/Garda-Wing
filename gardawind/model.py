@@ -35,10 +35,10 @@ un modello per fascia, ognuno con i propri campioni e le proprie metriche.
 import math
 
 from . import config, features as F
-from .util import (brier, clamp, forward_folds_idx, interval_coverage,
-                   LogisticModel, logistic_fit, mean, median, quantile,
-                   regression_metrics, reliability_table, RidgeModel, ridge_fit,
-                   sigmoid)
+from .util import (banda_da_residui, brier, clamp, forward_folds_idx,
+                   interval_coverage, LogisticModel, logistic_fit, mean,
+                   median, quantile, regression_metrics, reliability_table,
+                   RidgeModel, ridge_fit, sigmoid)
 
 LAMBDA_GRID = (0.25, 1.0, 4.0, 16.0, 64.0)
 
@@ -100,7 +100,11 @@ def pava(probs, outcomes, min_per_block=None):
                      float(sum(y for _p, y in chunk)), float(len(chunk))])
     # Ultimo spezzone troppo corto: si fonde col precedente invece di restare
     # un blocco fragile in cima, che e' proprio la zona delle probabilita' alte.
-    if len(bins) >= 2 and bins[-1][3] < min_per_block / 2.0:
+    # "Troppo corto" vuol dire sotto il minimo dichiarato, non sotto la sua
+    # meta': con la meta', la docstring qui sopra promette venti giornate e il
+    # blocco in cima ne poteva avere dieci - e dieci giornate, otto delle quali
+    # entrate, pubblicano "80%" dove l'intervallo binomiale va dal 44 al 97.
+    if len(bins) >= 2 and bins[-1][3] < min_per_block:
         b, a = bins.pop(), bins.pop()
         bins.append([a[0], b[1], a[2] + b[2], a[3] + b[3]])
 
@@ -247,7 +251,22 @@ def _fit_cross(eval_samples, train_samples, tier, kind, folds=5):
         if kind == "logistic":
             loss = brier([oof[i] for i in got], [y_eval[i] for i in got])
         else:
-            met = regression_metrics([oof[i] for i in got], [y_eval[i] for i in got])
+            # Il lambda si sceglie sulle giornate su cui questo modello vivra'.
+            #
+            # Lo stadio B risponde a "quanto tira QUANDO IL REGIME ENTRA": si
+            # addestra sui soli giorni con regime (riga 219) e in produzione
+            # viene applicato solo la'. Ma la perdita con cui si scegliva il
+            # lambda girava su TUTTE le giornate, comprese quelle a tre nodi:
+            # un errore che nessun lambda puo' ridurre e che copriva il segnale
+            # vero. Misurato su dati sintetici, la parte discriminante valeva il
+            # 3% della perdita, e la scelta coincideva con quella giusta in meno
+            # della meta' dei casi - con scarti fino a un fattore 256, cioe' fra
+            # un modello che risponde e uno che dice sempre lo stesso numero.
+            scelti = [i for i in got if eval_samples[i]["established"]]
+            if len(scelti) < 12:
+                scelti = got
+            met = regression_metrics([oof[i] for i in scelti],
+                                     [y_eval[i] for i in scelti])
             loss = met["rmse"] if met else None
         if loss is not None and (best is None or loss < best[0]):
             best = (loss, lam, oof, fold_of)
@@ -269,7 +288,11 @@ def _copertura(resid, pred, obs):
               if p is not None and o is not None]
     if not coppie:
         return None
-    dentro = sum(1 for p, o in coppie if p + q10 <= o <= p + q90)
+    dentro = 0
+    for p, o in coppie:
+        lo, hi = banda_da_residui(p, q10, q90)
+        if lo is not None and lo <= o <= hi:
+            dentro += 1
     return dentro / float(len(coppie))
 
 
@@ -356,6 +379,7 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
     base_mae = model_mae = None
     resid = []
     clim_median = None
+    terzetti = []          # (previsto, grezzo, osservato) sulle stesse giornate
     if len(idx) >= max(20, 2 * len(names)):
         # Le due strade possono non trovare un modello (troppe poche giornate
         # per i fold, o per la sorgente incrociata): in quel caso restituiscono
@@ -386,11 +410,30 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
                 # vento grezzo d'ensemble. Il secondo e' quello che conta:
                 # se non battiamo il modello nudo, tutta questa macchina non
                 # serve a niente.
-                med = median(obs)
-                raw = [eval_samples[i]["features"].get("w10_win") for i in idx]
-                mae_med = mean([abs(med - o) for o in obs])
-                mae_raw = mean([abs(r - o) for r, o in zip(raw, obs) if r is not None])
-                base_mae = min(x for x in (mae_med, mae_raw) if x is not None)
+                #
+                # LO STESSO METRO. Il MAE del modello vive solo dove la
+                # previsione fuori campione esiste: il primo 40% delle
+                # giornate serve ad addestrare i primi fold e li' `pred` e'
+                # None. I riferimenti invece si calcolavano su TUTTE le
+                # giornate, e il loro rapporto e' sia la percentuale di
+                # "guadagno" che pubblichiamo sia la porta che decide se un
+                # modello entra in produzione. Su un archivio i cui primi anni
+                # sono piu' dispersi - il caso normale - il modello vinceva
+                # per il solo fatto di essere stato esaminato su giornate piu'
+                # facili. Qui si confrontano sulle STESSE giornate.
+                coppie_eval = [(i, p, o) for i, p, o in zip(idx, pred, obs)
+                               if p is not None]
+                obs_eval = [o for _i, _p, o in coppie_eval]
+                med = median(obs_eval) if obs_eval else None
+                mae_med = (mean([abs(med - o) for o in obs_eval])
+                           if med is not None else None)
+                terzetti = [(p, eval_samples[i]["features"].get("w10_win"), o)
+                            for i, p, o in coppie_eval]
+                raw_coppie = [(r, o) for _p, r, o in terzetti if r is not None]
+                mae_raw = (mean([abs(r - o) for r, o in raw_coppie])
+                           if len(raw_coppie) > 10 else None)
+                base_mae = min([x for x in (mae_med, mae_raw) if x is not None]
+                               or [None])
                 clim_median = med
 
     # LA PORTA: il margine NON BASTA, ci vuole anche il bootstrap.
@@ -416,16 +459,27 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
               and lo_occ is not None and lo_occ > 0)
 
     lo_int = None
-    if m_int and base_mae is not None:
-        # Solo le giornate in cui la previsione fuori campione esiste: con
-        # pochi fold qualcuna resta None, e accoppiarla con l'osservato
-        # sarebbe un confronto fra un numero e un buco.
-        coppie = [(p, o) for p, o in zip(pred, obs) if p is not None]
-        med_o = median(obs)
-        if coppie:
-            err_int_m = [abs(p - o) for p, o in coppie]
-            base_each = [abs(med_o - o) for _p, o in coppie]
-            _p, lo_int, _h = bootstrap_gain(err_int_m, base_each)
+    if m_int and base_mae is not None and terzetti:
+        # Le giornate sono quelle in cui la previsione fuori campione esiste
+        # (vedi sopra: accoppiare un numero con un buco non e' un confronto).
+        #
+        # E il riferimento e' QUELLO CHE MORDE. Il margine si misura contro il
+        # migliore dei due (mediana climatologica o vento grezzo), ma il
+        # bootstrap girava sempre e solo contro la mediana: dove il grezzo era
+        # il riferimento duro, la prova di significativita' non lo toccava
+        # mai, e un modello poteva risultare "validato" per un vantaggio del
+        # 3% su un riferimento che nessuno aveva testato.
+        err_int_m = [abs(p - o) for p, _r, o in terzetti]
+        base_med = [abs(clim_median - o) for _p, _r, o in terzetti]
+        con_grezzo = [(p, r, o) for p, r, o in terzetti if r is not None]
+        if (len(con_grezzo) > 10
+                and mean([abs(r - o) for _p, r, o in con_grezzo])
+                <= mean([abs(clim_median - o) for _p, _r, o in con_grezzo])):
+            err_int_m = [abs(p - o) for p, _r, o in con_grezzo]
+            base_each = [abs(r - o) for _p, r, o in con_grezzo]
+        else:
+            base_each = base_med
+        _p, lo_int, _h = bootstrap_gain(err_int_m, base_each)
     ok_int = (model_mae is not None and base_mae is not None
               and model_mae < base_mae * (1 - config.PROMOTION_MARGIN)
               and lo_int is not None and lo_int > 0)
@@ -531,6 +585,12 @@ def metrics_of(result):
     out = {k: result.get(k) for k in
            ("tier", "source", "n", "n_eval", "n_established", "brier", "brier_base",
             "mae", "mae_base", "clim_median", "rmse", "usable", "usable_occurrence",
+            # La copertura della banda si calcolava (model._copertura) e non si
+            # salvava: la colonna "Copertura" della diagnostica stampava "—" da
+            # sempre, sotto l'intestazione che promette numeri misurati fuori
+            # campione. E' il numero che avrebbe smascherato il segno storto
+            # della banda.
+            "coverage", "coverage_n",
             "reliability",
             "days_from", "days_to", "base_rate", "lam_occ", "lam_int",
             "calibrazione_fuori_campione", "n_scored")}
@@ -581,7 +641,11 @@ def train_timing(samples, tier="timing", folds=5):
     if not met:
         return None
 
-    # Riferimento 1: media climatologica per mese, calcolata fuori dal fold.
+    # Riferimento 1: media climatologica per mese. Calcolata su TUTTE le
+    # giornate, comprese quelle su cui poi si misura: il commento diceva "fuori
+    # dal fold" e non era vero. La direzione dell'errore e' conservativa - il
+    # riferimento risulta un po' piu' forte del dovuto, quindi la porta e' piu'
+    # severa, non piu' larga - ma un commento falso vale meno di niente.
     by_month = {}
     for s, hh in zip(usable, y):
         by_month.setdefault(int(s["day"][5:7]), []).append(hh)
@@ -597,8 +661,26 @@ def train_timing(samples, tier="timing", folds=5):
 
     bases = [x for x in (mae_clim, mae_raw) if x is not None]
     base_mae = min(bases) if bases else None
+
+    # LA PORTA, con la stessa regola degli altri due stadi: il margine NON
+    # BASTA, ci vuole anche il bootstrap. Qui si promuoveva col solo margine,
+    # e PROMOTION_MARGIN e' 0,03: bastavano tre minuti su cento. Con 150
+    # giornate il MAE fuori campione fluttua di due o tre minuti su una base di
+    # ottantacinque, quindi un fold fortunato apriva la porta su un modello
+    # senza segnale - e la parola "appreso" e' quella che autorizza la pagina a
+    # scrivere i minuti.
+    from .validate import bootstrap_gain
+    err_m = [abs(p - o) for p, o in zip(pred, obs)]
+    base_each = [abs(a - b) for a, b in zip(clim_pred, obs)]
+    if mae_raw is not None and mae_raw <= mae_clim:
+        coppie_raw = [(r, o) for r, o in zip(raw, obs) if r is not None]
+        err_m = [abs(p - o) for p, (r, o) in zip(pred, zip(raw, obs))
+                 if r is not None]
+        base_each = [abs(r - o) for r, o in coppie_raw]
+    _p, lo_gain, _h = bootstrap_gain(err_m, base_each) if err_m else (None, None, None)
     ok = (base_mae is not None
-          and met["mae"] < base_mae * (1 - config.PROMOTION_MARGIN))
+          and met["mae"] < base_mae * (1 - config.PROMOTION_MARGIN)
+          and lo_gain is not None and lo_gain > 0)
 
     resid = met["resid"]
     return {
@@ -606,6 +688,7 @@ def train_timing(samples, tier="timing", folds=5):
         "mae_hours": met["mae"], "mae_minutes": met["mae"] * 60.0,
         "base_mae_hours": base_mae,
         "base_clim_hours": mae_clim, "base_raw_hours": mae_raw,
+        "gain_lo": lo_gain,
         "bias_hours": met["bias"],
         "q10": quantile(resid, 0.10), "q90": quantile(resid, 0.90),
         "usable": bool(ok), "lam": lam,
@@ -616,11 +699,20 @@ def train_timing(samples, tier="timing", folds=5):
     }
 
 
-def predict_timing(feats, learned, day=None, fallback=None):
-    """Ora prevista del picco. Ritorna (ora, fonte) o (None, None)."""
+def predict_timing(feats, learned, day=None, fallback=None, lead=0):
+    """Ora prevista del picco. Ritorna (ora, fonte) o (None, None).
+
+    `lead` non c'era, e il modello appreso usciva marcato "appreso" a tutte le
+    scadenze. Ma questo modello nasce dall'archivio ordinario delle previsioni,
+    che contiene le prime ore di ogni run: e' misurato a D+0 e dice qualcosa
+    solo li'. Oltre, la stessa parola valeva come una promessa che nessuna
+    misura sostiene - "entra alle 14:20, appreso" a cinque giorni - e per la
+    pagina "appreso" e' il timbro su cui si scrivono i minuti. Fuori da D+0 si
+    scende alla climatologia, che almeno e' onesta sul suo nome.
+    """
     payload = (learned or {}).get("payload") or {}
     metrics = (learned or {}).get("metrics") or {}
-    if payload.get("model") and metrics.get("usable"):
+    if payload.get("model") and metrics.get("usable") and (lead or 0) <= 0:
         reg = RidgeModel.from_dict(payload["model"])
         h = reg.predict(F.vector(feats, payload["tier"]))
         return clamp(h, 0.0, 23.9), "appreso"
@@ -794,16 +886,28 @@ def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None
             # Quantili dei residui misurati a QUESTA fascia di scadenza.
             # Nessun allargamento aggiuntivo: se la fascia e' lunga, i
             # residui sono gia' piu' larghi, ed e' il dato a dirlo.
-            lo = max(0.0, speed + q10)
-            hi = speed + q90
+            lo, hi = banda_da_residui(speed, q10, q90)
             band_src = "residui misurati"
 
     source = ("appreso" if src_prob == src_int == "appreso"
               else "prior" if src_prob == src_int == "prior" else "misto")
 
     # Freno sulla direzione: vedi direction_penalty.
+    #
+    # E' una moltiplicazione fatta A MANO DOPO la calibrazione, quindi la
+    # probabilita' che esce da qui non e' piu' quella che Brier e errore di
+    # calibrazione hanno misurato. Finche' il freno non morde (direzione dentro
+    # il settore) dpen vale esattamente 1 e non cambia niente. Quando morde
+    # - 0,72 a novanta gradi fuori asse, 0,48 a cento - il numero pubblicato
+    # non e' piu' verificato, e la pagina non puo' dire "viene dalla
+    # probabilita' del regime, che e' addestrata e verificata, meno l'errore di
+    # calibrazione misurato": sarebbe vero della probabilita' di prima, non di
+    # questa. Percio' il freno si DICHIARA, e chi scrive l'affidabilita' lo sa.
     spot = config.SPOTS[spot_name]
     dpen = direction_penalty(direction, spot["axis"], config.REGIME_SECTOR_DEG)
+    if dpen < 1.0 and src_prob == "appreso":
+        src_prob = "appreso-frenato"
+        source = "misto"
     prob = clamp(prob * dpen, 0.01, 0.97)
 
     if lo is None or hi is None:
@@ -859,7 +963,8 @@ def verify_intervals(samples, learned):
         if not s["established"]:
             continue
         v = math.expm1(reg.predict(F.vector(s["features"], tier)))
-        los.append(max(0.0, v + q10))
-        his.append(v + q90)
+        lo_v, hi_v = banda_da_residui(v, q10, q90)
+        los.append(lo_v)
+        his.append(hi_v)
         obs.append(s["peak"])
     return interval_coverage(los, his, obs)

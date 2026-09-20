@@ -135,8 +135,15 @@ ok(max(scarti.values()) > 25,
    "gradi (%s)" % (max(scarti.values()), scarti))
 ok(letture["campione"]["dir"] == 10.0 and letture["torbole"]["dir"] == 8.0,
    "e sono gradi, non punti cardinali")
-ok(AL._dir(360) == 0.0 and AL._dir(361) == 1.0,
+ok(AL._dir(360) == 0.0 and AL._dir(0) == 0.0 and AL._dir(359.5) == 359.5,
    "il 360 del sito diventa 0: i gradi stanno in [0, 360)")
+# Prima qui si chiedeva che 361 diventasse 1: il `% 360` normalizzava tutto,
+# compresi i "nessun dato" che le centraline mandano come numeri. 999 diventava
+# 279 gradi e -999 diventava 81 - e 81 gradi sta DENTRO il settore osservato del
+# Peler, quindi un'ora di Ora mattutina finiva etichettata Peler per un valore
+# che voleva dire "non lo so".
+ok(AL._dir(361) is None and AL._dir(999) is None and AL._dir(-999) is None,
+   "e un numero fuori da 0-360 non e' un angolo: e' un 'nessun dato', e resta None")
 
 # ---- 7. una risposta rotta si ferma, non indovina --------------------------
 for corpo, perche in (('{"ok":false}', "ok=false"),

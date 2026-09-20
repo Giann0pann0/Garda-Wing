@@ -15,7 +15,7 @@ import re
 import zipfile
 
 from .. import config
-from ..util import KN_PER_MS, iso_utc, num, parse_dt_any
+from ..util import KN_PER_MS, direzione_o_niente, iso_utc, num, parse_dt_any
 from .http import FetchError, fetch, fetch_json, fetch_text
 
 STATION = "T0193"
@@ -40,8 +40,9 @@ def _clean(wind_ms, gust_ms, direction):
         gust *= KN_PER_MS
         if not (0.0 <= gust <= MAX_GUST_KN) or gust < wind * 0.8:
             gust = None
-    if direction is not None:
-        direction = direction % 360.0
+    # Un numero fuori da 0-360 non e' una direzione: e' il "nessun dato" della
+    # centralina. Vedi util.direzione_o_niente.
+    direction = direzione_o_niente(direction)
     return wind, gust, direction
 
 
@@ -175,10 +176,21 @@ def fetch_archive(start_day=None, end_day=None, on_year=None, from_year=None):
             if on_year:
                 on_year(year, [], str(exc)[:140])
             continue
+        # La direzione e' una seconda estrazione, e puo' fallire da sola. NON
+        # si ingoia: un anno importato senza direzione veniva salvato e marcato
+        # come fatto, quindi non sarebbe stato piu' richiesto - e per quell'anno
+        # il filtro di settore resta spento (ogni giornata ventosa diventa
+        # "regime instaurato") e Campione e Malcesine, che la direzione la
+        # prendono in prestito da qui, restano senza. Si segnala all'anno, che
+        # decide di non marcarlo come completo.
         try:
             dirs = _parse_hydstra_csv(_hydstra_extract("dir", a, b))
-        except FetchError:
+        except FetchError as exc:
             dirs = {}
+            if on_year:
+                on_year(year, [], "direzione non scaricata (%s): l'anno si "
+                                  "riprende al prossimo giro" % str(exc)[:80])
+                continue
 
         rows = []
         for ts, ms in speeds.items():
@@ -186,7 +198,7 @@ def fetch_archive(start_day=None, end_day=None, on_year=None, from_year=None):
             if not (0.0 <= kn <= MAX_WIND_KN):
                 continue
             d = dirs.get(ts)
-            rows.append((ts, kn, None, (d % 360.0) if d is not None else None))
+            rows.append((ts, kn, None, direzione_o_niente(d)))
         rows.sort()
         if on_year:
             on_year(year, rows, None)

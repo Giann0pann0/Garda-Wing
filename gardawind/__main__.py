@@ -2342,15 +2342,22 @@ def main(argv=None):
               ("APERTA" if opened else "CHIUSA",
                "" if opened else " - " + "; ".join(reasons or [str(ar.get("diagnostic") or ar.get("reason"))])),
               flush=True)
-        # E alla fine: le serie irripetibili escono dalla cache e vanno nei
-        # file del progetto, che git tiene per sempre. Non si rimpiccioliscono
-        # mai: vedi archivio.py.
-        for path, n, nuove in archivio.esporta():
-            if nuove:
-                print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
         target = args.export or "site"
         for path in exporter.export(target):
             print("  scritto " + path, flush=True)
+        # E alla fine, DOPO aver costruito il sito: le serie irripetibili
+        # escono dalla cache e vanno nei file del progetto, che git tiene per
+        # sempre. Non si rimpiccioliscono mai: vedi archivio.py.
+        #
+        # L'ordine non e' estetico. Le curve che pubblichiamo nascono DENTRO la
+        # costruzione del sito (engine.by_day -> store.save_issued_profile):
+        # archiviando prima, ogni giro salvava le curve del giro PRECEDENTE e
+        # mai le proprie. Le piu' recenti restavano nella sola cache di
+        # Actions - cioe' esattamente nel posto da cui questo archivio serve a
+        # metterle al sicuro.
+        for path, n, nuove in archivio.esporta():
+            if nuove:
+                print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
         if engine.STATE["errors"]:
             print("Errori durante il ciclo:", flush=True)
             for e in engine.STATE["errors"]:

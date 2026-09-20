@@ -1018,6 +1018,14 @@ def train_bands(spot_name, tier="surface", by_lead=None, bands=None):
             "brier_base": (r["prob"] or {}).get("brier_base"),
             "mae": (r["intensity"] or {}).get("mae"),
             "mae_base": (r["intensity"] or {}).get("mae_raw"),
+            # Due chiavi che model.predict e la diagnostica cercano e che qui
+            # non arrivavano mai: senza clim_median il ripiego climatologico
+            # non esisteva per i modelli per fascia - cioe' per quelli in uso -
+            # e al suo posto tornava il prior fisico; senza coverage la colonna
+            # della copertura restava vuota.
+            "clim_median": (r["intensity"] or {}).get("clim_median"),
+            "coverage": (r["intensity"] or {}).get("coverage"),
+            "coverage_n": (r["intensity"] or {}).get("coverage_n"),
         })
         store.save_learned(spot_name, "daily@" + name, tier, r["n"],
                            r["payload"], metrics)
@@ -1399,7 +1407,7 @@ def forecast_days(spot_name, horizon=None):
         pred = M.predict(spot_name, feats, use, lead, sp, direction=dir_pred)
 
         peak_hour, peak_hour_src = M.predict_timing(
-            feats, timing, day, fallback=feats.get("raw_peak_hour"))
+            feats, timing, day, fallback=feats.get("raw_peak_hour"), lead=lead)
         pred["peak_hour"] = peak_hour
         pred["peak_hour_source"] = peak_hour_src
         pred["peak_hour_mae_min"] = (timing or {}).get("metrics", {}).get("mae_minutes")

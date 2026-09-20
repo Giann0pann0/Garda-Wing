@@ -332,6 +332,13 @@ SOURCE_LABEL = {
     "misto-clim": "probabilità addestrata; l’intensità è la mediana misurata "
                   "dei giorni di regime, perché qui il vento è così regolare "
                   "che il modello non la batte",
+    # Il freno sulla direzione (model.direction_penalty) moltiplica la
+    # probabilita' DOPO la calibrazione: il numero che si legge non e' piu'
+    # quello che la verifica ha misurato, e va detto invece di lasciare la
+    # percentuale di affidabilita' a promettere una precisione che non c'e'.
+    "misto-freno": "i modelli danno il vento fuori dal settore di questo "
+                   "regime: la probabilità è stata abbassata per questo, e "
+                   "non è più quella verificata sui dati",
     "prior": "stima fisica di partenza, non ancora calibrata sui dati",
 }
 
@@ -340,7 +347,7 @@ SOURCE_LABEL = {
 # schermo in quel caso NON e' calibrato sui dati di quella centralina, e chi
 # guarda ha il diritto di saperlo prima di decidere se caricare la macchina.
 # Non e' un dettaglio tecnico da mandare in diagnostica: e' un'avvertenza.
-FONTI_DA_DICHIARARE = ("prior", "misto", "misto-clim")
+FONTI_DA_DICHIARARE = ("prior", "misto-freno", "misto", "misto-clim")
 
 
 # --------------------------------------------------------------------------
@@ -1592,6 +1599,8 @@ def source_note(place, sessions):
         src = sessions[n].get("source")
         if src == "misto" and sessions[n].get("source_int") == "climatologia":
             src = "misto-clim"
+        if sessions[n].get("source_prob") == "appreso-frenato":
+            src = "misto-freno"
         fonti.append(src)
     for key in FONTI_DA_DICHIARARE:
         if key in fonti:

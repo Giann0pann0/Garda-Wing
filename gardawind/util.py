@@ -260,6 +260,52 @@ def median(xs, default=None):
     return statistics.median(z) if z else default
 
 
+def direzione_o_niente(valore):
+    """Un angolo in [0, 360), oppure None. UN posto solo, per tutte le fonti.
+
+    Un numero fuori da quell'intervallo NON e' una direzione. Le centraline
+    mandano i loro "nessun dato" come numeri - 999, -999, a volte 9999 - e
+    finora ogni lettore normalizzava con `% 360`, che li trasforma in angoli
+    perfettamente credibili: 999 diventa 279 gradi, -999 diventa 81. E 81 gradi
+    cade DENTRO il settore osservato del Peler, quindi un'ora di Ora mattutina
+    finiva etichettata Peler per un valore che voleva dire "non lo so".
+
+    Il 360 esatto invece e' legittimo: diverse fonti lo scrivono per il nord, e
+    diventa 0.
+    """
+    g = num(valore)
+    if g is None:
+        return None
+    if not (0.0 <= g <= 360.0):
+        return None
+    return g % 360.0
+
+
+def banda_da_residui(previsione, q10, q90):
+    """L'intervallo 10-90% intorno a una previsione, dai quantili dei residui.
+
+    IL SEGNO STA QUI, in un posto solo, perche' sbagliarlo non si vede.
+
+    Il residuo del progetto e' `previsto - osservato` (regression_metrics, e
+    con lui validate.empirical_band e model). Se r = p - o, allora o = p - r:
+    per costruire un intervallo intorno alla previsione i quantili si
+    SOTTRAGGONO, e SCAMBIATI.
+
+        lo = previsione - q90        hi = previsione - q10
+
+    Prima si sommavano, e la banda usciva specchiata: nelle fasce dove il
+    modello sottostima - cioe' dove i residui sono negativi, e sul picco del
+    vento la coda sta a destra - la banda scendeva invece di salire. Il tetto
+    della banda e' il numero su cui si decide se si plana: abbassarlo quando i
+    dati dicono il contrario e' il modo peggiore di sbagliare. Con residui
+    perfettamente simmetrici i due conti coincidono, ed e' per questo che il
+    difetto e' rimasto in piedi cosi' a lungo.
+    """
+    if previsione is None or q10 is None or q90 is None:
+        return None, None
+    return max(0.0, previsione - q90), previsione - q10
+
+
 def quantile(xs, q):
     """Quantile lineare su lista gia' filtrata da None."""
     z = sorted(x for x in xs if x is not None)

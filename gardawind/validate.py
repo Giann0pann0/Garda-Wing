@@ -30,10 +30,13 @@ import random
 
 from . import config, features as F
 from .model import apply_calibration, pava
-from .util import (brier, clamp, logistic_fit, mean, median, quantile,
-                   regression_metrics, ridge_fit, LogisticModel, RidgeModel)
+from .util import (banda_da_residui, brier, clamp, interval_coverage,
+                   logistic_fit, mean, median, quantile, regression_metrics,
+                   ridge_fit, LogisticModel, RidgeModel)
 
-LAMBDA_GRID = (0.25, 1.0, 4.0, 16.0, 64.0)
+# La griglia dei lambda e' UNA: la teneva anche questo modulo, identica, e due
+# copie di una griglia sono due modelli diversi il giorno che una si allarga.
+from .model import LAMBDA_GRID  # noqa: E402  (una sola definizione, in model)
 MIN_TRAIN_DAYS = 200
 N_FOLDS = 5
 BOOTSTRAP = 400
@@ -281,6 +284,25 @@ def probability_metrics(pred):
     }
 
 
+def _copertura_banda(resid, pred, obs):
+    """Frazione di osservati dentro la banda 10-90% costruita da quei residui.
+
+    Non e' una tautologia solo perche' la banda ha un verso: se i quantili
+    venissero applicati al contrario - come succedeva - questo numero scende
+    sotto l'80% dichiarato, e si vede in diagnostica.
+    """
+    if not resid or len(resid) < 20:
+        return None
+    q10, q90 = quantile(resid, 0.10), quantile(resid, 0.90)
+    los, his = [], []
+    for p in pred:
+        lo, hi = banda_da_residui(p, q10, q90)
+        los.append(lo)
+        his.append(hi)
+    cov, _n = interval_coverage(los, his, obs)
+    return cov
+
+
 def intensity_metrics(pred, planing_kn=None):
     """pred: [(campione, intensita' prevista)]. Solo i giorni con regime."""
     rows = [(s, p) for s, p in pred if s["established"]]
@@ -301,6 +323,19 @@ def intensity_metrics(pred, planing_kn=None):
         "n": met["n"], "mae": met["mae"], "bias": met["bias"], "rmse": met["rmse"],
         "mae_raw": mean([abs(a - b) for a, b in raw]) if len(raw) > 10 else None,
         "mae_clim": mean([abs(med - o) for o in os_]),
+        # La mediana climatologica esce da qui perche' serve a model.predict:
+        # dove la porta dell'intensita' si chiude, il ripiego deve essere la
+        # climatologia, non il prior fisico. Prima questa chiave la produceva
+        # solo il modello "daily", quindi per i modelli per fascia il ripiego
+        # non esisteva e tornava il prior - 10,4 kn a Campione-Ora contro 14
+        # di mediana, cioe' "non vale la pena" al posto di "ci siamo".
+        "clim_median": med,
+        # La copertura vera della banda 10-90%: quante volte l'osservato ci
+        # cade dentro, sulle previsioni fuori campione. E' la sentinella che
+        # avrebbe smascherato il segno sbagliato della banda, e non era
+        # collegata a niente.
+        "coverage": _copertura_banda(met["resid"], ps, os_),
+        "coverage_n": met["n"],
         "resid": met["resid"],
         # Errori appaiati, campione per campione: sono quelli che il bootstrap
         # ricampiona. Senza appaiamento l'intervallo sarebbe troppo largo.
@@ -473,7 +508,16 @@ def fit_band(spot_name, samples, tier, band, holdout=None):
             "timing": t,
         }
         if i:
+            # Anche qui la MIGLIORE delle due baseline, non la piu' comoda:
+            # questo e' il guadagno per singola scadenza, quello che finisce in
+            # diagnostica e in confidence._skill. Testarlo contro il solo
+            # grezzo poteva marcare "significativo" un peggioramento rispetto
+            # alla climatologia.
             base_each = i["ae_raw_each"] or i["ae_clim_each"]
+            if i["ae_raw_each"] and i["ae_clim_each"]:
+                base_each = (i["ae_raw_each"]
+                             if mean(i["ae_raw_each"]) <= mean(i["ae_clim_each"])
+                             else i["ae_clim_each"])
             g_ok, g_pt, g_lo, g_hi = _gate(i["ae_each"], base_each)
             entry["gain_int"] = {"punto": g_pt, "ic_lo": g_lo, "ic_hi": g_hi,
                                  "significativo": g_ok}

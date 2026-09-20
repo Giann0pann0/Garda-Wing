@@ -260,22 +260,6 @@ def _istanti(chiavi):
             for t in serie_locale_to_utc(naives)]
 
 
-def _istante(chiave):
-    """"2026/09/15/0600" (ora LOCALE) -> istante UTC in iso, o None.
-
-    Un posto solo: la serie misurata e quella prevista arrivano nella stessa
-    risposta e usano le stesse chiavi, e due conversioni di fuso scritte due
-    volte sono due occasioni di sbagliarne una.
-    """
-    try:
-        anno, mese, giorno, hhmm = str(chiave).split("/")
-        naive = _dt.datetime(int(anno), int(mese), int(giorno),
-                             int(hhmm[:2]), int(hhmm[2:]))
-    except (ValueError, IndexError):
-        return None
-    return iso_utc(local_naive_to_utc(naive))
-
-
 def parse_json_previsione(dati):
     """La serie oraria PREVISTA DA LORO -> [(ts_utc, vento, lo, hi)].
 
