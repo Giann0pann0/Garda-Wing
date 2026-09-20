@@ -756,10 +756,22 @@ def save_forecast(point, model, run, rows):
 
 
 def save_issued_profile(place, issued_at, rows):
-    """Archivia la curva effettivamente mostrata, idempotente per run.
+    """Archivia la curva effettivamente mostrata. La PRIMA vince.
 
     rows: iterable di dict con `key` UTC, `wind`, `gust`. Il chiamante passa
     l'identificatore del run: ricaricare la pagina non crea nuovi snapshot.
+
+    INSERT OR IGNORE, e non REPLACE, per la stessa ragione per cui il file di
+    archivio tiene la riga che ha gia' ("a parita' di chiave vince la riga GIA'
+    IN ARCHIVIO", archivio._scrivi_mese). Era REPLACE, e finche' ogni giro
+    scriveva un `issued_at` nuovo la differenza non si vedeva. Dal momento in
+    cui quell'ora si scrive solo se la previsione e' arrivata davvero - giusto,
+    ed e' il primo controllo della salute - due giri possono condividere lo
+    stesso `issued_at` con in mezzo un riaddestramento: il database si faceva
+    sovrascrivere e il file no, e le due verita' del progetto restavano
+    diverse per sempre, senza che nessuno lo sapesse. Peggio: la pagella
+    avrebbe giudicato come previsione a scadenza zero una curva ricalcolata
+    con le misure della giornata stessa.
     """
     payload = [(place, issued_at, r.get("key"), r.get("wind"), r.get("gust"))
                for r in rows if r.get("key") and r.get("wind") is not None]
@@ -767,7 +779,7 @@ def save_issued_profile(place, issued_at, rows):
         return 0
     c = connect()
     c.executemany(
-        "INSERT OR REPLACE INTO issued_profile(place,issued_at,valid_hour,wind_kn,gust_kn) "
+        "INSERT OR IGNORE INTO issued_profile(place,issued_at,valid_hour,wind_kn,gust_kn) "
         "VALUES(?,?,?,?,?)", payload)
     c.commit()
     return len(payload)

@@ -90,7 +90,14 @@ MARCA_PUSH = "archivio-spinto.txt"
 
 
 def marca_push_riuscito(adesso=None):
-    """Segna che l'archivio e' allineato al remoto. Lo chiama il flusso."""
+    """Segna che l'archivio e' arrivato nel repository. Lo chiama il flusso.
+
+    Lo chiama davvero: il passo dell'archivio in garda-wind.yml esegue questa
+    funzione invece di scrivere il file con `date`. Il formato e il nome sono
+    un contratto fra quel passo e `_ultimo_push_archivio`, e un contratto
+    scritto in due posti e' un contratto che un giorno si rompe in silenzio -
+    qui il silenzio vorrebbe dire "verde per sempre".
+    """
     p = os.path.join(store.support_dir(), MARCA_PUSH)
     with open(p, "w", encoding="utf-8") as fh:
         fh.write(iso_utc(adesso or utc_now()) + "\n")
@@ -110,9 +117,16 @@ def _ultimo_push_archivio():
     p = os.path.join(store.support_dir(), MARCA_PUSH)
     try:
         with open(p, encoding="utf-8") as fh:
-            return (fh.read() or "").strip() or None
-    except OSError:
+            testo = (fh.read() or "").strip() or None
+    except (OSError, UnicodeDecodeError):
         return None
+    # Un biglietto che non si legge vale come un biglietto che non c'e'. Senza
+    # questa riga bastava un file scritto male (una `date` diversa, una
+    # scrittura troncata) perche' il controllo restasse verde per sempre: si
+    # trovava un valore, non si riusciva a datarlo, e non si protestava.
+    if testo and parse_dt_any(testo) is None:
+        return None
+    return testo
 
 
 def ultima_curva_nei_file():
@@ -304,10 +318,19 @@ def righe_da_stampare(s):
     out.append("  archivio: ultima curva emessa %s (%s giorni)"
                % (d.get("archivio_ultima_curva") or "nessuna",
                   d.get("archivio_giorni")))
+    # La riga delle centraline si stampa SEMPRE, anche quando non c'e' niente
+    # da dire: se sparisse, un occhio chiuso (obs_stats che alza, uno schema
+    # cambiato) somiglierebbe a un occhio aperto che non vede problemi, e nel
+    # registro non ci sarebbe niente da notare.
     oss = d.get("osservazioni_giorni") or {}
     if oss:
         out.append("  centraline, giorni dall'ultima ora misurata: %s"
                    % ", ".join("%s %s" % (st, oss[st]) for st in sorted(oss)))
+    else:
+        out.append("  centraline: NON LETTE (%s)"
+                   % (d.get("osservazioni_errore") or "nessuna centralina"))
+    if d.get("prodotto_errore"):
+        out.append("  previsione non calcolabile: %s" % d["prodotto_errore"])
     out.append("  errori nel registro di questo giro: %s" % d.get("n_errori"))
     for m in s["motivi"]:
         out.append("  ! " + m)

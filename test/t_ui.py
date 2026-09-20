@@ -618,10 +618,15 @@ ok('<div class="cella compass">' in H and "white-space:nowrap" in
 # migliore sta un gradino avanti. Quello che NON deve cambiare e' la struttura:
 # stessi campi, stessa larghezza, stessi caratteri nei due riquadri.
 import re as _re
-_sezione = H.split('<div class="rqgrid">')[1].split('</div></div><p class="meglio')[0] \
-    if '<p class="meglio' in H else H.split('<div class="rqgrid">')[1]
-ok(H.count('class="rq q-') == H.count('class="rq q-'),
-   "le schede portano la classe del voto (e' da li' che viene il colore)")
+# Ogni scheda porta la classe del voto, e non e' un dettaglio di stile: e'
+# l'UNICA sorgente del `currentColor` da cui vivono il filo, il velo e
+# l'anello della vincente. Toglierla spegnerebbe tutto in una volta, e la
+# pagina resterebbe identica a prima senza che niente protesti.
+_aperture = _re.findall(r'<div class="rq( [^"]*)"', H)
+ok(len(_aperture) >= 10
+   and all(c.startswith(" q-") or c.startswith(" rq-off") for c in _aperture),
+   "ogni scheda porta la classe del voto, che e' da dove viene tutto il "
+   "colore (%d schede, %s)" % (len(_aperture), sorted(set(_aperture))[:4]))
 _per_giorno = _re.findall(r'<div class="rqgrid">(.*?)<p class="meglio', H, _re.S)
 ok(_per_giorno and all(pezzo.count(" vince\"") <= 1 for pezzo in _per_giorno),
    "in ogni giornata si accende al massimo una scheda (%s)"
@@ -667,18 +672,44 @@ ok(web.regime_che_vince("Torbole", _pi, _sess, OGGI, None, True) is None
 ok(web.riquadri("Torbole", _pi, _sess, OGGI, None, True).count(" vince\"") == 0,
    "e infatti nessuna delle due schede si accende")
 
-# Giornata da niente: non si accende il meno peggio.
+# Giornata da niente: non si accende il meno peggio. Con UNA sola sessione,
+# perche' con due il pareggio risponderebbe di no per un'altra ragione e la
+# guardia sul voto piu' basso non verrebbe mai messa alla prova.
 _nulla = _profilo_piatto(3.0)
-ok(web.regime_che_vince("Torbole", _nulla, _sess, OGGI, None, True) is None
-   and "Niente da fare" in web.riga_meglio("Torbole", _nulla, _sess, OGGI,
-                                           None, True),
-   "e in una giornata senza vento non si accende il meno peggio di niente")
+_una_sola = {k: v for k, v in _sess.items() if k != "Torbole-Peler"}
+ok(web.regime_che_vince("Torbole", _nulla, _una_sola, OGGI, None, True) is None
+   and "Niente da fare" in web.riga_meglio("Torbole", _nulla, _una_sola, OGGI,
+                                           None, True)
+   and web.riquadri("Torbole", _nulla, _una_sola, OGGI, None,
+                    True).count(" vince\"") == 0,
+   "e in una giornata senza vento non si accende il meno peggio di niente - "
+   "una scheda accesa accanto a «Niente da fare» sarebbe la contraddizione "
+   "che questa classifica unica serve a rendere impossibile")
 
 ok(".rq.vince{" in web.CSS and "currentColor" in
    web.CSS.split(".rq.vince{")[1][:200],
    "la scheda che vince si distingue col colore del suo voto, non con uno nuovo")
 ok(".rq::before{" in web.CSS and ".rq::after{" in web.CSS,
    "il filo di colore sul bordo e il velo nell'angolo")
+ok("isolation:isolate" in web.CSS.split(".rq{")[1][:300],
+   "e la scheda fa da contesto di impilamento: senza, gli pseudo-elementi "
+   "finirebbero DIETRO lo sfondo opaco e il colore sparirebbe del tutto")
+
+# "I due riquadri hanno la stessa struttura" e' una regola di prodotto, e la
+# gerarchia si fa con la superficie: la scheda accesa non puo' avere caratteri
+# piu' grandi, lettere piu' larghe o campi diversi dall'altra. Si guardano le
+# proprieta' che le regole `.rq.vince ...` toccano davvero.
+_regole_vince = _re.findall(r'\.rq\.vince([^{]*)\{([^}]*)\}', web.CSS)
+_permesse = {"background", "border-color", "box-shadow", "opacity", "border",
+             "backdrop-filter", "content", "position", "inset", "z-index"}
+_toccate = set()
+for _sel, _corpo in _regole_vince:
+    for _d in _corpo.split(";"):
+        if ":" in _d:
+            _toccate.add(_d.split(":")[0].strip())
+ok(_regole_vince and _toccate <= _permesse,
+   "la scheda accesa cambia solo superficie, non struttura: nessun carattere "
+   "piu' grande, nessun campo in piu' (%s)" % sorted(_toccate))
 _mgcss = web.CSS.split(".meglio{")[1][:320]
 ok("border:0" in _mgcss and "border-left:3px solid currentColor" in _mgcss,
    "e la riga del meglio non e' piu' un riquadro col bordo intero: non deve "

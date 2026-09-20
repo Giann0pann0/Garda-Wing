@@ -52,7 +52,12 @@ ok(j["versione"]==config.APP_VERSION, "versione riportata")
 y=open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','.github','workflows','garda-wind.yml'),encoding='utf-8').read()
 ok("python3 -m gardawind --ci --export site" in y, "il workflow invoca il comando che esiste")
 ok("GARDAWIND_HOME: dati" in y, "il database va in una cartella persistente")
-ok("actions/cache@v4" in y and "restore-keys" in y, "cache con chiave di ripiego")
+ok("actions/cache/restore@v4" in y and "actions/cache/save@v4" in y
+   and "restore-keys" in y,
+   "cache con chiave di ripiego, e ripristino e salvataggio in due passi "
+   "separati: `actions/cache` intero salva solo se il job e' riuscito, e da "
+   "quando la salute puo' farlo fallire un giro rosso butterebbe via anche il "
+   "lavoro fatto")
 ok("upload-artifact" in y, "copia di sicurezza del database")
 ok("cron:" in y and "workflow_dispatch" in y, "schedulato e lanciabile a mano")
 ok("push:" in y and "branches: [main]" in y,

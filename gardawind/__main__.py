@@ -332,12 +332,27 @@ def main(argv=None):
         # database e la loro data diventa "adesso" qualunque cosa sia successo
         # al push - cioe' il controllo sull'archivio direbbe sempre di si'.
         from . import salute as S
-        _curva_di_git = S.ultima_curva_nei_file()
+        try:
+            _curva_di_git = S.ultima_curva_nei_file()
+        except Exception as e:                        # noqa: BLE001
+            _curva_di_git = None
+            print("  (non ho potuto leggere l'archivio prima di esportarlo: %s)"
+                  % e, flush=True)
         for path, n, nuove in archivio.esporta():
             if nuove:
                 print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
-        for riga in S.righe_da_stampare(S.stato(ultima_curva=_curva_di_git)):
-            print(riga, flush=True)
+        # Il verdetto si STAMPA qui, e non deve poter far fallire questo passo:
+        # dopo di lui vengono il push dell'archivio e i due passi che
+        # costruiscono l'artefatto del sito. Il pallino rosso lo accende il
+        # passo `--salute`, che sta dopo la pubblicazione apposta perche' il
+        # sito esca comunque. Un'eccezione qui costerebbe il sito di questo
+        # giro per colpa di chi doveva solo guardarlo.
+        try:
+            for riga in S.righe_da_stampare(S.stato(ultima_curva=_curva_di_git)):
+                print(riga, flush=True)
+        except Exception as e:                        # noqa: BLE001
+            print("salute del giro: NON PRONUNCIABILE (%s: %s)"
+                  % (type(e).__name__, e), flush=True)
         if engine.STATE["errors"]:
             print("Errori durante il ciclo:", flush=True)
             for e in engine.STATE["errors"]:

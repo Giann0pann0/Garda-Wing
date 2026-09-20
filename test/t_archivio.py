@@ -294,4 +294,42 @@ main_src = open(os.path.join(QUI, "..", "gardawind", "__main__.py"),
 ok("PonteNonLetto" in main_src and "_os.remove(vivo)" in main_src,
    "e il comando veloce lo sa: pubblica live.json e lascia stare il ponte")
 
+# ---- la curva emessa: la prima vince, come nel file ------------------------
+# Due giri possono condividere lo stesso `issued_at` da quando quell'ora si
+# scrive solo se la previsione e' arrivata davvero (engine.update_forecasts):
+# in mezzo ci sta un riaddestramento, quindi la curva del secondo giro e'
+# DIVERSA. Il file di archivio, a parita' di chiave, tiene la riga che ha gia';
+# il database faceva INSERT OR REPLACE e si faceva sovrascrivere. Le due
+# verita' del progetto restavano diverse per sempre, e la pagella avrebbe
+# giudicato come previsione a scadenza zero una curva ricalcolata con le
+# misure della giornata stessa.
+EMESSA = "2026-09-19T03:20:00Z"
+ORA_VALIDA = "2026-09-19T14:00:00Z"
+store.save_issued_profile("Torbole", EMESSA,
+                          [{"key": ORA_VALIDA, "wind": 10.0, "gust": 14.0}])
+store.save_issued_profile("Torbole", EMESSA,
+                          [{"key": ORA_VALIDA, "wind": 99.0, "gust": 99.0}])
+_riga = store.connect().execute(
+    "SELECT wind_kn FROM issued_profile WHERE place=? AND issued_at=? "
+    "AND valid_hour=?", ("Torbole", EMESSA, ORA_VALIDA)).fetchone()
+ok(_riga and abs(_riga["wind_kn"] - 10.0) < 1e-6,
+   "sotto lo stesso run vince la curva ARRIVATA PER PRIMA, come nel file "
+   "(letto: %s)" % (_riga and _riga["wind_kn"]))
+
+# E le due verita' coincidono: quello che finisce nel file e' quello che sta
+# nel database. E' la proprieta' vera, il resto e' il come.
+for _p, _n, _nuove in archivio.esporta():
+    pass
+_mese = os.path.join(config.PROJECT_DIR, "storico", "emesse",
+                     "Torbole-2026-09.csv.gz")
+_nel_file = None
+if os.path.exists(_mese):
+    with gzip.open(_mese, "rt", encoding="utf-8") as fh:
+        for _r in fh:
+            _c = _r.strip().split(",")
+            if len(_c) > 3 and _c[0] == EMESSA and _c[1] == ORA_VALIDA:
+                _nel_file = float(_c[2])
+ok(_nel_file is None or abs(_nel_file - 10.0) < 1e-6,
+   "e il file dice lo stesso numero del database (%s)" % _nel_file)
+
 print("%d controlli sull'archivio irripetibile" % passati)

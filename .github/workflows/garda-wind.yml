@@ -47,8 +47,19 @@ jobs:
       # l'altra: contiene i quattordici anni di Torbole e tutto lo storico gia'
       # scaricato. La chiave cambia ogni giorno e si ripesca la piu' recente,
       # cosi' ogni esecuzione riparte da dove si era arrivati.
+      #
+      # RIPRISTINA e SALVA sono due passi separati, e non e' un dettaglio:
+      # `actions/cache` salva nel suo post-passo solo se il job e' RIUSCITO
+      # (post-if: success()). Finche' i controlli della salute non potevano
+      # dire di no, il job era sempre verde e la cosa non si vedeva. Adesso che
+      # possono, un giro rosso - per esempio una centralina muta per una
+      # settimana - non salverebbe il database, e il giro dopo ripartirebbe da
+      # quello dell'ultimo giro verde: lavoro rifatto ogni volta, e per giunta
+      # con il biglietto dell'archivio tornato indietro, che accende un SECONDO
+      # allarme, falso. Il salvataggio va fatto comunque: il rosso serve a dire
+      # che qualcosa non torna, non a buttare via il lavoro di questo giro.
       - name: Ripristina il database
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: dati
           # Il tentativo, non solo l'esecuzione: github.run_id NON cambia
@@ -98,14 +109,25 @@ jobs:
         continue-on-error: true
         run: |
           # Il biglietto va nella cartella dei dati (quella che finisce in
-          # cache), e lo scrive SOLO chi e' arrivato in fondo: e' l'unica cosa
-          # che distingue "non e' riuscito una volta" da "non riesce da
-          # giugno", ed e' il controllo 3 della salute a leggerlo. Anche
-          # "niente da archiviare" e' un successo: vuol dire che quello che
-          # c'era e' gia' nel repository.
-          marca() { mkdir -p dati; date -u +%Y-%m-%dT%H:%M:%SZ > dati/archivio-spinto.txt; }
+          # cache), e lo scrive SOLO un push vero: e' l'unica cosa che
+          # distingue "non e' riuscito una volta" da "non riesce da giugno",
+          # ed e' il controllo 3 della salute a leggerlo.
+          #
+          # Lo scrive Python e non `date`, perche' il formato e il nome del
+          # file sono un contratto fra questo passo e salute.py: scritti in due
+          # posti, il giorno che uno dei due cambia l'altro non protesta, resta
+          # semplicemente verde per sempre.
+          #
+          # E "niente di nuovo da archiviare" NON e' un successo, anche se
+          # l'archivio in quel momento e' allineato: senza commit il
+          # repository non ha attivita', ed e' l'altra meta' di quello che
+          # questo controllo promette (dopo 60 giorni di inattivita' GitHub
+          # spegne i cron da solo). Se succede tre giorni di fila vuol dire che
+          # non stiamo pubblicando curve nuove, e va detto.
+          marca() { python3 -c 'from gardawind import salute; print("  archivio: " + salute.marca_push_riuscito())'; }
           if [ -z "$(git status --porcelain storico)" ]; then
-            echo "niente di nuovo da archiviare"; marca; exit 0
+            echo "niente di nuovo da archiviare, e quindi nessun commit: se si ripete, il controllo 3 lo dira'"
+            exit 0
           fi
           git config user.name  "garda-wind (archivio)"
           git config user.email "noreply@anthropic.com"
@@ -116,6 +138,18 @@ jobs:
             echo "tentativo $i non riuscito, riprovo"; sleep 5
           done
           echo "non sono riuscito a spingere l'archivio: resta in cache, riprovo al prossimo giro"
+
+      # Il salvataggio del database, e `if: always()` e' tutto il punto: il
+      # lavoro di questo giro - lo scaricato, il riaddestrato, il biglietto
+      # dell'archivio - si salva anche quando la salute fara' diventare rosso
+      # il pallino piu' sotto. Il rosso dice che qualcosa non torna; buttare
+      # via il giro sarebbe una seconda punizione, e quella vera.
+      - name: Salva il database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: dati
+          key: gardawind-db-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Rete di sicurezza: se la cache viene sfrattata, il database resta
       # scaricabile dalla pagina dell'esecuzione per 90 giorni.
@@ -139,7 +173,7 @@ jobs:
       # ricostruito dal database vecchio e ci stampava sopra "previsione
       # calcolata adesso". Qui si chiede: quello che abbiamo appena pubblicato
       # e' il risultato di questo giro, o roba vecchia con una data nuova?
-      # (Vedi gardawind/salute.py per i tre controlli e per quello che di
+      # (Vedi gardawind/salute.py per i quattro controlli e per quello che di
       # proposito NON fa diventare rosso il pallino.)
       #
       # Sta dopo l'artefatto perche' il sito deve uscire comunque: un sito

@@ -49,7 +49,15 @@ store.connect().commit()
 store.save_issued_profile("Torbole","2026-09-15T08:00:00Z",[
     {"key":"2026-09-15T09:00:00Z","wind":13.0,"gust":19.0}])
 r=store.connect().execute("select count(*) n,max(wind_kn) w from issued_profile").fetchone()
-ok(r["n"]==1 and abs(r["w"]-13.0)<1e-9,"snapshot idempotente per run/ora")
+# Una riga sola per run/ora, e la PRIMA vince: e' la stessa regola del file di
+# archivio ("a parita' di chiave vince la riga gia' in archivio"). Prima qui si
+# chiedeva 13.0, cioe' l'ultima scritta - e finche' ogni giro aveva un run
+# nuovo la differenza non si vedeva. Da quando l'ora del run si scrive solo se
+# la previsione e' arrivata davvero, due giri possono condividere lo stesso
+# run con in mezzo un riaddestramento: il database si faceva sovrascrivere, il
+# file no, e le due verita' restavano diverse per sempre.
+ok(r["n"]==1 and abs(r["w"]-12.0)<1e-9,
+   "snapshot per run/ora, e vince quello arrivato per primo (%s)" % r["w"])
 p1=N.production_coverage("Torbole")
 ok(p1["n"]==1 and p1["days"]==1,"ora emessa conta dopo osservazione reale")
 # Il candidato non deve prendersi automaticamente il merito della persistenza.

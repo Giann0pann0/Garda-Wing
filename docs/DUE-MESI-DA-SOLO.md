@@ -58,6 +58,14 @@ scaricata**. Fino a ieri quel controllo si guardava allo specchio: l'ora veniva
 scritta a ogni giro anche quando tutte le richieste erano fallite. Adesso si
 scrive solo se almeno un modello è arrivato.
 
+### 3-bis. Un pallino rosso che dura
+
+Se il pallino resta rosso per settimane (per esempio una centralina che chiude
+per la stagione), **non si perde niente**: il database di quel giro si salva
+comunque — il passo che lo salva ha `if: always()` apposta — e l'archivio
+irripetibile viene spinto prima del controllo. Il rosso dice che qualcosa non
+torna; non porta via il lavoro del giro.
+
 ### 4. La cache di Actions viene sfrattata
 
 Succede e non è grave: `storico/` è dentro il repository e `recupera()` lo

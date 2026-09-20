@@ -174,10 +174,25 @@ ok("if okc:" in _pezzo and _pezzo.index("if okc:")
 from gardawind import store as _store, engine as _engine  # noqa: E402
 from gardawind.sources import openmeteo as _om  # noqa: E402
 from gardawind.sources.http import FetchError as _FE  # noqa: E402
-_os.environ["GARDAWIND_HOME"] = "/tmp/gwsalute"
+# Da qui in poi si SCRIVE, quindi prima si va in un database di prova - e si
+# chiude davvero quella gia' aperta. La connessione e' una per thread e sta in
+# `store._LOCAL.conn`: senza chiuderla, cambiare la variabile d'ambiente non
+# sposta le scritture, che finiscono nel database VERO di chi sta lanciando i
+# controlli sul proprio Mac. Una di queste e' l'ora dell'ultima previsione:
+# retrodatandola, il primo giro vero avrebbe archiviato le curve di oggi sotto
+# una data di tre settimane fa, dentro file che si committano e che la pagella
+# legge come previsioni a diciannove giorni di scadenza.
 shutil.rmtree("/tmp/gwsalute", ignore_errors=True)
-_store._CONN = None if hasattr(_store, "_CONN") else None
+_vecchia = getattr(_store._LOCAL, "conn", None)
+if _vecchia is not None:
+    _vecchia.close()
+    _store._LOCAL.conn = None
+_os.environ["GARDAWIND_HOME"] = "/tmp/gwsalute"
 _store.init()
+ok(_os.path.dirname(_store.db_path()) == "/tmp/gwsalute"
+   and _os.path.exists(_store.db_path()),
+   "i controlli che scrivono lo fanno in un database di prova, non in quello "
+   "vero di chi li lancia (%s)" % _store.db_path())
 _store.meta_set("last_forecast_run", "2026-09-01T00:00:00Z")
 _vera_fetch = _om.fetch_forecast
 _om.fetch_forecast = lambda *a, **k: (_ for _ in ()).throw(_FE("giu'"))
@@ -200,13 +215,22 @@ ok(any("non hanno previsione" in m for m in _st3["motivi"])
    and config.SPOT_ORDER[-1] in " ".join(_st3["motivi"]),
    "sei localita' su sette senza previsione fanno diventare rosso il pallino, "
    "e il motivo dice quali")
+ok(config.SPOT_ORDER[-1] in " ".join(_S2.righe_da_stampare(_st3)),
+   "e i nomi dei mancanti arrivano fino alle righe stampate, che sono l'unica "
+   "cosa che qualcuno leggera' nel registro")
+_tutti = {n: [{"day": "x"}] for n in config.SPOT_ORDER}
+ok(not any("previsione" in m and "localita" in m
+           for m in _S2.stato(prodotto=_tutti)["motivi"]),
+   "e con tutte e sette piene non protesta")
 
 # 3. "L'archivio cresce" leggeva dei file che il giro stesso aveva appena
 #    riscritto: dentro il flusso non poteva dire di no. Adesso c'e' il
 #    biglietto lasciato da chi ha spinto davvero.
 _marca = _S2.marca_push_riuscito()
-ok(_os.path.exists(_marca), "il biglietto del push riuscito si scrive dove sta "
-                            "il database, non nel repository")
+ok(_os.path.exists(_marca)
+   and _os.path.dirname(_marca) == _os.path.dirname(_store.db_path()),
+   "il biglietto del push riuscito si scrive dove sta il database, non nel "
+   "repository (%s)" % _marca)
 _st4 = _S2.stato()
 ok(_st4["dettagli"]["archivio_misura"] == "push riuscito"
    and not any("archivio" in m for m in _st4["motivi"]),
@@ -216,22 +240,96 @@ _st5 = _S2.stato()
 ok(any("archivio non arriva nel repository" in m for m in _st5["motivi"]),
    "fermo da un mese, invece, il pallino diventa rosso - ed e' anche il "
    "motivo per cui GitHub spegnerebbe i cron dopo 60 giorni")
-ok("archivio-spinto.txt" in _wf
-   and _wf.split("git push origin HEAD:main")[1].split("\n")[0].count("marca"),
-   "e nel flusso il biglietto lo scrive SOLO chi e' arrivato in fondo al push")
+# Un biglietto illeggibile vale come nessun biglietto: prima bastava scriverci
+# dentro una data in un altro formato perche' il controllo restasse verde per
+# sempre - trovava un valore, non riusciva a datarlo, e non protestava.
+open(_marca, "w", encoding="utf-8").write("gio 20 set 2026, 20:38:00 UTC\n")
+_st5b = _S2.stato(ultima_curva="2026-06-01T00:00:00Z")
+ok(any("archivio non arriva nel repository" in m for m in _st5b["motivi"])
+   and _st5b["dettagli"]["archivio_misura"] == "file di storico",
+   "e un biglietto che non si legge non spegne il controllo: si torna a "
+   "guardare i file")
+_os.remove(_marca)
+# Il biglietto lo scrive SOLO chi e' arrivato in fondo a un push vero. Si
+# guardano tutte le righe del passo che invocano `marca`: ognuna deve stare
+# sulla stessa riga di `git push`. Cosi' il controllo non dipende da come e'
+# scritto il ramo vuoto - che oggi non lo scrive perche' senza commit il
+# repository non ha attivita', e dopo 60 giorni GitHub spegne i cron.
+_passo = _wf.split("- name: Metti al sicuro")[-1].split("\n      - ")[0]
+_usi = [r.strip() for r in _passo.splitlines()
+        if "marca" in r and "marca()" not in r and not r.strip().startswith("#")]
+ok(_usi and all("git push" in r for r in _usi),
+   "nel flusso il biglietto lo scrive SOLO chi e' arrivato in fondo al push "
+   "(%s)" % _usi)
+ok("salute.marca_push_riuscito" in _wf and "date -u" not in
+   _wf.split("marca()")[1].split("\n")[0],
+   "il biglietto lo scrive la stessa funzione che poi lo legge: il formato "
+   "non vive in due posti che possono divergere in silenzio")
+_pezzo_cache = _wf.split("actions/cache/save")[1][:200] if "actions/cache/save" in _wf else ""
+ok("cache/restore" in _wf and "if: always()" in
+   _wf.split("Salva il database")[1][:120],
+   "il database si salva anche quando la salute fa diventare rosso il giro: "
+   "`actions/cache` da solo salva soltanto se il job e' riuscito, e un rosso "
+   "avrebbe buttato via il lavoro del giro insieme all'allarme")
 
 # 4. Il controllo che mancava: nessuno dei tre guardava le MISURE, cioe' il
 #    metro contro cui tutto il resto si corregge.
+from gardawind.util import iso_utc as _iso, utc_now as _now  # noqa: E402
+import datetime as _dt  # noqa: E402
+
+
+def _stats_ferme_da(giorni):
+    ora = _iso(_now() - _dt.timedelta(days=giorni))
+    return lambda st: {"hour_to": ora, "hours": 10, "hour_from": ora,
+                       "days": 1, "day_from": None, "day_to": None,
+                       "samples": 0}
+
+
 _vere_stats = _store.obs_stats
-_store.obs_stats = lambda st: {"hour_to": "2026-08-01T10:00:00Z", "hours": 10,
-                               "hour_from": "2026-01-01T00:00:00Z", "days": 1,
-                               "day_from": None, "day_to": None, "samples": 0}
+# La soglia si prova da tutte e due le parti, e con la distanza presa DALLA
+# costante: scritta a mano, un giorno qualcuno puo' portarla da quattro giorni
+# a quarantacinque e nessun controllo se ne accorge.
+_limite = _S2.OSSERVAZIONI_MAX_GIORNI
 try:
+    _store.obs_stats = _stats_ferme_da(_limite + 1)
     _st6 = _S2.stato()
+    _store.obs_stats = _stats_ferme_da(max(0.0, _limite - 1))
+    _st7 = _S2.stato()
+    _store.obs_stats = lambda st: {"hour_to": None, "hours": 0,
+                                   "hour_from": None, "days": 0,
+                                   "day_from": None, "day_to": None,
+                                   "samples": 0}
+    _st8 = _S2.stato()
 finally:
     _store.obs_stats = _vere_stats
 ok(any("centraline non dicono niente" in m for m in _st6["motivi"]),
-   "una centralina ferma da settimane accende il pallino: la previsione "
-   "continuerebbe a uscire, ma non impariamo piu' niente")
+   "una centralina ferma da piu' di %.0f giorni accende il pallino: la "
+   "previsione continuerebbe a uscire, ma non impariamo piu' niente" % _limite)
+ok(not any("centraline non dicono niente" in m for m in _st7["motivi"]),
+   "e una ferma da meno no: un allarme che suona per un'assenza normale si "
+   "impara a ignorarlo")
+ok(not any("centraline non dicono niente" in m for m in _st8["motivi"]),
+   "una centralina che non ha mai parlato non e' una centralina muta: e' un "
+   "database appena nato, e lo dice il primo controllo")
+ok(1.0 <= _limite <= 10.0,
+   "e la soglia resta nell'ordine dei GIORNI (%.0f): un'ora giu' e' normale, "
+   "un mese non e' piu' un allarme" % _limite)
+
+
+# E se le centraline non si possono nemmeno leggere, la riga si stampa lo
+# stesso: un occhio chiuso non deve somigliare a un occhio aperto che non
+# vede problemi.
+def _stats_rotte(st):
+    raise RuntimeError("obs_hour non esiste piu'")
+
+
+_store.obs_stats = _stats_rotte
+try:
+    _st9 = _S2.stato()
+    _righe9 = _S2.righe_da_stampare(_st9)
+finally:
+    _store.obs_stats = _vere_stats
+ok(any("centraline: NON LETTE" in r for r in _righe9),
+   "se le centraline non si leggono, il registro lo dice invece di tacere")
 
 print("controlli sull'avvio e sulla salute: finiti")
