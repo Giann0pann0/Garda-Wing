@@ -260,12 +260,12 @@ ok(riga and ("mattina" in riga.group(1) or "pomeriggio" in riga.group(1)
 # Non puo' contraddire i riquadri: se dice "meglio il pomeriggio", il voto
 # del pomeriggio deve essere quello piu' alto. E' la ragione per cui confronta
 # i VOTI e non un punteggio continuo suo.
-voti_pagina = re.findall(r'<div class="rq-v">([a-zA-Z]+)</div>', sezione)
-if riga and "pomeriggio" in riga.group(1) and len(voti_pagina) == 2:
-    ok(giudizio.VOTI.index(voti_pagina[1].lower())
-       >= giudizio.VOTI.index(voti_pagina[0].lower()),
+votiH = re.findall(r'<div class="rq-v">([a-zA-Z]+)</div>', sezione)
+if riga and "pomeriggio" in riga.group(1) and len(votiH) == 2:
+    ok(giudizio.VOTI.index(votiH[1].lower())
+       >= giudizio.VOTI.index(votiH[0].lower()),
        "e il voto del pomeriggio non e' piu' basso di quello della mattina"
-       " (%s)" % voti_pagina)
+       " (%s)" % votiH)
 
 # --------------------------------------------------------------------------
 # 7. Le scritte: via tutte, tranne quelle che reggono la fiducia
@@ -551,5 +551,64 @@ ok(H.index('<div class="gtesta"><h2>Vento previsto e misurato</h2>')
    < H.index('<svg class="chart"'),
    "titolo e legenda del grafico stanno SOPRA il disegno")
 ok('<summary>Dettagli</summary>' in H, "il cassetto si chiama Dettagli")
+
+
+# ---- l'UI sul telefono: quello che si e' visto guardandola davvero ----------
+# Misurato il 20/09/2026 sul telefono vero, a 375 px: la diagnostica non faceva
+# scorrere la tabella, faceva scorrere la PAGINA di mezzo schermo (854 px di
+# contenuto in 375 di finestra). Con la pagina che scivola, ogni altra cosa esce
+# dall'allineamento a ogni sfioramento.
+_dg = web.page_diagnostics()
+ok(_dg.count("<table>") == _dg.count('class="scroller"><table>'),
+   "ogni tabella della diagnostica sta dentro un contenitore che scorre "
+   "(%d su %d)" % (_dg.count('class=\"scroller\"><table>'), _dg.count("<table>")))
+ok(".scroller{overflow-x:auto" in web.CSS,
+   "e la regola c'e' per tutte, non solo dentro il cassetto dei numeri")
+
+# La legenda dice i colori che sono davvero disegnati: erano due bande blu
+# scure sotto un quadratino grigio a meta' opacita', e la fetta utile - quella
+# su cui si decide a che ora entrare in acqua - aveva in legenda un quadratino
+# pieno e vivo mentre sulla tela e' un velo.
+ok(web.FILL_BANDE["PELER"] in H and web.FILL_BANDE["ORA"] in H,
+   "i colori delle bande stanno in un posto solo e la legenda usa quelli")
+ok(("opacity=\"%.3f\"" % web.VELO_UTILE) in H,
+   "e il velo della fetta utile pure (%.3f)" % web.VELO_UTILE)
+
+# Il cassetto "Perche'?" si deve capire che si apre: alla prima stesura era un
+# grigio spento senza nessun segno, e si leggeva come un'etichetta disattivata.
+ok("details.perche>summary::before" in web.CSS and "rotate(45deg)" in web.CSS,
+   "il cassetto delle ragioni ha un segno che ruota quando si apre")
+ok("color:var(--ink-2)" in web.CSS.split("details.perche>summary{")[1][:120],
+   "e un colore che si legge, non quello dei testi spenti")
+
+# Due misure prese col browser a 375 px sulla pagina vera, non impressioni.
+#
+# I cinque giorni: una colonna di griglia non scende mai sotto la larghezza del
+# suo contenuto se non le si dice `min-width:0`, e il contenuto piu' largo e' la
+# pillola del voto. Con cinque "Fantastico" - la settimana buona, cioe' proprio
+# quella che si guarda - i riquadri chiedevano 403 px in 351 disponibili e la
+# pagina scivolava di lato di 40. Sono tre pezzi che devono stare insieme:
+# la colonna che puo' stringersi, il figlio che non sborda, la parola che si
+# rimpicciolisce con lo schermo invece di allargare la pagina.
+_g = web.CSS.split(".gcard{")[1][:260]
+ok("min-width:0" in _g, "il riquadro del giorno puo' stringersi sotto il suo "
+                        "contenuto (min-width:0)")
+ok(".gcard>*{max-width:100%}" in web.CSS,
+   "e quello che ci sta dentro non sborda dal riquadro")
+_gv = web.CSS.split("  .gv{")[1][:200]
+ok("clamp(" in _gv and "text-overflow:ellipsis" in _gv,
+   "la parola del voto si stringe con lo schermo, e i puntini sono la rete")
+
+# La direzione e' l'unica cella con due testi: "NNE" e la traduzione in parole.
+# Su una riga sola la traduzione usciva dalla cella di 41 px e si stampava
+# sopra l'icona della raffica. Va a capo: la parola e' quello che legge chi non
+# sa cosa vuol dire NNE, e non si toglie per far posto.
+ok(".cella.compass .v{white-space:normal}" in web.CSS
+   and ".cella.compass .v small{display:block" in web.CSS,
+   "la traduzione della direzione va a capo invece di finire sull'icona "
+   "accanto")
+ok('<div class="cella compass">' in H and "white-space:nowrap" in
+   web.CSS.split(".cella .v{")[1][:140],
+   "e resta attaccata la regola generale: '14 kn' non si spezza")
 
 print("%d controlli di pagina" % passati)

@@ -147,16 +147,29 @@ header.hero .wrap{position:relative}
 .cella .v{font-size:22px;font-weight:800;line-height:1.15;color:var(--ink);
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .cella .v small{font-size:13px;font-weight:600;color:var(--ink-2)}
+/* La direzione e' l'unica cella con due pezzi di testo: "NNE" e la traduzione
+   in parole. Con `nowrap` su una riga sola, a 375 px la traduzione usciva dalla
+   cella di 41 px e si stampava SOPRA l'icona della raffica - misurato, non
+   temuto. Va a capo per conto suo: la parola e' l'unica cosa che legge chi non
+   sa cosa vuol dire NNE, e non si toglie per far posto. */
+.cella.compass .v{white-space:normal}
+.cella.compass .v small{display:block;line-height:1.25}
 .nowbig .v{color:var(--ink)}
 .nowmeta.stale .v,.nowmeta.stale .k{color:var(--warn)}
 .novalue{font-size:16px;color:var(--ink-3);grid-column:1/-1;padding:6px 0}
 
 /* ---------------- i cinque giorni ---------------- */
 .giorni{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0 14px}
+/* `min-width:0` non e' un dettaglio: senza, una colonna di griglia non scende
+   MAI sotto la larghezza del suo contenuto, e la pillola del voto e' la cosa
+   piu' larga che ci sta dentro. Con cinque giorni "Fantastico" - cioe' nella
+   settimana buona, quella che si guarda - i cinque riquadri chiedevano 403 px
+   in 351 disponibili e la PAGINA scivolava di lato di 40 px. */
 .gcard{appearance:none;font:inherit;color:inherit;cursor:pointer;text-align:center;
   background:var(--vetro);border:1px solid var(--line);border-radius:14px;
-  padding:10px 4px 10px;display:grid;gap:1px;justify-items:center;
+  padding:10px 4px 10px;display:grid;gap:1px;justify-items:center;min-width:0;
   transition:border-color .15s,background .15s}
+.gcard>*{max-width:100%}
 .gcard:hover{border-color:var(--axis)}
 .gcard[aria-current="true"]{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
 .gcard .gg{font-size:13px;font-weight:700;text-transform:capitalize}
@@ -243,18 +256,32 @@ svg.chart .t-m{font-size:calc(var(--fs-m) * 1px)}
   margin-right:6px;vertical-align:middle}
 .legend i.dash{border-top-style:dashed}
 .legend i.box{height:11px;width:14px;border:0;border-radius:3px;vertical-align:-1px}
+/* Una tabella larga non deve far scorrere la PAGINA di lato: scorre lei,
+   dentro il suo pannello. Sulla diagnostica, a 375 px, la pagina intera
+   scivolava a destra di 480 px - misurato sul telefono vero - e bastava
+   sfiorare lo schermo per perdere l'allineamento di tutto. */
+.scroller{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroller>table{min-width:100%}
 .scarto{margin:10px 0 0;font-size:13.5px;color:var(--ink-2);line-height:1.5}
 .scarto b{color:var(--ink)}
 details.tbl{margin-top:10px;font-size:13px}
 details.tbl summary{cursor:pointer;color:var(--ink-3);font-size:12px}
-details.tbl .scroller{overflow-x:auto}
 .snote{font-size:12px;color:var(--warn);margin:10px 0 0;line-height:1.4}
 
 /* ---------------- il cassetto dei dettagli ---------------- */
-details.perche{margin:10px 12px 0}
-details.perche>summary{font:600 12px/1.4 var(--sans);color:var(--ink-3);
-  cursor:pointer;list-style:none;padding:2px 0}
+details.perche{margin:10px 12px 2px;border-top:1px solid var(--line);padding-top:8px}
+/* Si deve CAPIRE che si apre. Alla prima stesura era un grigio spento senza
+   nessun segno: sul telefono si leggeva come un'etichetta disattivata, e chi
+   non sa che c'e' qualcosa dentro non prova ad aprirlo. */
+details.perche>summary{font:600 12.5px/1.4 var(--sans);color:var(--ink-2);
+  cursor:pointer;list-style:none;padding:6px 0;display:flex;align-items:center;
+  gap:6px}
 details.perche>summary::-webkit-details-marker{display:none}
+details.perche>summary::before{content:"";width:6px;height:6px;flex:0 0 6px;
+  border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;
+  transform:rotate(-45deg);transition:transform .15s;opacity:.85}
+details.perche[open]>summary::before{transform:rotate(45deg)}
+details.perche>summary:hover{color:var(--ink)}
 ul.pq{margin:6px 0 2px;padding:0;list-style:none;display:grid;gap:5px}
 ul.pq li{display:flex;gap:7px;font:400 12.5px/1.45 var(--sans);color:var(--ink-2)}
 ul.pq li>span{flex:0 0 12px;font-size:10px;line-height:1.7;opacity:.9}
@@ -317,7 +344,11 @@ footer a{color:var(--ink-2)}
   .gcard .gg{font-size:11px}
   .gcard .gd{font-size:10.5px}
   .gcard .gk{font-size:16px;margin-top:3px}
-  .gv{font-size:10px;padding:2px 6px}
+  /* La parola si stringe con lo schermo invece di allargare la pagina: a
+     320 px (l'iPhone piu' piccolo ancora in giro) "Fantastico" ci sta ancora
+     intero. I puntini sono la rete, non il piano. */
+  .gv{font-size:clamp(8px,2.3vw,11px);padding:2px 4px;max-width:100%;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .rqgrid{grid-template-columns:1fr;gap:10px}
   .rq{padding:12px 12px 12px}
   .rq-t{font-size:19px}.rq-t span{font-size:14px}
@@ -1150,6 +1181,16 @@ def scarto_words(sc):
 # L'evidenza si prende col CONTRASTO, cioe' sbiadendo la previsione, non
 # ingrossando la misura. Scritto qui una volta, i controlli lo leggono da qui
 # invece di inseguire dei numeri magici.
+# I colori delle due bande del regime e il velo della fetta utile. Stanno qui
+# perche' li disegna il grafico E li mostra la legenda: finche' erano scritti
+# solo dentro al disegno, la legenda ne mostrava altri - due cose diverse con lo
+# stesso quadratino grigio.
+FILL_BANDE = {"PELER": "#1a2635", "ORA": "#20303f"}
+
+# Quanto e' visibile la fetta utile sopra la banda. Era 0,045: sul telefono al
+# sole spariva, ed e' la fetta su cui si decide a che ora entrare in acqua.
+VELO_UTILE = 0.075
+
 TRATTO = {"previsto": 2.8, "previsto_raffica": 2.0,
           "misurato": 2.2, "misurato_raffica": 1.8}
 # E quanto si sbiadisce la previsione quando accanto c'e' una misura.
@@ -1283,8 +1324,9 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
             if ub > ua:
                 disegnata_utile = True
                 p.append('<rect x="%.1f" y="%g" width="%.1f" height="%.1f" '
-                         'fill="#ffffff" opacity=".045" rx="4"/>'
-                         % (x(ua), pt + 2, x(ub) - x(ua), H - pb - pt - 4))
+                         'fill="#ffffff" opacity="%.3f" rx="4"/>'
+                         % (x(ua), pt + 2, x(ub) - x(ua), H - pb - pt - 4,
+                            VELO_UTILE))
                 p.append('<line x1="%.1f" y1="%g" x2="%.1f" y2="%g" '
                          'stroke="var(--ink-3)" stroke-width="1" '
                          'stroke-dasharray="2 3" opacity=".55"/>'
@@ -1531,8 +1573,12 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
         '<div class="legend">'
         '<span style="color:var(--pc)"><i></i>vento medio</span>'
         '<span style="color:var(--gust)"><i class="dash"></i>raffica</span>'
-        '<span style="color:var(--ink-3)"><i class="box" '
-        'style="background:currentColor;opacity:.5"></i>finestra del regime</span>'
+        # Il quadratino porta i colori VERI delle due bande disegnate, non un
+        # grigio a meta' opacita': erano due cose diverse con lo stesso segno,
+        # e chi legge la legenda cercava sul disegno un colore che non c'era.
+        '<span><i class="box" style="background:linear-gradient(90deg,'
+        '%s 0 50%%,%s 50%% 100%%)"></i>finestra del regime</span>'
+        % (FILL_BANDE["PELER"], FILL_BANDE["ORA"]) +
         '%s%s</div></div>'
         '<div class="chartwrap">'
         # I numeri della mappa del disegno, scritti addosso al disegno.
@@ -1562,9 +1608,14 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
            # La voce della finestra utile compare solo quando la fetta chiara
            # e' davvero disegnata: una legenda che spiega un segno assente
            # fa cercare una cosa che non c'e'.
-           ('<span style="color:var(--ink-3)"><i class="box" '
-            'style="background:currentColor;opacity:1"></i>finestra utile'
-            '</span>') if disegnata_utile else "",
+           # Come la fetta e' davvero: il chiaro sopra la banda, con il suo
+           # bordo tratteggiato a sinistra. Prima il quadratino era pieno e
+           # vivo mentre sulla tela la fetta e' un velo: si cercava un segno
+           # molto piu' marcato di quello che c'e'.
+           ('<span><i class="box" style="background:%s;box-shadow:inset 0 0 0 '
+            '99px rgba(255,255,255,%.3f);border-left:1.5px dashed rgba(255,255,255,.45)"'
+            '></i>finestra utile</span>' % (FILL_BANDE["ORA"], VELO_UTILE))
+           if disegnata_utile else "",
            ('<span>pieno: misurato &middot; tenue: previsto%s</span>'
             % (" &middot; raffica misurata: quella dei 30&prime; della centralina"
                if (osservato or {}).get("raffica_fonte_fine") == "raffica della centralina"
@@ -1592,7 +1643,7 @@ def regime_bands(place, giorno=None):
     O = orari
 
     spots = place_spots(place)
-    fills = {"PELER": "#1a2635", "ORA": "#20303f"}
+    fills = FILL_BANDE
     out = []
     for key, lab, _when in META_REGIME:
         name = spots.get(key)
@@ -2270,6 +2321,23 @@ def pagella_panel():
     return "".join(r)
 
 
+def _tabelle_che_scorrono(html):
+    """Ogni tabella dentro il suo contenitore che scorre.
+
+    Sulla diagnostica le tabelle hanno fino a undici colonne, e a 375 px di
+    larghezza non era la tabella a scorrere: era la PAGINA INTERA a scivolare di
+    lato di mezzo schermo (854 px di contenuto in 375 di finestra, misurato sul
+    telefono vero). Con la pagina che scivola, ogni altra cosa - i titoli, le
+    frasi, i pannelli - esce dall'allineamento a ogni sfioramento.
+
+    Si avvolge qui e non riga per riga perche' le tabelle di questa pagina
+    nascono in quindici punti diversi: una regola sola, applicata in un posto
+    solo, e' anche l'unica che non si dimentica al prossimo pannello.
+    """
+    return html.replace("<table>", '<div class="scroller"><table>') \
+               .replace("</table>", "</table></div>")
+
+
 def page_diagnostics():
     def fmt(v, d=2):
         return ("%.*f" % (d, v)) if isinstance(v, (int, float)) else "—"
@@ -2526,7 +2594,7 @@ def page_diagnostics():
         "cielo": testa_sfondo()[1], "foto": testa_sfondo()[0],
         "luoghi": nav_luoghi(None),
         "live": E(text), "livecls": "",
-        "body": sources_panel() + "".join(r),
+        "body": _tabelle_che_scorrono(sources_panel() + "".join(r)),
         "reload": 600000,
     }
     # La diagnostica non ha blocchi "adesso" da aggiornare: nessuna richiesta.

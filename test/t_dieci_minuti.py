@@ -299,7 +299,12 @@ ok("Math.round(best.h*60)" in H and "best.h+':00'" not in H,
 # La legenda spiega la fetta chiara solo dove la fetta esiste.
 # Dalla testa del grafico (titolo e legenda) alla tabella dei numeri.
 grafici = re.findall(r'<div class="gtesta">.*?</details>', H, re.S)
-con_fetta = sum(1 for g in grafici if 'opacity=".045"' in g)
+# L'opacita' del velo si legge da web.VELO_UTILE e non si riscrive qui: era
+# scritta a mano come ".045" e quando il velo e' stato schiarito (si perdeva al
+# sole) questo controllo ha iniziato a contare zero fette senza che nulla fosse
+# rotto.
+_velo = 'opacity="%.3f"' % web.VELO_UTILE
+con_fetta = sum(1 for g in grafici if _velo in g)
 con_voce = sum(1 for g in grafici if "finestra utile</span>" in g)
 ok(con_fetta > 0 and con_voce == con_fetta,
    "la voce di legenda c'e' in ogni grafico che disegna la fetta utile, e"
