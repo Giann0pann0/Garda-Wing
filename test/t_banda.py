@@ -78,10 +78,23 @@ for _i in range(400):
     previsti.append(p)
     osservati.append(p + e)
 resid = [p - o for p, o in zip(previsti, osservati)]
-cov = validate._copertura_banda(resid, previsti, osservati)
-ok(cov is not None and 0.74 <= cov <= 0.86,
-   "con residui asimmetrici la banda 10-90%% copre davvero l'80%% (%.0f%%)"
-   % (cov * 100))
+cov, n_cov = validate._copertura_banda(resid, previsti, osservati)
+ok(cov is not None and 0.65 <= cov <= 0.92,
+   "con residui asimmetrici la banda 10-90%% copre quello che promette, o quasi "
+   "(%.0f%% su %d giornate)" % (cov * 100, n_cov))
+# E NON e' 80 per costruzione. Se i quantili si stimano sugli stessi residui su
+# cui poi si misura, il risultato e' 80% qualunque cosa sia rotta a valle: e' il
+# numero che il 20/09/2026 e' comparso in pagina identico su tutti e sette gli
+# spot. Il conto vero taglia la lista a meta'.
+q10c, q90c = quantile(resid, 0.10), quantile(resid, 0.90)
+tautologica = sum(1 for p_, o in zip(previsti, osservati)
+                  if p_ - q90c <= o <= p_ - q10c) / float(len(previsti))
+ok(abs(tautologica - 0.80) < 0.02 and abs(cov - tautologica) > 1e-6,
+   "misurata sugli stessi residui darebbe %.0f%% - sempre, per costruzione - "
+   "mentre il conto onesto da' %.0f%%" % (tautologica * 100, cov * 100))
+ok(n_cov > 0 and n_cov < len(previsti),
+   "e si misura su una PARTE delle giornate (%d su %d), non su tutte"
+   % (n_cov, len(previsti)))
 # E la prova che il verso conta: con i quantili sommati, la copertura crolla.
 q10, q90 = quantile(resid, 0.10), quantile(resid, 0.90)
 dentro = sum(1 for p, o in zip(previsti, osservati) if p + q10 <= o <= p + q90)

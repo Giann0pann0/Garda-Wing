@@ -2283,7 +2283,10 @@ def page_diagnostics():
          "<th class='num'>Giorni</th>"
          "<th class='num'>MAE fuori campione</th><th class='num'>MAE riferimento</th>"
          "<th class='num'>Brier</th><th class='num'>Climatologia</th>"
-         "<th class='num'>Copertura</th><th>In uso</th></tr>"]
+         "<th class='num' title=\"quante volte l'osservato cade nella banda "
+         "10-90%, misurato sulla seconda meta' delle giornate con i quantili "
+         "presi dalla prima: sugli stessi residui sarebbe 80% per "
+         "costruzione\">Copertura</th><th>In uso</th></tr>"]
     for name in config.SPOT_ORDER:
         L = store.load_learned(name, "daily")
         label = config.SPOTS[name]["label"]

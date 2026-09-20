@@ -281,6 +281,45 @@ def direzione_o_niente(valore):
     return g % 360.0
 
 
+def copertura_banda(resid, pred, obs, minimo=40):
+    """Quante volte l'osservato cade nella banda 10-90%, FUORI dai residui che
+    l'hanno costruita. Ritorna (frazione, n misurati) o (None, 0).
+
+    E' la sentinella della banda, e ha una trappola dentro che va detta: se i
+    quantili si stimano sugli stessi residui su cui poi si misura, il risultato
+    e' 80% PER COSTRUZIONE - qualunque sia la forma della distribuzione, e
+    qualunque cosa sia rotta a valle. Il primo giorno che questa colonna e'
+    arrivata in pagina diceva 80% su tutti e sette gli spot, che e' esattamente
+    il segno di un numero che non misura niente.
+
+    (Un servizio l'ha comunque reso: col segno della banda sbagliato lo stesso
+    conto dava 35%, quindi la sua prima comparsa e' stata la prova che il verso
+    era stato raddrizzato. Una volta sola.)
+
+    Qui la lista si taglia a meta': i quantili vengono dalla PRIMA meta', la
+    copertura si misura sulla SECONDA. Dove il chiamante passa le righe in
+    ordine di tempo - ed e' il caso - il taglio e' anche in avanti nel tempo,
+    cioe' la domanda giusta: "la banda che avrei pubblicato allora avrebbe
+    coperto quello che e' successo dopo?".
+    """
+    if not resid or len(resid) < minimo or not pred or not obs:
+        return None, 0
+    meta = len(resid) // 2
+    q10, q90 = quantile(resid[:meta], 0.10), quantile(resid[:meta], 0.90)
+    if q10 is None or q90 is None:
+        return None, 0
+    coppie = [(p_, o) for p_, o in zip(pred[meta:], obs[meta:])
+              if p_ is not None and o is not None]
+    if len(coppie) < 10:
+        return None, 0
+    dentro = 0
+    for p_, o in coppie:
+        lo, hi = banda_da_residui(p_, q10, q90)
+        if lo is not None and lo <= o <= hi:
+            dentro += 1
+    return dentro / float(len(coppie)), len(coppie)
+
+
 def banda_da_residui(previsione, q10, q90):
     """L'intervallo 10-90% intorno a una previsione, dai quantili dei residui.
 

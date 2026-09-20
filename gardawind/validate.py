@@ -285,22 +285,13 @@ def probability_metrics(pred):
 
 
 def _copertura_banda(resid, pred, obs):
-    """Frazione di osservati dentro la banda 10-90% costruita da quei residui.
+    """Copertura della banda fuori dai residui che l'hanno costruita.
 
-    Non e' una tautologia solo perche' la banda ha un verso: se i quantili
-    venissero applicati al contrario - come succedeva - questo numero scende
-    sotto l'80% dichiarato, e si vede in diagnostica.
+    Vedi util.copertura_banda: misurarla sugli stessi residui da' 80% per
+    costruzione, cioe' un numero che ha l'aria di una verifica e non lo e'.
     """
-    if not resid or len(resid) < 20:
-        return None
-    q10, q90 = quantile(resid, 0.10), quantile(resid, 0.90)
-    los, his = [], []
-    for p in pred:
-        lo, hi = banda_da_residui(p, q10, q90)
-        los.append(lo)
-        his.append(hi)
-    cov, _n = interval_coverage(los, his, obs)
-    return cov
+    from .util import copertura_banda
+    return copertura_banda(resid, pred, obs)
 
 
 def intensity_metrics(pred, planing_kn=None):
@@ -334,8 +325,8 @@ def intensity_metrics(pred, planing_kn=None):
         # cade dentro, sulle previsioni fuori campione. E' la sentinella che
         # avrebbe smascherato il segno sbagliato della banda, e non era
         # collegata a niente.
-        "coverage": _copertura_banda(met["resid"], ps, os_),
-        "coverage_n": met["n"],
+        "coverage": _copertura_banda(met["resid"], ps, os_)[0],
+        "coverage_n": _copertura_banda(met["resid"], ps, os_)[1],
         "resid": met["resid"],
         # Errori appaiati, campione per campione: sono quelli che il bootstrap
         # ricampiona. Senza appaiamento l'intervallo sarebbe troppo largo.

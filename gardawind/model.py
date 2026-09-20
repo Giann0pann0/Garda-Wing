@@ -279,21 +279,22 @@ def _fit_cross(eval_samples, train_samples, tier, kind, folds=5):
     return final, oof, lam, fold_of
 
 
+def _copertura_n(resid, pred, obs):
+    """Su quante giornate la copertura e' stata misurata (non quante ce ne sono)."""
+    from .util import copertura_banda
+    _cov, n = copertura_banda(resid, pred, obs)
+    return n
+
+
 def _copertura(resid, pred, obs):
-    """Quante volte l'osservato cade nella banda, sulle previsioni out-of-fold."""
-    q10, q90 = quantile(resid, 0.10), quantile(resid, 0.90)
-    if q10 is None or q90 is None or not pred:
-        return None
-    coppie = [(p, o) for p, o in zip(pred, obs)
-              if p is not None and o is not None]
-    if not coppie:
-        return None
-    dentro = 0
-    for p, o in coppie:
-        lo, hi = banda_da_residui(p, q10, q90)
-        if lo is not None and lo <= o <= hi:
-            dentro += 1
-    return dentro / float(len(coppie))
+    """La copertura della banda, fuori dai residui che l'hanno costruita.
+
+    Il conto sta in util.copertura_banda, con dentro la spiegazione di perche'
+    misurarla sugli stessi residui da' sempre 80%.
+    """
+    from .util import copertura_banda
+    cov, _n = copertura_banda(resid, pred, obs)
+    return cov
 
 
 def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
@@ -378,6 +379,11 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
     m_int = None
     base_mae = model_mae = None
     resid = []
+    # `pred` e `obs` nascono qui e non dentro il ramo: sono le due liste che la
+    # copertura della banda va a leggere, e finche' esistevano solo dentro l'if
+    # una chiamata in piu' bastava a farle sparire (UnboundLocalError su un
+    # candidato che non trova il modello - cioe' proprio il caso da gestire).
+    pred = obs = []
     clim_median = None
     terzetti = []          # (previsto, grezzo, osservato) sulle stesse giornate
     if len(idx) >= max(20, 2 * len(names)):
@@ -520,7 +526,7 @@ def _evaluate_candidate(eval_samples, train_samples, tier, source="forecast"):
         # dell'ottimismo sparisce. Resta quello dei quantili, che sono stimati
         # sugli stessi residui: la pagina lo dichiara invece di tacerlo.
         "coverage": _copertura(resid, pred, obs) if resid else None,
-        "coverage_n": len(resid) if resid else 0,
+        "coverage_n": _copertura_n(resid, pred, obs),
         "q10": quantile(resid, 0.10) if resid else None,
         "q50": quantile(resid, 0.50) if resid else None,
         "q90": quantile(resid, 0.90) if resid else None,
