@@ -537,13 +537,20 @@ def _campioni_in_scala(station, rows):
     return rows
 
 
-def direzione_recente(station, entro_min=45.0):
+def direzione_recente(station, entro_min=None):
     """La direzione piu' recente di una centralina che non la misura, presa
     in prestito dalle sue donatrici (config: direzione_da), se non e' piu'
     vecchia di entro_min. Per l'adesso della pagina: Campione e Malcesine
     mostrano la freccia della Fraglia o di Torbole, e la pagina lo dice.
-    Ritorna (gradi, donatrice) o (None, None)."""
+    Ritorna (gradi, donatrice) o (None, None).
+
+    `entro_min` non ha un numero suo: e' la stessa soglia con cui la pagina
+    decide che un dato non e' piu' "adesso" (config.stantia_min). Prima era un
+    45 scritto qui, e alzando quello della pagina la freccia in prestito si
+    sarebbe spenta su una riga dichiarata fresca."""
     from .util import parse_dt_any, utc_now
+    if entro_min is None:
+        entro_min = config.ETA_STANTIA_MIN
     for donatrice in direzione_da(station):
         for r in connect().execute(
                 "SELECT ts, dir_deg FROM obs_sample WHERE station=? AND dir_deg "

@@ -150,9 +150,16 @@ ok(alta_ma_lenta["etichetta"] == "alta affidabilità"
    and C.timing_voice(metriche(timing=95.0))["etichetta"] == "bassa precisione",
    "una scheda puo' dire \"alta affidabilità\" E \"bassa precisione\" sull'orario: "
    "sono due domande")
-b = web.timing_badge(C.timing_voice(metriche(timing=95.0)))
-ok("tm-1" in b and "bassa precisione" in b and "95" in b,
-   "e la seconda voce arriva in pagina con il suo livello e i suoi minuti")
+# web.timing_badge non c'e' piu': emetteva classi CSS (.tm, .tm-N) che nel
+# foglio di stile non esistono, e nessuna pagina lo chiamava - quindi questo
+# controllo provava un pezzo di codice che l'utente non poteva vedere. Quello
+# che conta e' che la voce esista e porti i suoi minuti: lo si chiede a chi la
+# produce.
+v = C.timing_voice(metriche(timing=95.0))
+ok(v["livello"] == 1 and "bassa precisione" in v["etichetta"]
+   and round(v["minuti"]) == 95,
+   "la seconda voce porta il suo livello e i suoi minuti (%s, %s, %s min)"
+   % (v["livello"], v["etichetta"], round(v["minuti"])))
 
 nota = C.nota_tecnica(buono)
 print("   nota tecnica: " + nota)

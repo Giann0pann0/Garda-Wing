@@ -90,7 +90,7 @@ def stazione(station, adesso=None):
     # cioe' sempre fuori. In pagina si vedeva il vento e "raffica non
     # disponibile" accanto, con la raffica in archivio.
     t_ult = campioni[-1][0]
-    indietro = max(45.0, 2.0 * (cad or 0.0))
+    indietro = config.raffica_indietro_min(cad)
     raffica_recente = None
     for t, r in reversed(campioni):
         if r["gust_kn"] is not None and t >= t_ult - indietro:
@@ -240,7 +240,7 @@ def snapshot(adesso=None):
         # Da quanti minuti questo dato e' "non recente": dipende dalla
         # cadenza della centralina, e la pagina non la conosce - gliela
         # portiamo insieme al dato, come le parole.
-        v["stale_min"] = web.stantia_min(v.get("cadenza_min"))
+        v["stale_min"] = config.stantia_min(v.get("cadenza_min"))
         v["curve"] = curve(place, adesso=adesso)
     return {"generato": iso_utc(adesso), "versione": config.APP_VERSION,
             "luoghi": luoghi}

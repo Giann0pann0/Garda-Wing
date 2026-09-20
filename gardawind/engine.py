@@ -101,28 +101,72 @@ def update_context():
 # Centraline
 # ==========================================================================
 
+# Quante ore di campioni chiedere a Meteotrentino. Il giro lungo passa quattro
+# volte al giorno e vuole il margine per ricucire un buco; quello veloce passa
+# ogni dieci minuti e gli basta la giornata in corso piu' la notte.
+ORE_REALTIME_LENTO = 168
+ORE_REALTIME_VELOCE = 48
+
+
+def _leggi_torbole(ore):
+    rows = meteotrentino.fetch_realtime(hours=ore)
+    store.save_samples("T0193", rows, "meteotrentino-realtime")
+    # Il servizio restituisce i campioni dal piu' recente: la finestra da
+    # riaggregare parte dal piu' VECCHIO, non dal primo della lista.
+    aggregate.aggregate_station("T0193",
+                                since_iso=min(r[0] for r in rows) if rows else None)
+    return "Torbole %d campioni" % len(rows)
+
+
+def _leggi_malcesine_live():
+    sample, gust_day = malcesine.fetch_live()
+    store.save_samples("malcesine", [sample], "meteoproject-live")
+    aggregate.aggregate_station("malcesine", since_iso=day_shift(sample[0][:10], -2))
+    if gust_day is not None:
+        store.save_day_obs("malcesine", [(local_day(parse_dt_any(sample[0])),
+                                          None, gust_day, None)],
+                           "meteoproject-live")
+    return "Malcesine 1 campione"
+
+
+def aggiorna_centraline_vive():
+    """Le SOLE letture che servono all'"adesso" della pagina. Tre richieste.
+
+    Il processo veloce gira ogni dieci minuti, e chiamava update_stations: che
+    scarica una settimana di campioni di Meteotrentino, l'archivio intraday di
+    Malcesine, la serie ORARIA di Addicted per ieri E per oggi di ogni stazione,
+    la previsione altrui di Torbole, e la salva in un database - quello del
+    processo veloce - che nessuno archivia mai. Erano circa otto richieste ogni
+    dieci minuti, oltre mille al giorno, alle DUE fonti da cui dipende tutto il
+    progetto, dove ne servono tre. Il commento in testa ad adesso.yml dichiarava
+    "niente previsioni scaricate": adesso e' vero.
+
+    Il rischio non era il traffico: era che Addicted o Meteotrentino mettessero
+    un limite di frequenza, o bloccassero gli indirizzi dei runner di GitHub. E
+    sarebbe arrivato in silenzio.
+    """
+    done = []
+    try:
+        done.append(_leggi_torbole(ORE_REALTIME_VELOCE))
+    except FetchError as e:
+        _note("error", "centralina/Torbole", str(e)[:160])
+    try:
+        done.append(_leggi_malcesine_live())
+    except FetchError as e:
+        _note("error", "centralina/Malcesine", str(e)[:160])
+    done += leggi_addicted_vivo()
+    return done
+
+
 def update_stations():
     done = []
     try:
-        rows = meteotrentino.fetch_realtime(hours=168)
-        store.save_samples("T0193", rows, "meteotrentino-realtime")
-        # Il servizio restituisce i campioni dal piu' recente: la finestra da
-        # riaggregare parte dal piu' VECCHIO, non dal primo della lista.
-        aggregate.aggregate_station("T0193",
-                                    since_iso=min(r[0] for r in rows) if rows else None)
-        done.append("Torbole %d campioni" % len(rows))
+        done.append(_leggi_torbole(ORE_REALTIME_LENTO))
     except FetchError as e:
         _note("error", "centralina/Torbole", str(e)[:160])
 
     try:
-        sample, gust_day = malcesine.fetch_live()
-        store.save_samples("malcesine", [sample], "meteoproject-live")
-        aggregate.aggregate_station("malcesine", since_iso=day_shift(sample[0][:10], -2))
-        if gust_day is not None:
-            store.save_day_obs("malcesine", [(local_day(parse_dt_any(sample[0])),
-                                              None, gust_day, None)],
-                               "meteoproject-live")
-        done.append("Malcesine 1 campione")
+        done.append(_leggi_malcesine_live())
     except FetchError as e:
         _note("error", "centralina/Malcesine", str(e)[:160])
 
@@ -1694,24 +1738,39 @@ def poller_loop():
 # ==========================================================================
 
 def live_reading(station):
-    """Ultimo campione disponibile dalla centralina.
+    """Lo stato osservato di una centralina, con la sua eta'.
 
-    E' il numero che chi va in acqua guarda per primo: non una previsione,
-    ma quanto sta tirando adesso. Viaggia con la sua eta', perche' un dato
-    di quaranta minuti fa non e' "adesso".
+    E' il numero che chi va in acqua guarda per primo: non una previsione, ma
+    quanto sta tirando adesso.
+
+    UNA LETTURA SOLA, e non e' un riordino: qui c'era una seconda versione,
+    piu' povera, dello stesso lavoro che fa live.stazione. Prendeva un campione
+    e basta - nessuna cadenza, nessuna direzione in prestito, nessuna raffica
+    cercata indietro - e decideva "non recente" con un 45 scritto a mano. Ma
+    live.stazione e' quella che scrive live.json, cioe' quella che la pagina usa
+    appena rilegge il file: la pagina appena costruita era peggiore di se stessa
+    qualche secondo dopo, e con due conseguenze vere.
+
+    La prima: Campione e Malcesine sono Addicted e la direzione non la misurano.
+    web.live_regime_state, che vieta alla scheda di contraddire l'anemometro,
+    pretende la direzione - quindi su due localita' su tre NON SCATTAVA MAI.
+    Alle 17:50 Campione misurava 17 nodi di Ora e la scheda continuava a dire
+    quello che diceva la previsione emessa stanotte.
+
+    La seconda: per una centralina oraria, 45 minuti fissi vogliono dire tre
+    quarti di ogni ora con la riga ingiallita e "raffica non disponibile"
+    accanto, con la raffica in archivio.
     """
-    righe = store.samples_recent(station, 1)
-    row = righe[0] if righe else None
-    if not row:
+    from . import live as live_mod
+    v = live_mod.stazione(station)
+    if not v or v.get("ts") is None:
         return None
-    dt = parse_dt_any(row["ts"])
+    dt = parse_dt_any(v["ts"])
     age = (utc_now() - dt).total_seconds() / 60.0 if dt else None
-    # Molte stazioni pubblicano la raffica come massimo GIORNALIERO: se il
-    # campione non ne ha una propria si preferisce non inventarla.
-    return {
-        "wind": row["wind_kn"], "gust": row["gust_kn"], "dir": row["dir_deg"],
-        "ts": row["ts"], "age_min": age, "stale": (age is None or age > 45),
-    }
+    v = dict(v)
+    v["age_min"] = age
+    v["stale"] = (age is None or age > config.stantia_min(v.get("cadenza_min")))
+    return v
 
 
 def day_observed(place, day):

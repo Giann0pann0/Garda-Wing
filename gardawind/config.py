@@ -96,6 +96,45 @@ DB_FILENAME = "gardawind_v3.sqlite"
 TZ_LOCAL = "Europe/Rome"
 
 # --------------------------------------------------------------------------
+# Da quanti minuti un dato osservato non e' piu' "adesso"
+# --------------------------------------------------------------------------
+# UNA domanda, UN posto. Viveva in quattro: web.py (45, scalato per tre volte
+# la cadenza), engine.live_reading (45 fisso), live.py (45, scalato per due
+# volte la cadenza) e store.direzione_recente (45 fisso). Due moltiplicatori
+# diversi per la stessa idea: alzando la soglia in pagina, la raffica sarebbe
+# sparita o la freccia in prestito si sarebbe spenta su una riga dichiarata
+# fresca - senza un errore, senza un messaggio.
+#
+# Il valore e' quello di una centralina che pubblica ogni dieci minuti. Ma le
+# Addicted (Campione, e il vento di Malcesine) mandano UN DATO ALL'ORA: alle
+# 23:18 il piu' recente e' quello delle 23:00, e con una soglia fissa quelle
+# centraline passavano meta' di ogni ora ingiallite, come guaste, mentre
+# stavano rispettando il loro ritmo. Gian, guardando la pagina: "Campione e'
+# morta". Percio' la soglia segue la CADENZA misurata, e il minimo resta
+# quello dei dieci minuti.
+ETA_STANTIA_MIN = 45.0
+STANTIA_PASSI = 3.0
+
+# Quanto si guarda indietro per la raffica del riquadro. E' una domanda
+# diversa - "l'ultima raffica che la centralina ha DATO e' ancora di questo
+# dato?" - e ha un passo suo, piu' corto; il pavimento invece e' lo stesso.
+RAFFICA_PASSI = 2.0
+
+
+def stantia_min(cadenza_min=None):
+    """Da quanti minuti un dato di questa centralina e' 'non recente'."""
+    if not cadenza_min or cadenza_min <= 0:
+        return ETA_STANTIA_MIN
+    return max(ETA_STANTIA_MIN, STANTIA_PASSI * float(cadenza_min))
+
+
+def raffica_indietro_min(cadenza_min=None):
+    """Quanto indietro cercare la raffica piu' recente di questa centralina."""
+    if not cadenza_min or cadenza_min <= 0:
+        return ETA_STANTIA_MIN
+    return max(ETA_STANTIA_MIN, RAFFICA_PASSI * float(cadenza_min))
+
+# --------------------------------------------------------------------------
 # Geometria del lago
 # --------------------------------------------------------------------------
 # Asse dell'alto lago, calcolato dalle coordinate delle due centraline:

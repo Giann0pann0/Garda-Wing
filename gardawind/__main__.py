@@ -2271,7 +2271,11 @@ def main(argv=None):
         # finche' stavano insieme il numero dell'"adesso" invecchiava insieme
         # alla previsione, dicendo "adesso" quando erano passate cinque ore.
         from . import live as live_mod
-        for line in engine.update_stations():
+        # SOLO le letture che servono all'adesso: vedi
+        # engine.aggiorna_centraline_vive. Qui si chiamava update_stations, che
+        # scarica anche le serie orarie e le previsioni altrui - otto richieste
+        # ogni dieci minuti invece di tre, alle due fonti da cui dipende tutto.
+        for line in engine.aggiorna_centraline_vive():
             print(line)
         dati = live_mod.scrivi(args.live_json)
         # E accanto, i campioni del canale vivo: e' l'unico modo perche'

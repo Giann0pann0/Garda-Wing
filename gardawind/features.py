@@ -253,8 +253,14 @@ def daily_features(spot_name, day, hours, ctx, persist=None, persist_age=None,
     f["precip"] = sum(max(0.0, hours[k].get("precip") or 0.0) for k in precip_keys)
 
     pgrad, tgrad = _gradients(ctx, win_keys)
+    # Lo zero serve al modello - un vettore di feature non ha buchi - ma NON
+    # significa "campo barico piatto": significa "non lo sappiamo". La pagina
+    # mostra questi due numeri come misure confrontabili con l'esperienza di chi
+    # c'era, e senza questa distinzione scriveva "DeltaP +0.0 hPa, neutro" ogni
+    # volta che la chiamata al contesto sinottico non era andata a buon fine.
     f["pgrad"] = pgrad if pgrad is not None else 0.0
     f["tgrad"] = tgrad if tgrad is not None else 0.0
+    f["contesto_noto"] = 1.0 if pgrad is not None else 0.0
 
     # Indice di brezza: il contrasto termico che alimenta la circolazione
     # diviso il quadrato del vento sinottico che tende a spazzarla via.

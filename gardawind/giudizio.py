@@ -170,6 +170,26 @@ def scala_parole(spot):
     return " ".join("<b>%s</b>: %s." % (p, f) for p, f in zip(VOTI, frasi))
 
 
+def scala_parole_regimi(coppie):
+    """La scala del voto per uno o due regimi. `coppie`: [(etichetta, spot)].
+
+    Se i due regimi hanno le stesse soglie si spiega una volta sola; se
+    differiscono si spiegano entrambe. A Torbole l'Ora esce a 11 nodi e il Peler
+    a 10, e il pannello dei Dettagli - che e' la spiegazione autorevole della
+    pagina - raccontava a tutti la scala dell'Ora.
+    """
+    viste = []
+    for etichetta, spot in coppie:
+        testo = scala_parole(spot)
+        if testo not in [t for _e, t in viste]:
+            viste.append((etichetta, testo))
+    if not viste:
+        return ""
+    if len(viste) == 1:
+        return viste[0][1]
+    return " ".join("<i>%s</i> — %s" % (e, t) for e, t in viste)
+
+
 def affidabilita_parole(pct, valutazione, fonte=None):
     """Come si spiega quel numero, in una riga. Sta qui accanto a chi lo fa.
 

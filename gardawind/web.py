@@ -354,16 +354,29 @@ FONTI_DA_DICHIARARE = ("prior", "misto-freno", "misto", "misto-clim")
 # Pezzi riutilizzabili
 # --------------------------------------------------------------------------
 
-def day_title(day, lead):
-    """Titolo del giorno in italiano, senza sigle.
-
-    Niente D+1 / D+3: la scadenza si dice come la si dice a voce. Il giorno
-    della settimana resta accanto, perche' "tra 5 giorni" e' comodo per capire
-    la distanza e inutile per capire se e' sabato.
-    """
-    dt = parse_dt_any(day + " 12:00:00")
-    return (confidence.lead_label(lead),
-            "%s %d %s" % (GIORNI[dt.weekday()], dt.day, MESI[dt.month - 1]))
+# Qui stavano cinque cose morte, e toglierle non e' igiene.
+#
+#   quality()          una TERZA scala del verdetto - "Scarso / Discreto /
+#                      Buono" - con le soglie di probabilita' 0,35 e 0,55
+#                      scritte a mano, accanto a quella vera (giudizio.VOTI:
+#                      pessimo / mediocre / buono / fantastico) e senza la
+#                      durata fra gli ingredienti. Nessuna pagina la chiamava,
+#                      ma era viva quanto basta a sembrare autorevole: chi
+#                      domani avesse cambiato la soglia di planata l'avrebbe
+#                      trovata e aggiornata, o peggio richiamata.
+#   reliability_ring() un secondo anello dell'affidabilita', la cui docstring
+#                      spiegava perche' NON si scrive una percentuale dentro
+#                      l'anello - mentre l'anello che sta davvero in pagina
+#                      (anello_pct) ne scrive una.
+#   timing_badge()     emetteva classi CSS .tm / .tm-N che nel foglio di stile
+#                      non esistono: in pagina non si sarebbe visto niente.
+#   timing_words()     una terza soglia per i minuti dell'orario (45), diversa
+#                      da quella che decide davvero (confidence: 60).
+#   day_title()        un titolo del giorno che nessuna pagina componeva.
+#
+# Tutte e cinque erano raggiungibili, nessuna raggiunta. In un progetto la cui
+# regola e' "un'idea, un posto", un vocabolario morto che dice cose diverse da
+# quello vivo e' un difetto, non un residuo.
 
 
 # Quanto ci si puo' fidare, in una parola sola e con un colore. L'etichetta non
@@ -400,15 +413,6 @@ def hhmm(minutes, step=10):
     """
     m = int(math.floor(clamp(minutes, 0.0, 24 * 60 - 1) / float(step) + 0.5) * step)
     return "%02d:%02d" % (m // 60, m % 60)
-
-
-def timing_badge(val):
-    """La seconda voce della scheda: l'orario, separato dalla prima."""
-    if not val:
-        return ""
-    return ('<span class="tm tm-%d">Timing: <b>%s</b>%s</span>'
-            % (val["livello"], E(val["etichetta"]),
-               (" · ±%d min" % round(val["minuti"])) if val.get("minuti") else ""))
 
 
 def compass(deg):
@@ -494,68 +498,6 @@ def live_regime_state(live, spot, today=False):
     return {"wind": vento, "cls": cls, "word": word, "hour": ora}
 
 
-def quality(data, spot, live=None, today=False):
-    """Tre livelli, una parola ciascuno, piu' il colore.
-
-    La soglia non e' estetica: "Scarso" vuol dire che il vento non arriva a
-    quello che noi stessi chiamiamo "regime entrato", oppure che la probabilita'
-    e' cosi' bassa che l'intensita' e' condizionata a un evento che non capita.
-    "Buono" richiede DUE cose insieme: sopra la soglia di planata e una
-    probabilita' che regga. Fra i due c'e' tutto il resto, che e' "Discreto".
-
-    Oggi, e solo oggi, il dato misurato ha la precedenza: una previsione
-    emessa stanotte non puo' smentire un anemometro che sta misurando adesso.
-    """
-    misurato = live_regime_state(live, spot, today)
-    if misurato:
-        return misurato["cls"], misurato["word"]
-    if not data:
-        return "off", "\u2014"
-    prob, speed = data.get("prob") or 0.0, data.get("speed") or 0.0
-    if prob < 0.35 or speed < spot["min_kn"]:
-        return "no", "Scarso"
-    if speed >= spot["planing_kn"] and prob >= 0.55:
-        return "go", "Buono"
-    return "meh", "Discreto"
-
-
-RING_WORD = {3: "Alta", 2: "Buona", 1: "Tendenza", 0: "Outlook"}
-RING_COLOR = {3: "var(--good)", 2: "var(--s1)", 1: "var(--warn)", 0: "var(--ink-3)"}
-
-
-def reliability_ring(conf, size=54):
-    """Quattro tacche, non una percentuale.
-
-    Il riferimento grafico mostrava "80%". Non lo scriviamo, perche' non
-    esiste: quello che misuriamo e' se il modello batte i riferimenti banali a
-    quella scadenza, non la probabilita' che la previsione sia giusta. Un
-    numero col segno di percentuale verrebbe letto come la seconda cosa.
-    Quattro tacche piene su quattro dicono quanto sappiamo, e la parola sta
-    accanto - dentro non ci sta, e "Tendenza" tagliato a meta' e' peggio che
-    non averla.
-    """
-    liv = int((conf or {}).get("livello") or 0)
-    color = RING_COLOR[liv]
-    r = size / 2.0 - 5
-    cx = cy = size / 2.0
-    circ = 2 * math.pi * r
-    seg = circ / 4.0
-    dash = seg * 0.74                       # un quarto di giro, meno lo stacco
-    parts = []
-    for i in range(4):
-        on = i <= liv
-        parts.append(
-            '<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="%s" '
-            'stroke-width="5.5" stroke-linecap="round" stroke-dasharray="%.2f %.2f" '
-            'stroke-dashoffset="%.2f"/>'
-            % (cx, cy, r, color if on else "var(--line)",
-               dash, circ - dash, -(i * seg + (seg - dash) / 2.0)))
-    return ('<svg class="ring" width="%d" height="%d" viewBox="0 0 %d %d" '
-            'role="img" aria-label="Affidabilit\u00e0 %s" '
-            'style="transform:rotate(-90deg)">%s</svg>'
-            % (size, size, size, size, E(RING_WORD[liv]), "".join(parts)))
-
-
 PAROLE_DIR = ["nord", "nord-est", "est", "sud-est",
               "sud", "sud-ovest", "ovest", "nord-ovest"]
 
@@ -567,12 +509,31 @@ def direzione_parole(deg):
     return PAROLE_DIR[int((deg % 360) / 45.0 + 0.5) % 8]
 
 
-def sky_words(profile):
-    """Cielo e temperatura dai modelli, in due parole e un numero."""
-    clouds = [r["cloud"] for r in profile if r.get("cloud") is not None]
-    temps = [r["t2m"] for r in profile if r.get("t2m") is not None]
-    rain = [r["precip"] for r in profile if r.get("precip") is not None]
-    out = {}
+def sky_words(profile, ora_locale=None):
+    """Cielo e temperatura dai modelli, in due parole e un numero.
+
+    `ora_locale` (ora frazionaria, es. 7.5) chiede il valore DI QUEL MOMENTO
+    invece del riassunto della giornata, e in quel caso `quando` esce "adesso".
+
+    Serviva perche' questa cella sta nella striscia dell'ADESSO, in fila con
+    "Vento ora", "Direzione" e "Raffica", e mostrava il MASSIMO della giornata
+    senza dirlo: alle 7 del mattino, con 13 gradi sul molo, scriveva 24 gradi -
+    la massima prevista per il pomeriggio. Stessa cosa per il cielo, che era la
+    media nuvolosa di tutte le ore: poteva dire "sereno" all'alba di un giorno
+    che si sarebbe coperto.
+    """
+    out = {"quando": "oggi"}
+    righe = list(profile or [])
+    if ora_locale is not None and righe:
+        vicina = min(righe, key=lambda r: abs((r.get("hour") if r.get("hour")
+                                               is not None else -99) - ora_locale))
+        if (vicina.get("hour") is not None
+                and abs(vicina["hour"] - ora_locale) <= 1.5):
+            righe = [vicina]
+            out["quando"] = "adesso"
+    clouds = [r["cloud"] for r in righe if r.get("cloud") is not None]
+    temps = [r["t2m"] for r in righe if r.get("t2m") is not None]
+    rain = [r["precip"] for r in righe if r.get("precip") is not None]
     if temps:
         out["tmax"] = max(temps)
     if rain and sum(rain) > 1.0:
@@ -591,28 +552,14 @@ def sky_words(profile):
 ETA_PAROLE = ((12.0, "adesso"), (180.0, "%d min fa"),
               (None, "dato non recente"))
 
-# Oltre questa eta' il dato non e' piu' "adesso" e la riga si ingiallisce.
-# E' il valore per una centralina che pubblica ogni dieci minuti.
-ETA_STANTIA_MIN = 45.0
-
-# Ma non tutte pubblicano ogni dieci minuti: le Addicted (Campione, e da oggi
-# il vento di Malcesine) mandano UN DATO ALL'ORA. Alle 23:18 il piu' recente
-# e' quello delle 23:00, e con una soglia fissa a 45 minuti quelle centraline
-# passavano meta' di ogni ora ingiallite, come guaste, mentre stavano
-# rispettando il loro ritmo. Gian, guardando la pagina: "Campione e' morta".
-#
-# La soglia segue quindi la CADENZA misurata, come gia' fa la finestra della
-# raffica: un dato vecchio quanto tre suoi passi e' in ritardo davvero, prima
-# no. Il minimo resta quello dei dieci minuti, cosi' una centralina fitta non
-# diventa piu' tollerante di prima.
-STANTIA_PASSI = 3.0
-
-
-def stantia_min(cadenza_min):
-    """Da quanti minuti un dato di questa centralina e' 'non recente'."""
-    if not cadenza_min or cadenza_min <= 0:
-        return ETA_STANTIA_MIN
-    return max(ETA_STANTIA_MIN, STANTIA_PASSI * float(cadenza_min))
+# La soglia oltre cui un dato non e' piu' "adesso" sta in config, in un posto
+# solo: la usano la pagina, il processo veloce, il motore e il prestito della
+# direzione, e prima erano quattro numeri con due moltiplicatori diversi. Qui si
+# tengono i nomi perche' la pagina li scrive nel suo JavaScript e i controlli li
+# cercano da questo modulo.
+ETA_STANTIA_MIN = config.ETA_STANTIA_MIN
+STANTIA_PASSI = config.STANTIA_PASSI
+stantia_min = config.stantia_min
 
 
 def eta_parole(minuti):
@@ -711,8 +658,12 @@ def now_observed_html(live):
     # ultimo l'orario del dato. Le classi di prima (nowbig .v, compass,
     # nowgust, nowmeta/nowage) restano sugli stessi elementi: sono quelle che
     # il browser aggiorna e che le prove cercano.
+    # `is not None`, non la verita' del numero: all'alba con il lago a specchio
+    # la centralina manda gust = 0, e "Vento ora 0 kn" accanto a "Raffica: non
+    # disponibile" sono due cose diverse dette come se fossero la stessa. Zero
+    # e' una misura.
     gust = ('<span class="v">%.0f <small>kn</small></span>' % live["gust"]
-            if live.get("gust") else
+            if live.get("gust") is not None else
             '<span class="v" style="color:var(--ink-3);font-size:14px">'
             'non disponibile</span>')
     dir_deg = live.get("dir")
@@ -1003,7 +954,11 @@ def motori_valori(place, sessions):
     feats = None
     for name in place_spots(place).values():
         f = (sessions.get(name) or {}).get("features")
-        if f and f.get("pgrad") is not None:
+        # `contesto_noto`: lo zero di pgrad puo' essere un campo piatto o una
+        # fonte che non ha risposto, e i due non si distinguono guardando il
+        # numero. Senza contesto la sezione non si disegna, come l'anello
+        # dell'affidabilita' scrive "—" invece di "0".
+        if f and f.get("pgrad") is not None and f.get("contesto_noto", 1.0):
             feats = f
             break
     if not feats:
@@ -1057,7 +1012,15 @@ def adesso_riquadro(place, live, profile):
     entrambe. Con una pagina per localita' la domanda "quanto tira qui" ha una
     risposta sola, e ce l'hanno tutte e due.
     """
-    cond = sky_words(profile)
+    # Il dato del cielo e della temperatura di ADESSO, non della giornata: la
+    # cella sta nella striscia dell'adesso. L'ora e' quella dell'ultimo
+    # campione, cioe' lo stesso istante di cui parlano le celle accanto.
+    ts_live = parse_dt_any((live or {}).get("ts") or "")
+    ora_ora = None
+    if ts_live is not None:
+        loc = to_local(ts_live)
+        ora_ora = loc.hour + loc.minute / 60.0
+    cond = sky_words(profile, ora_locale=ora_ora)
     testo = []
     if cond.get("tmax") is not None:
         testo.append("<b>%.0f °C</b>" % cond["tmax"])
@@ -1068,7 +1031,10 @@ def adesso_riquadro(place, live, profile):
         cella_cielo = ('<div class="cella nowcond">%s<span>'
                        '<span class="k">%s</span><span class="v">%s</span>'
                        '</span></div>'
-                       % (icona("cielo"), E(cond.get("sky") or "cielo")
+                       % (icona("cielo"),
+                          (E(cond.get("sky") or "cielo")
+                           + ("" if cond.get("quando") == "adesso"
+                              else " \u00b7 max oggi"))
                           if cond.get("tmax") is not None else "cielo",
                           ("%.0f <small>°C</small>" % cond["tmax"])
                           if cond.get("tmax") is not None
@@ -1147,13 +1113,35 @@ OPACITA_PREVISTO = 0.34
 
 
 def _soglie_fasce(place):
-    """Le due soglie che contano, dallo spot dell'Ora (o dal primo che c'e')."""
+    """Le due soglie che contano, OGNUNA DEL SUO REGIME.
+
+    Ritorna [(nodi, parola, finestra)] dove finestra e' (ora_da, ora_a) quando
+    la soglia vale solo per quel regime, e None quando i due regimi hanno lo
+    stesso numero e la riga puo' attraversare tutto il grafico.
+
+    Prima si prendevano le soglie dello spot dell'ORA e si disegnavano su tutta
+    la giornata. A Torbole l'Ora esce a 11 nodi e il Peler a 10: nel riquadro
+    PELER si leggeva "Sopra 10 kn" e la riga verde che gli passa dentro diceva
+    11. Chi di mattina guarda la riga per decidere leggeva la soglia dell'altro
+    vento.
+    """
     spots = place_spots(place)
-    name = spots.get("ORA") or (list(spots.values())[0] if spots else None)
-    if not name:
-        return []
-    spot = config.SPOTS[name]
-    return [(spot["min_kn"], "si esce"), (spot["planing_kn"], "si plana")]
+    per_soglia = {}
+    for regime, name in sorted(spots.items()):
+        spot = config.SPOTS[name]
+        for chiave, parola in (("min_kn", "si esce"), ("planing_kn", "si plana")):
+            per_soglia.setdefault(parola, []).append(
+                (float(spot[chiave]), tuple(spot["window"])))
+    out = []
+    for parola in ("si esce", "si plana"):
+        voci = per_soglia.get(parola) or []
+        valori = {v for v, _w in voci}
+        if len(valori) == 1:
+            out.append((voci[0][0], parola, None))
+        else:
+            for v, w in voci:
+                out.append((v, parola, w))
+    return out
 
 
 def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
@@ -1279,15 +1267,27 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
     # scritta a mano. Due righe sottili, non un arcobaleno: dicono "da qui
     # si esce" e "da qui si plana", che sono le uniche due cose che un
     # rider cerca con l'occhio prima di leggere qualunque numero.
-    for soglia, nome in _soglie_fasce(place):
-        if soglia < top:
-            p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" '
-                     'stroke="var(--good)" stroke-width="1" opacity=".38" '
-                     'stroke-dasharray="1 4"/>'
-                     % (pl, y(soglia), W - pr, y(soglia)))
-            p.append('<text x="%g" y="%.1f" text-anchor="end" class="t-xs" '
-                     'fill="var(--good)" opacity=".8">%s</text>'
-                     % (W - pr - 3, y(soglia) - 3, E(nome)))
+    for soglia, nome, finestra in _soglie_fasce(place):
+        if soglia >= top:
+            continue
+        # La riga attraversa tutto solo se la soglia vale per tutta la giornata;
+        # dove i due regimi hanno numeri diversi, ognuna sta dentro la sua
+        # finestra e l'etichetta le sta accanto, non in fondo.
+        if finestra is None:
+            xa, xb, ancora, xt = pl, W - pr, "end", W - pr - 3
+        else:
+            xa = max(pl, x(max(finestra[0], hours[0])))
+            xb = min(W - pr, x(min(finestra[1] + 1, hours[-1])))
+            if xb - xa < 24:
+                continue
+            ancora, xt = "start", xa + 3
+        p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" '
+                 'stroke="var(--good)" stroke-width="1" opacity=".38" '
+                 'stroke-dasharray="1 4"/>'
+                 % (xa, y(soglia), xb, y(soglia)))
+        p.append('<text x="%g" y="%.1f" text-anchor="%s" class="t-xs" '
+                 'fill="var(--good)" opacity=".8">%s</text>'
+                 % (xt, y(soglia) - 3, ancora, E(nome)))
     for v in range(0, int(top) + 1, step):
         yy = y(v)
         p.append('<line x1="%g" y1="%.1f" x2="%g" y2="%.1f" stroke="var(--grid)" '
@@ -1533,23 +1533,6 @@ def place_chart(place, profile, bands, chart_id, oggi=False, osservato=None):
            "passo per passo" if passo_fine else "ora per ora",
            body,
            json.dumps(chart_id), json.dumps(payload), W, pl, pr, hours[0], hours[-1]))
-
-
-# La finestra si mostra con i suoi estremi in orologio, non come "±35 min", e
-# la sua qualita' con una parola. La percentuale di copertura e' corretta ed e'
-# la cosa sbagliata da mettere in home: chiede a chi si sta vestendo di fare
-# statistica. Vive in diagnostica, accanto all'errore medio.
-# 25 minuti e' il confine fra "posso programmare l'uscita" e "devo tenermi
-# largo"; 45 e' la soglia operativa oltre la quale non mostriamo niente.
-TIMING_PAROLA = ((25.0, "buona"), (45.0, "moderata"))
-
-
-def timing_words(half_min):
-    """La parola per una semiampiezza, o None se oltre la soglia operativa."""
-    for soglia, parola in TIMING_PAROLA:
-        if half_min <= soglia:
-            return parola
-    return None
 
 
 def regime_bands(place, giorno=None):
@@ -1976,8 +1959,12 @@ def dettagli_panel(place, days):
                                 data.get("source_prob"))
         righe.append("<li><b>%s</b>: %s</li>"
                      % (E(lab), giudizio.affidabilita_parole(pct, conf, data.get("source_prob"))))
-    spot = config.SPOTS[place_spots(place).get("ORA")
-                        or list(place_spots(place).values())[0]]
+    # La scala del voto di OGNI regime, non solo quella dell'Ora: le soglie
+    # differiscono (a Torbole 11 nodi contro 10) e questo pannello e' la
+    # spiegazione autorevole della pagina.
+    coppie_regime = [(lab, config.SPOTS[place_spots(place)[key]])
+                     for key, lab, _q in META_REGIME
+                     if place_spots(place).get(key)]
     return (
         '<details class="dettagli"><summary>Dettagli</summary>'
         '<div class="dcont">'
@@ -2026,7 +2013,7 @@ def dettagli_panel(place, days):
         'storico misurato delle centraline. Centraline, modelli, pesi e '
         'quanto sbaglia: <a href="/diagnostica">dati e modelli</a>.</p>'
         '</div></details>'
-        % (giudizio.scala_parole(spot), "".join(righe), prestito_parole(place),
+        % (giudizio.scala_parole_regimi(coppie_regime), "".join(righe), prestito_parole(place),
            raffica_parole(place)))
 
 
