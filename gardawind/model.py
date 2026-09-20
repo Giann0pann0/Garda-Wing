@@ -801,6 +801,55 @@ def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None
     (lo risolve il chiamante, vedi engine.learned_for_lead). Se per quella
     fascia non esiste un modello validato, la previsione esce marcata
     `validata: False` e con una banda di origine dichiarata.
+
+    LA TABELLA DEI RIPIEGHI
+    -----------------------
+    Questa funzione e' il punto del programma con piu' stati: tre sorgenti per
+    la probabilita', tre per l'intensita', due per la banda, piu' il freno sulla
+    direzione. Fanno diciotto combinazioni dichiarabili, e il 20/09/2026 tre
+    difetti dei numeri su quattro abitavano proprio qui - la banda specchiata,
+    la mediana climatologica che non arrivava, il freno applicato dopo la
+    calibrazione. Non per sfortuna: perche' nessuno riusciva a guardare tutti
+    gli stati insieme.
+
+    Percio' gli stati sono scritti qui, una volta, e test/t_ripieghi.py li
+    attraversa TUTTI. Se questa tabella e il codice divergono, il controllo
+    fallisce - ed e' l'unico modo di semplificare questa funzione senza paura.
+
+      fascia dichiarata dal modello   uso?  banda dai residui?  "validata"?
+      ------------------------------- ----  ------------------  -----------
+      la stessa che si chiede          si    si                  si
+      "analisi" (o nessuna)            si    solo a D+0          solo a D+0
+      un'altra fascia                  no    no                  no
+
+    "Non lo uso" riguarda il MODELLO, non le misure che gli stanno accanto: la
+    frequenza climatologica osservata e la mediana climatologica dei giorni di
+    regime restano disponibili anche quando il modello viene scartato, perche'
+    sono conteggi su quella centralina e non dipendono dalla scadenza. Un
+    modello di un'altra fascia da' quindi "climatologia" e non "prior" - cosa
+    che chi ha scritto questa tabella la prima volta aveva sbagliato, e che il
+    controllo ha fatto notare subito.
+
+      PROBABILITA' (in ordine: vince la prima che si applica)
+      1. modello dello stadio A promosso a questa fascia .... "appreso"
+         e se la direzione prevista e' fuori settore, il valore
+         viene frenato a mano DOPO la calibrazione ........... "appreso-frenato"
+      2. frequenza climatologica osservata (base_rate) ....... "climatologia"
+      3. niente ............................................. "prior" (fisico)
+
+      INTENSITA' (in ordine)
+      1. modello dello stadio B promosso a questa fascia ..... "appreso"
+      2. mediana climatologica dei giorni di regime, quando il
+         modello c'e' ma non ha passato la porta ............. "climatologia"
+      3. niente ............................................. "prior" (fisico)
+
+      BANDA
+      1. quantili dei residui misurati a QUESTA fascia ....... "residui misurati"
+      2. dispersione fra i modelli, allargata ................ "dispersione d'ensemble"
+
+      E la parola che arriva in pagina: "appreso" se entrambi gli stadi lo
+      sono, "prior" se nessuno dei due, "misto" in tutti gli altri casi -
+      compreso il freno sulla direzione, che la pagina dichiara a parte.
     """
     lead = int(clamp(lead_days, 0, 7))
     band = config.band_for_lead(lead)

@@ -562,7 +562,7 @@ ok(not g11 and any("budget" in x for x in w11),
 import io as _io
 import contextlib as _ctx
 
-from gardawind import __main__ as cli
+from gardawind import indagini as cli
 
 # La promozione NON deve toccare il database: un rapporto finto che apre la
 # porta vera sarebbe il peggior effetto collaterale possibile di un test - chi

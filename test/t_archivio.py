@@ -186,7 +186,20 @@ store.save_samples("T0193", [("2026-09-20T11:50:00Z", 12.0, 18.0, 55.0)],
                    "meteotrentino")          # altra fonte: non e' questa serie
 
 PONTE = "/tmp/gwveloce/vivo.csv.gz"
-n = archivio.scrivi_vivo_recente(PONTE, adesso=ADESSO)
+
+
+def _ramo_vuoto(url, timeout=None):
+    """Il ramo esiste ma il ponte non c'e' ancora: la prima esecuzione.
+
+    Il `fetch` si passa SEMPRE nei controlli. Senza, scrivi_vivo_recente va a
+    leggere il file davvero pubblicato su GitHub - si fonde con lui, com'e'
+    giusto in produzione - e un controllo che dipende dal vento di stamattina
+    sul Garda non e' un controllo.
+    """
+    return gzip.compress(b"station,ts,wind_kn,gust_kn,dir_deg\n")
+
+
+n = archivio.scrivi_vivo_recente(PONTE, adesso=ADESSO, fetch=_ramo_vuoto)
 ok(n == 13, "il processo veloce pubblica i campioni recenti del canale vivo "
    "(%d: 12 di Campione e 1 di Malcesine, non quello di tre settimane fa "
    "ne' quelli di un'altra fonte)" % n)
@@ -222,4 +235,63 @@ main = open(os.path.join(QUI, "..", "gardawind", "__main__.py"),
             encoding="utf-8").read()
 ok("scrivi_vivo_recente" in main and "leggi_vivo_pubblicato" in main,
    "e i due comandi lo scrivono e lo rileggono")
+# ---- il PONTE non si rimpicciolisce -----------------------------------------
+# Era l'unico pezzo della catena senza la regola del non rimpicciolire, ed era
+# il collo di bottiglia da cui passano 35 letture su 36 di quella serie: con la
+# cache del processo veloce persa, la prima esecuzione successiva pubblicava un
+# file di una riga sopra quello buono da tre giorni.
+import csv as _csv
+import datetime as _dt
+import gzip as _gz
+import io as _io
+import os as _os
+
+ADESSO = _dt.datetime(2026, 9, 20, 13, 0, tzinfo=_dt.timezone.utc)
+
+
+def _ponte_finto(n):
+    buf = _io.StringIO()
+    w = _csv.writer(buf, lineterminator="\n")
+    w.writerow(("station", "ts", "wind_kn", "gust_kn", "dir_deg"))
+    for i in range(n):
+        w.writerow(["campione", "2026-09-20T%02d:%02d:00Z" % (10 + i // 6, (i % 6) * 10),
+                    9.0, 12.0, 190.0])
+    corpo = _gz.compress(buf.getvalue().encode("utf-8"))
+    return lambda url, timeout=None: corpo
+
+
+# Nel database una sola lettura (la cache e' appena stata persa), sul ramo trenta.
+store.save_samples("campione", [("2026-09-20T12:00:00Z", 11.0, 15.0, 200.0)],
+                   "addicted-live")
+PONTE = "/tmp/gwarchivio/vivo-ponte.csv.gz"
+n = archivio.scrivi_vivo_recente(PONTE, adesso=ADESSO, fetch=_ponte_finto(30))
+scritte = list(_csv.reader(_io.StringIO(
+    _gz.open(PONTE, "rb").read().decode("utf-8"))))[1:]
+attesi = {"2026-09-20T%02d:%02d:00Z" % (10 + i // 6, (i % 6) * 10) for i in range(30)}
+presenti = {r[1] for r in scritte if r[0] == "campione"}
+ok(attesi <= presenti and n >= 30,
+   "il ponte si FONDE con quello pubblicato: tutte e trenta le righe del ramo "
+   "sono ancora la' (%d righe in tutto)" % n)
+ok(any(r[1] == "2026-09-20T12:00:00Z" and float(r[2]) == 11.0 for r in scritte),
+   "e a parita' di istante vince la lettura nostra, che e' la piu' fresca")
+
+
+def _fetch_rotto(url, timeout=None):
+    raise RuntimeError("rete giu'")
+
+
+PONTE2 = "/tmp/gwarchivio/vivo-ponte2.csv.gz"
+sollevata = None
+try:
+    archivio.scrivi_vivo_recente(PONTE2, adesso=ADESSO, fetch=_fetch_rotto)
+except Exception as e:                                # noqa: BLE001
+    sollevata = e
+ok(isinstance(sollevata, archivio.PonteNonLetto) and not _os.path.exists(PONTE2),
+   "se il file pubblicato non si legge NON si scrive niente: un ponte piu' "
+   "corto e' peggio di un ponte vecchio")
+main_src = open(os.path.join(QUI, "..", "gardawind", "__main__.py"),
+                encoding="utf-8").read()
+ok("PonteNonLetto" in main_src and "_os.remove(vivo)" in main_src,
+   "e il comando veloce lo sa: pubblica live.json e lascia stare il ponte")
+
 print("%d controlli sull'archivio irripetibile" % passati)

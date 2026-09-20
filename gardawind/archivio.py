@@ -49,6 +49,14 @@ from . import config, store
 CARTELLA = "storico"
 
 
+class PonteNonLetto(Exception):
+    """Il file del ponte non si e' potuto leggere, quindi non si riscrive.
+
+    E' un'eccezione sua e non un errore generico perche' chi la riceve deve
+    fare una cosa precisa: pubblicare live.json e lasciare stare vivo.csv.gz.
+    """
+
+
 def _percorso(sotto, nome, mese):
     return os.path.join(config.PROJECT_DIR, CARTELLA, sotto,
                         "%s-%s.csv.gz" % (nome, mese))
@@ -155,7 +163,32 @@ def esporta():
 # Il ponte fra i due processi: il veloce raccoglie, il lento archivia
 # ==========================================================================
 
-def scrivi_vivo_recente(path, giorni=None, adesso=None):
+def _righe_pubblicate(fetch=None):
+    """Le righe del ponte GIA' pubblicato: [(stazione, ts, vento, raffica, dir)].
+
+    Una sola lettura di quel file, usata da chi lo rimette in archivio (il
+    processo lento) e da chi lo riscrive (il veloce, che ci si fonde). Due
+    letture dello stesso formato erano due occasioni di leggerlo in due modi.
+    """
+    from .sources.http import fetch as _fetch
+    corpo = (fetch or _fetch)(config.LIVE_VIVO_URL, timeout=30)
+    testo = gzip.decompress(corpo).decode("utf-8")
+
+    def _n(x):
+        try:
+            return float(x) if x not in ("", None) else None
+        except (TypeError, ValueError):
+            return None
+
+    out = []
+    for r in list(csv.reader(io.StringIO(testo)))[1:]:
+        if len(r) < 5 or not r[0] or not r[1]:
+            continue
+        out.append([r[0], r[1], _n(r[2]), _n(r[3]), _n(r[4])])
+    return out
+
+
+def scrivi_vivo_recente(path, giorni=None, adesso=None, fetch=None):
     """I campioni del canale vivo degli ultimi giorni, in un file compresso.
 
     Lo scrive il processo VELOCE accanto a live.json, sul ramo "live". E'
@@ -167,26 +200,59 @@ def scrivi_vivo_recente(path, giorni=None, adesso=None):
     Senza questo ponte, della serie che NON si riscarica da nessuna parte ne
     arrivava in archivio una lettura su trentasei: il veloce ne prende 144 al
     giorno, il lento ne prendeva 4 da se'.
+
+    E NON SI RIMPICCIOLISCE. L'archivio dentro il progetto ha questa regola da
+    sempre (vedi _scrivi_mese); il ponte no, e il ponte e' il collo di bottiglia
+    da cui passano 35 letture su 36 di quella serie. Il giro veloce riscrive il
+    file da zero dal proprio database e il ramo si force-pusha: bastava perdere
+    la cache del veloce - sfratto, una corsa annullata - perche' la prima
+    esecuzione successiva pubblicasse un file di una riga SOPRA quello buono da
+    tre giorni, e il lento leggesse una riga senza protestare. Adesso prima si
+    legge il file pubblicato e ci si fonde: quello che c'era resta, qualunque
+    cosa sia successo alla cache.
+
+    Se il file pubblicato non si riesce a leggere (rete, ramo non ancora
+    creato), NON si scrive niente: meglio che il lento trovi il file di prima -
+    o non lo trovi affatto e si arrangi con le sue quattro letture al giorno -
+    che trovarne uno piu' corto. La prossima esecuzione riprova fra dieci minuti.
     """
-    from .util import parse_dt_any, utc_now
+    from .util import utc_now
     import datetime as _dt
     giorni = config.LIVE_VIVO_GIORNI if giorni is None else giorni
     da = (adesso or utc_now()) - _dt.timedelta(days=giorni)
+    limite = da.strftime("%Y-%m-%dT%H:%M:%SZ")
     righe = [list(r) for r in store.connect().execute(
         "SELECT station, ts, wind_kn, gust_kn, dir_deg FROM obs_sample "
         "WHERE source=? AND ts>=? ORDER BY station, ts",
-        ("addicted-live", da.strftime("%Y-%m-%dT%H:%M:%SZ")))]
+        ("addicted-live", limite))]
+
+    # L'unione con quello che c'e' gia' sul ramo. A parita' di (stazione,
+    # istante) vince la riga NOSTRA: e' la stessa lettura, e se differisce e'
+    # perche' la centralina ha corretto il suo ultimo valore.
+    prima = None
+    try:
+        pubblicate = [r for r in _righe_pubblicate(fetch) if r[1] >= limite]
+        prima = len(pubblicate)
+    except Exception as e:                            # noqa: BLE001
+        raise PonteNonLetto(str(e)[:120])
+    unione = {}
+    for r in pubblicate + righe:
+        unione[(r[0], r[1])] = r
+    finali = [unione[k] for k in sorted(unione)]
+    if prima is not None and len(finali) < prima:      # pragma: no cover
+        raise RuntimeError("l'unione del ponte ha meno righe del file pubblicato")
+
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(("station",) + VIVO["intestazione"])
-    for r in righe:
+    for r in finali:
         w.writerow(["" if x is None else x for x in r])
     tmp = path + ".tmp"
     with gzip.open(tmp, "wb") as fh:
         fh.write(buf.getvalue().encode("utf-8"))
     os.replace(tmp, path)
-    return len(righe)
+    return len(finali)
 
 
 def leggi_vivo_pubblicato(fetch=None):
@@ -196,19 +262,9 @@ def leggi_vivo_pubblicato(fetch=None):
     - rete, ramo non ancora creato - non e' un errore fatale: si riprovera' al
     giro dopo, e intanto restano i campioni che il lento prende da se'.
     """
-    from .sources.http import fetch as _fetch
-    corpo = (fetch or _fetch)(config.LIVE_VIVO_URL, timeout=30)
-    testo = gzip.decompress(corpo).decode("utf-8")
     per_stazione = {}
-    for r in list(csv.reader(io.StringIO(testo)))[1:]:
-        if len(r) < 5 or not r[0] or not r[1]:
-            continue
-        def _n(x):
-            try:
-                return float(x) if x not in ("", None) else None
-            except (TypeError, ValueError):
-                return None
-        per_stazione.setdefault(r[0], []).append((r[1], _n(r[2]), _n(r[3]), _n(r[4])))
+    for r in _righe_pubblicate(fetch):
+        per_stazione.setdefault(r[0], []).append((r[1], r[2], r[3], r[4]))
     n = 0
     for stazione, righe in sorted(per_stazione.items()):
         n += store.save_samples(stazione, righe, "addicted-live")

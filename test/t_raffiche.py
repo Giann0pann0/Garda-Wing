@@ -204,7 +204,8 @@ for d in range(80):
         t = b0 + dt.timedelta(days=d, minutes=10 * k)
         camp.append((iso_utc(t), 13.0, 19.0 if d >= 75 else None, 200.0))
 store.save_samples("T0193", camp, "t_raffiche")
-from gardawind.__main__ import cmd_raffiche
+# Vedi t_direzioni: gli strumenti stanno in gardawind/indagini.py.
+from gardawind.indagini import cmd_raffiche
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     cmd_raffiche("Torbole-Ora")

@@ -16,7 +16,7 @@ import shutil
 shutil.rmtree("/tmp/gwrender", ignore_errors=True)
 
 from gardawind import orari as O
-from gardawind import __main__ as M
+from gardawind import indagini as M
 
 ok = lambda c, m: print(("PASS " if c else "FAIL ") + m)
 

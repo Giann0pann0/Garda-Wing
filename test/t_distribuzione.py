@@ -348,7 +348,8 @@ ok(DD["asse"] == config.SPOTS["Torbole-Peler"].get(
 # --------------------------------------------------------------------------
 import io
 import contextlib
-from gardawind import __main__ as M2
+# Gli strumenti d'indagine stanno in gardawind/indagini.py.
+from gardawind import indagini as M2
 
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
@@ -435,7 +436,7 @@ for f in sorgenti:
         if nuda.startswith("PLANATA_DICHIARATA"):
             continue          # la definizione in config
         lettori.append((os.path.basename(f), nuda[:60]))
-ok([f for f, _r in lettori] == ["__main__.py"],
+ok([f for f, _r in lettori] == ["indagini.py"],
    "la regola dichiarata la legge SOLO il rendering, nessun calcolo: %s"
    % ([f for f, _r in lettori] or "nessuno"))
 ok(P["coppia_ricorrente_kn"] / P["coppia_media_kn"] < 2.0,

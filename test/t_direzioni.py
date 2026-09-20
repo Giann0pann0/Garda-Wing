@@ -135,7 +135,9 @@ print("   ora mediana del picco: dentro %.1f, fuori %.1f"
 # --------------------------------------------------------------------------
 # 3. Il comando gira per intero senza rompersi
 # --------------------------------------------------------------------------
-from gardawind.__main__ import cmd_direzioni
+# Gli strumenti d'indagine vivono in gardawind/indagini.py: __main__ dichiara
+# i comandi e chiama loro. Vedi la testa di quel file.
+from gardawind.indagini import cmd_direzioni
 print()
 cmd_direzioni("Torbole-Peler")
 ok(True, "il comando --direzioni gira fino in fondo")
