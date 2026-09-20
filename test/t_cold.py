@@ -41,7 +41,11 @@ ok(fo[0]["source"]=="prior", "dichiara apertamente la stima fisica")
 ok(0<fo[0]["prob"]<1 and fo[0]["speed"]>0, "prior: prob=%.2f attesi=%.1f kn"%(fo[0]["prob"],fo[0]["speed"]))
 ok(fo[0]["lo"]<fo[0]["speed"]<fo[0]["hi"] and (fo[0]["hi"]-fo[0]["lo"])>4, "banda larga senza calibrazione (%.1f kn)"%(fo[0]["hi"]-fo[0]["lo"]))
 ok(fo[0]["n_models"]==4 and fo[0]["weights"]=="prior", "4 modelli, pesi da prior")
-ok(fo[0]["window"] is not None, "finestra calcolata anche senza storico")
+# La finestra la calcola la pagina (orari.finestra_utile_del_giorno), non il
+# prodotto: engine._best_window ne dava una seconda che nessuno leggeva.
+from gardawind import orari as _O
+_ini,_fin=_O.finestra_utile_del_giorno("Torbole-Ora", fo[0]["day"])
+ok(_fin>_ini, "la finestra utile si calcola anche senza storico (%s-%s)"%(_ini,_fin))
 h=web.page_home()
 ok("stima fisica di partenza" in h, "la scheda avvisa che non e' ancora calibrata")
 ok("Torbole" in h and "Malcesine" in h and "%" in h, "home completa a freddo (%d byte)"%len(h))

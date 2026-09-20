@@ -1504,7 +1504,6 @@ def forecast_days(spot_name, horizon=None):
                 or angle_diff(dir_pred, config.LAKE_AXIS_PELER) <= 55,
             }
 
-        best = _best_window(profile, config.SPOTS[spot_name])
         out.append({
             "spot": spot_name,
             "day": day,
@@ -1539,76 +1538,32 @@ def forecast_days(spot_name, horizon=None):
             "weights": weight_origin,
             "grade": grade(spot_name, pred["speed"], pred["prob"]),
             "profile": profile,
-            "window": best,
             "features": feats,
         })
     return out
 
 
-def _best_window(profile, spot):
-    """Fascia oraria contigua con il vento piu' utilizzabile."""
-    usable = [p for p in profile if spot["window"][0] <= p["hour_local"] <= spot["window"][1]]
-    if not usable:
-        return None
-    peak = max(usable, key=lambda p: p["wind"])
-    threshold = max(spot["min_kn"] * 0.85, peak["wind"] * 0.75)
-    runs, cur = [], []
-    for p in usable:
-        if p["wind"] >= threshold and (not cur or p["hour_local"] == cur[-1]["hour_local"] + 1):
-            cur.append(p)
-        elif p["wind"] >= threshold:
-            if cur:
-                runs.append(cur)
-            cur = [p]
-        else:
-            if cur:
-                runs.append(cur)
-            cur = []
-    if cur:
-        runs.append(cur)
-    if not runs:
-        runs = [[peak]]
-    best = max(runs, key=lambda r: (peak in r, mean([p["wind"] for p in r]) * len(r)))
-
-    # Minuti per interpolazione, non per invenzione. Il profilo e' orario, ma la
-    # curva del vento e' continua: l'istante in cui attraversa la soglia si
-    # stima interpolando fra l'ora sotto e l'ora sopra. Non aggiunge
-    # informazione, rende leggibile quella che c'e' - la differenza fra "dalle
-    # 8" e "dalle 8:40" e' dentro i dati orari, basta non buttarla via
-    # arrotondando.
-    #
-    # Resta un secondo limite, molto piu' grande di questo: l'errore sull'ORA
-    # del picco, che si misura in decine di minuti. Per questo i minuti si
-    # mostrano solo dove lo stadio dell'orario e' stato validato a quella
-    # scadenza; altrove si dichiara che l'orario e' incerto (vedi web.py). Un
-    # 08:10 accanto a un'incertezza di due ore sarebbe precisione finta.
-    byh = {p["hour_local"]: p["wind"] for p in usable}
-
-    def cross(h, prev_h):
-        """Minuto in cui la curva passa per `threshold` fra prev_h e h."""
-        a, b = byh.get(prev_h), byh.get(h)
-        if a is None or b is None or a == b:
-            return h * 60.0
-        t = clamp((threshold - a) / (b - a), 0.0, 1.0)
-        return (prev_h + t) * 60.0
-
-    h0, h1 = best[0]["hour_local"], best[-1]["hour_local"]
-    start_min = cross(h0, h0 - 1) if (h0 - 1) in byh else h0 * 60.0
-    end_min = cross(h1 + 1, h1) if (h1 + 1) in byh else (h1 + 1) * 60.0
-    return {
-        "from": h0,
-        "to": h1 + 1,
-        "from_min": start_min,
-        "to_min": max(end_min, start_min + 20.0),
-        "mean": mean([p["wind"] for p in best]),
-        "peak": peak["wind"],
-        "peak_hour": peak["hour_local"],
-        "gust": max(p["gust"] for p in best),
-    }
-
-
 _PRODUCT_CACHE = {"at": 0.0, "value": None}
 PRODUCT_TTL_S = 90
+
+
+# Qui stavano _best_window e WING_SIZES, e sono la stessa forma di difetto.
+#
+# _best_window calcolava una "fascia oraria con il vento piu' utilizzabile"
+# dentro la finestra del REGIME, con una soglia sua. La pagina, per decidere,
+# usa un'altra finestra - quella UTILE, che tiene conto del buio e delle ore in
+# cui si puo' davvero essere in acqua (orari.finestra_utile_del_giorno) - e non
+# ha mai letto quella di qui: la chiave "window" del prodotto la leggevano solo
+# due controlli. Due definizioni della stessa idea, una delle quali non arrivava
+# a nessuno: il giorno in cui qualcuno l'avesse usata avrebbe mostrato all'utente
+# un orario diverso da quello su cui il voto e' calcolato.
+#
+# WING_SIZES era una tabella di taglie di vela per un rider di 80 kg. La
+# funzione che la usava (il "setup consigliato") e' stata tolta il 19/09/2026
+# perche' era un consiglio che non sapevamo difendere; la tabella e' rimasta a
+# terra, senza nessuno che la chiamasse. Un consiglio sul materiale dipende da
+# tavola, ala, livello e da quanto e' rafficato: quando lo faremo, nascera' da
+# un profilo del rider e non da sei righe scritte a mano.
 
 
 def full_product(force=False):
@@ -2237,18 +2192,4 @@ def by_day(product=None):
                                       if config.SPOTS[s]["place"] == place))}
         out.append({"day": day, "lead": lead, "sessions": sessions, "places": places})
     return out
-
-
-# Taglie indicative di wing per un rider intorno agli 80 kg su foil.
-# Sono un punto di partenza, non un consiglio: dipendono da tavola, ala,
-# livello e da quanto e' rafficato.
-WING_SIZES = (
-    (27, "3.0 m o meno"),
-    (23, "3.0-3.5 m"),
-    (19, "3.5-4.0 m"),
-    (16, "4.0-4.5 m"),
-    (13, "4.5-5.0 m"),
-    (10, "5.5-6.5 m"),
-)
-
 

@@ -51,7 +51,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dati
-          key: gardawind-db-${{ github.run_id }}
+          # Il tentativo, non solo l'esecuzione: github.run_id NON cambia
+          # quando si premono "Re-run all jobs", e una chiave che esiste gia'
+          # non viene sovrascritta. Una ri-esecuzione riuscita rischiava di non
+          # salvare il proprio lavoro, e il giro dopo ripescava la copia di
+          # prima: sito giusto, database tornato indietro, e come unica traccia
+          # una riga arancione dentro un passo verde.
+          key: gardawind-db-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             gardawind-db-
 
@@ -119,7 +125,28 @@ jobs:
         with:
           path: site
 
+      # ULTIMO passo, e volutamente dopo la pubblicazione. Il giro lungo ingoia
+      # i propri errori di proposito - una fonte giu' non deve impedire al sito
+      # di aggiornarsi - ma cosi' un'esecuzione che riusciva a meta' restava
+      # verde: se Open-Meteo rispondeva 429 al primo passo, il sito veniva
+      # ricostruito dal database vecchio e ci stampava sopra "previsione
+      # calcolata adesso". Qui si chiede: quello che abbiamo appena pubblicato
+      # e' il risultato di questo giro, o roba vecchia con una data nuova?
+      # (Vedi gardawind/salute.py per i tre controlli e per quello che di
+      # proposito NON fa diventare rosso il pallino.)
+      #
+      # Sta dopo l'artefatto perche' il sito deve uscire comunque: un sito
+      # vecchio pubblicato e' meglio di nessun sito, purche' qualcuno lo sappia.
+      - name: Controlla la salute del giro
+        env:
+          GARDAWIND_HOME: dati
+        run: python3 -m gardawind --salute
+
   pubblica:
+    # Anche se il passo della salute ha fatto fallire il giro: l'artefatto c'e'
+    # gia' e va pubblicato. Il rosso serve a chi guarda, non a togliere il sito
+    # a chi lo usa.
+    if: ${{ !cancelled() }}
     needs: aggiorna
     runs-on: ubuntu-latest
     environment:

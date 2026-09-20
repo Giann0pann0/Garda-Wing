@@ -126,6 +126,11 @@ def main(argv=None):
                          "processo veloce che tiene aggiornato l'\"adesso\"")
     ap.add_argument("--export", metavar="DIR",
                     help="scrive il cruscotto come pagine statiche in DIR")
+    ap.add_argument("--salute", action="store_true",
+                    help="dice se quello che il sito mostra e' il risultato di "
+                         "questo giro o roba vecchia con una data nuova. Esce "
+                         "con 1 se qualcosa non torna: e' il passo che rende il "
+                         "pallino verde di GitHub una informazione")
     ap.add_argument("--salva-storico", action="store_true",
                     dest="salva_storico",
                     help="porta le serie irripetibili nei file del progetto")
@@ -205,6 +210,18 @@ def main(argv=None):
     if args.addicted_audit:
         indagini.cmd_addicted_audit(stazioni=args.stazione)
         return 0
+
+    if args.salute:
+        # Sta DOPO il giro, in un passo suo, e non dentro --ci: se facesse
+        # uscire --ci con un codice d'errore, il passo che pubblica il sito non
+        # partirebbe - e un sito vecchio pubblicato e' meglio di nessun sito,
+        # purche' qualcuno lo sappia. Cosi' il sito esce e il pallino diventa
+        # rosso: le due cose non sono in conflitto.
+        from . import salute as S
+        stato = S.stato()
+        for riga in S.righe_da_stampare(stato):
+            print(riga, flush=True)
+        return 0 if stato["ok"] else 1
 
     if args.live_json:
         # Il processo veloce: legge le centraline e scrive il dato osservato.
@@ -313,6 +330,9 @@ def main(argv=None):
         for path, n, nuove in archivio.esporta():
             if nuove:
                 print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
+        from . import salute as S
+        for riga in S.righe_da_stampare(S.stato()):
+            print(riga, flush=True)
         if engine.STATE["errors"]:
             print("Errori durante il ciclo:", flush=True)
             for e in engine.STATE["errors"]:

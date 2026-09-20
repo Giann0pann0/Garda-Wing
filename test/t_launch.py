@@ -112,3 +112,47 @@ ok(_codice == 0 and _os.path.exists(_dest),
    " (uscita %r, file scritto %s): altrimenti il passo di pubblicazione non"
    " parte e il sito resta col dato vecchio per colpa di un messaggio Telegram"
    % (_codice, _os.path.exists(_dest)))
+
+# ---- il pallino verde non deve poter mentire --------------------------------
+# Il giro lungo ingoia i propri errori di proposito, e per mesi un'esecuzione
+# riuscita a meta' e' restata verde: se la prima fonte risponde male, il sito
+# viene ricostruito dal database vecchio e ci stampa sopra "previsione calcolata
+# adesso". Questi controlli difendono il passo che lo scopre.
+from gardawind import salute as _S  # noqa: E402
+
+_st = _S.stato()
+ok(set(_st) == {"ok", "motivi", "dettagli"},
+   "la salute risponde con ok/motivi/dettagli")
+ok(_st["ok"] is False and any("previsione" in m for m in _st["motivi"]),
+   "su un database senza previsioni dice che qualcosa non torna, e dice cosa: "
+   "%s" % (_st["motivi"][:1] or "niente"))
+ok(any("ore" in r for r in _S.righe_da_stampare(_st)),
+   "e lo stampa in righe leggibili, le stesse nel flusso e sul Mac")
+
+# I tre motivi che fanno diventare rosso il pallino sono SOLO questi tre: un
+# errore su una singola fonte non deve accenderlo, perche' un allarme che suona
+# ogni settimana per niente si impara a ignorarlo.
+_src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..",
+                          "gardawind", "salute.py"), encoding="utf-8").read()
+ok(_src.count("motivi.append(") == 4,
+   "quattro soli motivi di allarme (previsione assente, previsione vecchia, "
+   "prodotto vuoto, archivio fermo): %d" % _src.count("motivi.append("))
+ok('dettagli["n_errori"]' in _src and "motivi.append" not in
+   _src.split('dettagli["errori"]')[1],
+   "gli errori delle singole fonti si contano e si stampano, e NON fanno "
+   "fallire il giro")
+
+_wf = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..",
+                         ".github", "workflows", "garda-wind.yml"),
+           encoding="utf-8").read()
+ok("--salute" in _wf and _wf.index("upload-pages-artifact") < _wf.index("--salute"),
+   "nel flusso il controllo sta DOPO la pubblicazione dell'artefatto: il sito "
+   "esce comunque, il pallino diventa rosso")
+ok("!cancelled()" in _wf,
+   "e il passo che pubblica su Pages gira anche se la salute ha fatto fallire "
+   "il giro: il rosso serve a chi guarda, non a togliere il sito a chi lo usa")
+ok("github.run_attempt" in _wf,
+   "la chiave della cache porta anche il tentativo: una ri-esecuzione riuscita "
+   "puo' salvare il proprio lavoro")
+
+print("controlli sull'avvio e sulla salute: finiti")

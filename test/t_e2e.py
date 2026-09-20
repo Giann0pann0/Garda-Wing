@@ -135,7 +135,7 @@ fo=prod["Torbole-Ora"]
 ok(len(fo)>=4, "previsione su %d giorni"%len(fo))
 d0=fo[0]
 print("   Torbole-Ora oggi: prob=%.0f%% attesi=%.1f kn [%.1f-%.1f] finestra=%s fonte=%s giudizio=%s"%(
-   d0["prob"]*100,d0["speed"],d0["lo"],d0["hi"],d0["window"] and "%02d-%02d"%(d0["window"]["from"],d0["window"]["to"]),d0["source"],d0["grade"]))
+   d0["prob"]*100,d0["speed"],d0["lo"],d0["hi"],d0.get("peak_hour"),d0["source"],d0["grade"]))
 ok(d0["source"]=="appreso", "usa il modello appreso")
 ok(d0["lo"]<=d0["speed"]<=d0["hi"], "banda coerente")
 # E la banda ha una LARGHEZZA plausibile. Prima l'unico controllo era l'ordine
@@ -144,7 +144,17 @@ ok(d0["lo"]<=d0["speed"]<=d0["hi"], "banda coerente")
 # modo peggiore di sbagliare per chi decide se uscire.
 largh=d0["hi"]-d0["lo"]
 ok(1.5<=largh<=25.0, "e una larghezza plausibile: %.1f kn"%largh)
-ok(d0["window"] is not None and 11<=d0["window"]["from"]<=19, "finestra dentro l'orario dell'Ora")
+# La finestra che si controlla e' QUELLA CHE LA PAGINA MOSTRA. Prima si
+# guardava d0["window"], che veniva da engine._best_window: una seconda
+# definizione, calcolata sulla finestra del regime con una soglia sua, che
+# nessuna pagina leggeva. Quella e' stata tolta; questa e' la finestra utile,
+# cioe' regime + ore praticabili + luce, che e' anche quella su cui il voto e'
+# calcolato.
+from gardawind import orari as _O
+_ini,_fin=_O.finestra_utile_del_giorno("Torbole-Ora", d0["day"])
+ok(_fin>_ini and 11*60<=_ini<=19*60,
+   "la finestra che la pagina mostra - regime, ore praticabili e luce - sta "
+   "dentro l'orario dell'Ora (%s-%s)"%(_ini,_fin))
 ok(len(d0["profile"])==9, "profilo orario di %d ore"%len(d0["profile"]))
 # LA FORMA, non solo la lunghezza. Il profilo si costruisce spostando la curva
 # grezza verso l'ora prevista del picco (engine.day_profile): invertendo il
