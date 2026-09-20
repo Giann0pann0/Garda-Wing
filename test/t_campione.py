@@ -178,6 +178,17 @@ ok(len(dal_file) > 60000 and dal_file[0][0].startswith("2017-10")
    and all(isinstance(m, float) for _h, m, _g in dal_file[:100]),
    "senza addicted_hour lo storico viene dal file nel progetto: %d ore dal %s"
    % (len(dal_file), dal_file[0][0][:10] if dal_file else "?"))
+# E SONO NODI. Qui si controllava il TIPO dei numeri (isinstance float) e non il
+# loro valore: leggendo tutto l'archivio come m/s invece che nodi - una divisione
+# per 1,94 - i modelli di Campione e Malcesine imparano su bersagli dimezzati,
+# la pagina mostra numeri bassi e credibili, e nessun controllo se ne accorgeva.
+# Sono 66.000 ore misurate: la loro mediana e le loro code sono una firma.
+_medie = sorted(m for _h, m, _g in dal_file)
+_med = _medie[len(_medie) // 2]
+_p99 = _medie[int(0.99 * len(_medie))]
+ok(3.5 <= _med <= 9.0 and 10.0 <= _p99 <= 25.0 and _medie[-1] <= 60.0,
+   "e sono NODI, non m/s: mediana %.1f kn, 99esimo %.1f kn, massimo %.1f kn"
+   % (_med, _p99, _medie[-1]))
 ok(engine.storico_addicted("brenzone") == [],
    "e per una stazione senza file ne' tabella, niente: non si inventa")
 esito = engine.promuovi_storico_addicted("campione")

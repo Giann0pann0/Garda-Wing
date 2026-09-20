@@ -73,7 +73,42 @@ _pezzo = _main[_main.index('if args.live_json:'):]
 _pezzo = _pezzo[:_pezzo.index("if args.ci:")]
 ok(_pezzo.index("scrivi(args.live_json)") < _pezzo.index("avvisi"),
    "il file si scrive PRIMA degli avvisi")
-ok("try:" in _pezzo.split("avvisi")[0][-400:] or "except Exception" in _pezzo,
-   "e un errore negli avvisi non fa uscire il comando con un codice di errore:"
-   " altrimenti il passo di pubblicazione non parte e il sito resta col dato"
-   " vecchio per colpa di un messaggio Telegram")
+# E SI PROVA DAVVERO, invece di cercare una stringa. Qui c'era
+# `"except Exception" in _pezzo`, che e' vero anche per un try messo la' per
+# un altro motivo: si poteva cancellare la protezione attorno agli avvisi e il
+# controllo diceva PASS. Adesso si fa fallire avvisi.esegui e si guarda il
+# codice di uscita del comando e il file.
+import importlib as _il
+from gardawind import avvisi as _avvisi, live as _live
+_vero = _avvisi.esegui
+
+
+def _esplode(*a, **k):
+    raise RuntimeError("Telegram e' giu'")
+
+
+_avvisi.esegui = _esplode
+# Niente rete: quello che si prova qui e' la protezione, non la lettura delle
+# centraline. Un controllo che chiama tre fonti vere e' un controllo che non si
+# esegue volentieri, e un test che non si esegue non difende niente.
+from gardawind import engine as _eng
+_vere_letture = _eng.aggiorna_centraline_vive
+_eng.aggiorna_centraline_vive = lambda: ["prova: nessuna lettura"]
+_dest = "/tmp/gwlaunch-live.json"
+if _os.path.exists(_dest):
+    _os.remove(_dest)
+try:
+    from gardawind.__main__ import main as _main_fn
+    _codice = _main_fn(["--live-json", _dest])
+except SystemExit as e:                     # noqa: PERF203
+    _codice = e.code
+except Exception as e:                      # noqa: BLE001
+    _codice = "eccezione: %s" % e
+finally:
+    _avvisi.esegui = _vero
+    _eng.aggiorna_centraline_vive = _vere_letture
+ok(_codice == 0 and _os.path.exists(_dest),
+   "e un errore negli avvisi non fa uscire il comando con un codice di errore"
+   " (uscita %r, file scritto %s): altrimenti il passo di pubblicazione non"
+   " parte e il sito resta col dato vecchio per colpa di un messaggio Telegram"
+   % (_codice, _os.path.exists(_dest)))

@@ -63,7 +63,13 @@ class FintoOpener(object):
 
 
 def con_opener(op, **kw):
+    # La piattaforma si FORZA. Prima si salvava sys.platform e non si toccava
+    # mai: su macOS - il solo computer su cui Gian lancia i controlli a mano -
+    # http.fetch arriva in fondo e chiama curl DAVVERO, due volte per
+    # esecuzione, e senza rete il file si impianta. Un test che si blocca e' un
+    # test che non gira, cioe' che non difende niente.
     vecchio_o, vecchia_attesa, vecchia_piattaforma = H._OPENER, H.ATTESA_S, sys.platform
+    sys.platform = "linux"
     H._OPENER = op
     H.ATTESA_S = (0.0, 0.0)          # nei controlli non si aspetta davvero
     try:
@@ -72,6 +78,7 @@ def con_opener(op, **kw):
         return None, e
     finally:
         H._OPENER, H.ATTESA_S = vecchio_o, vecchia_attesa
+        sys.platform = vecchia_piattaforma
 
 
 # --------------------------------------------------------------------------

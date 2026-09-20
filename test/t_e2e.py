@@ -138,8 +138,27 @@ print("   Torbole-Ora oggi: prob=%.0f%% attesi=%.1f kn [%.1f-%.1f] finestra=%s f
    d0["prob"]*100,d0["speed"],d0["lo"],d0["hi"],d0["window"] and "%02d-%02d"%(d0["window"]["from"],d0["window"]["to"]),d0["source"],d0["grade"]))
 ok(d0["source"]=="appreso", "usa il modello appreso")
 ok(d0["lo"]<=d0["speed"]<=d0["hi"], "banda coerente")
+# E la banda ha una LARGHEZZA plausibile. Prima l'unico controllo era l'ordine
+# dei tre numeri, che qualunque larghezza soddisfa (anche lo == hi): stringendo
+# la banda al 40% la suite non se ne accorgeva, e una banda troppo stretta e' il
+# modo peggiore di sbagliare per chi decide se uscire.
+largh=d0["hi"]-d0["lo"]
+ok(1.5<=largh<=25.0, "e una larghezza plausibile: %.1f kn"%largh)
 ok(d0["window"] is not None and 11<=d0["window"]["from"]<=19, "finestra dentro l'orario dell'Ora")
 ok(len(d0["profile"])==9, "profilo orario di %d ore"%len(d0["profile"]))
+# LA FORMA, non solo la lunghezza. Il profilo si costruisce spostando la curva
+# grezza verso l'ora prevista del picco (engine.day_profile): invertendo il
+# segno di quello spostamento il massimo si spostava di sei ore - un numero
+# giusto all'ora sbagliata, cioe' si esce alle 17 e si trova il buco - e la
+# suite intera non aveva una sola asserzione che lo vedesse.
+prof=[r for r in d0["profile"] if r.get("wind") is not None]
+ora_max=max(prof, key=lambda r: r["wind"])["hour_local"]
+ok(abs(ora_max-d0["peak_hour"])<=1.5 if d0.get("peak_hour") is not None else True,
+   "e il massimo del profilo sta sull'ora prevista del picco (%.1f contro %s)"%(
+   ora_max, ("%.1f"%d0["peak_hour"]) if d0.get("peak_hour") is not None else "n.d."))
+ok(all(d0["profile"][i]["hour_local"]<d0["profile"][i+1]["hour_local"]
+       for i in range(len(d0["profile"])-1)),
+   "e le ore del profilo sono in ordine crescente")
 lead3=[x for x in fo if x["lead"]==3]
 if lead3:
     ok((lead3[0]["hi"]-lead3[0]["lo"])>(d0["hi"]-d0["lo"]), "banda piu' larga a D+3")

@@ -59,10 +59,23 @@ ok("push:" in y and "branches: [main]" in y,
    "una modifica al codice ripubblica il sito senza aspettare il cron")
 ok("gardawind/**" in y, "il trigger su push guarda il pacchetto, non i documenti")
 try:
-    import yaml; yaml.safe_load(y); ok(True,"YAML valido")
+    import yaml
+    yaml.safe_load(y); ok(True,"YAML valido")
 except ImportError:
-    r=subprocess.run([sys.executable,"-c","import json,sys;sys.exit(0)"])
-    ok(True,"YAML non verificabile qui (pyyaml assente): controllo strutturale superato")
+    # SENZA pyyaml non si dice "superato": si controlla quello che si puo'.
+    # Il Python di sistema del Mac non ha pyyaml, quindi questo era il ramo
+    # VERO e stampava PASS senza aver letto niente - e un flusso rotto vuol
+    # dire sito fermo sui dati vecchi, senza errore visibile.
+    _righe = y.split("\n")
+    _tab = [n+1 for n,r in enumerate(_righe) if r[:len(r)-len(r.lstrip())].count("\t")]
+    _chiavi = [r.split(":")[0] for r in _righe if r and not r[0].isspace()
+               and ":" in r and not r.startswith("#")]
+    _dispari = [n+1 for n,r in enumerate(_righe)
+                if r.strip().startswith("- ") and (len(r)-len(r.lstrip()))%2]
+    ok(not _tab and {"name","on","jobs"} <= set(_chiavi) and not _dispari,
+       "YAML plausibile anche senza pyyaml: nessuna tabulazione %s, le chiavi "
+       "di primo livello ci sono (%s), le liste sono indentate pari %s"
+       % (_tab or "ok", ",".join(sorted(set(_chiavi))[:6]), _dispari or "ok"))
 except Exception as e:
     ok(False,"YAML non valido: %s"%e)
 

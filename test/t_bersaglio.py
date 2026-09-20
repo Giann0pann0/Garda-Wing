@@ -37,7 +37,15 @@ def ok(c, m):
 store.init()
 SPOT = "Torbole-Peler"
 ST = config.SPOTS[SPOT]["station"]
-ASSE = config.SPOTS[SPOT]["axis_obs"]
+# La direzione del banco di prova NON sta esattamente sull'asse osservato.
+# Ci stava, e cosi' il filtro di settore non poteva sbagliare: giudicare una
+# direzione misurata con l'asse preso dalla mappa (24 gradi) invece di quello
+# osservato dalla centralina (54) sposta il bersaglio di trenta gradi, e con la
+# direzione scritta sull'asse i due riferimenti erano indistinguibili. Qui la
+# direzione e' dentro il settore di axis_obs (55 gradi di scarto su 70) e FUORI
+# da quello dell'asse geometrico (85): se qualcuno tornasse a usare `axis`,
+# queste giornate smetterebbero di contare e il controllo cade.
+ASSE = config.SPOTS[SPOT]["axis_obs"] + 55.0
 
 
 def salva_ore(giorno, righe):
@@ -49,7 +57,8 @@ def salva_ore(giorno, righe):
             "INSERT OR REPLACE INTO obs_hour(station,hour,wind_mean,wind_max,"
             "gust_max,gust_rec,dir_deg,dir_const,n_samples) "
             "VALUES(?,?,?,?,?,?,?,?,?)",
-            (ST, iso_utc(t)[:13], media, media + 1.0, None, None, ASSE, 0.9, 6))
+            (ST, store.chiave_ora(iso_utc(t)), media, media + 1.0, None, None,
+             ASSE, 0.9, 6))
     store.connect().commit()
 
 
