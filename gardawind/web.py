@@ -19,7 +19,8 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (config, confidence, engine, giudizio, orari, store,
+from . import (config, confidence, engine, giudizio, orari, pagella, perche,
+               store,
                verify)
 from .util import (angle_diff, clamp, curva_monotona, local_day,
                    parse_dt_any, sampling_cadence, sustained_onset,
@@ -250,6 +251,16 @@ details.tbl .scroller{overflow-x:auto}
 .snote{font-size:12px;color:var(--warn);margin:10px 0 0;line-height:1.4}
 
 /* ---------------- il cassetto dei dettagli ---------------- */
+details.perche{margin:10px 12px 0}
+details.perche>summary{font:600 12px/1.4 var(--sans);color:var(--ink-3);
+  cursor:pointer;list-style:none;padding:2px 0}
+details.perche>summary::-webkit-details-marker{display:none}
+ul.pq{margin:6px 0 2px;padding:0;list-style:none;display:grid;gap:5px}
+ul.pq li{display:flex;gap:7px;font:400 12.5px/1.45 var(--sans);color:var(--ink-2)}
+ul.pq li>span{flex:0 0 12px;font-size:10px;line-height:1.7;opacity:.9}
+li.pq-su>span{color:var(--good)}
+li.pq-giu>span{color:var(--warn)}
+li.pq-pari>span{color:var(--ink-3)}
 .dettagli{margin:14px 0 10px;background:var(--vetro);border:1px solid var(--line);
   border-radius:var(--raggio);padding:0 16px}
 .dettagli summary{cursor:pointer;font-size:18px;font-weight:800;padding:14px 0;
@@ -854,6 +865,10 @@ def card_regime(place, regime, label, quando, profile, sessions,
                                 data.get("source_prob"))
     motori = motori_valori(place, sessions)
     righe_motori = ""
+    # Le ragioni della giornata, in un cassetto: non occupano spazio a chi vuole
+    # solo il numero, e a chi conosce il lago fanno vedere subito un'assurdita'
+    # che dentro una previsione sarebbe invisibile.
+    cassetto = perche_html(name, data, giorno)
     if motori:
         pg, tg, verso = motori
         righe_motori = (
@@ -875,14 +890,42 @@ def card_regime(place, regime, label, quando, profile, sessions,
         '<dl class="rq-d">'
         '<div>%s<dt>Finestra</dt><dd>%s – %s</dd></div>'
         '<div>%s<dt>Sopra %.0f kn</dt><dd>%s</dd></div>'
-        '%s</dl></div></div></div>'
+        '%s</dl></div></div>%s</div>'
         % (classe, E(label.upper()), E(quando), classe, E(parola), E(parola),
            anello_pct(pct, classe),
            num["kn"], num["raffica"],
            icona("finestra"), hhmm(num["inizio"]), hhmm(num["fine"]),
            icona("raffica"), num["spot"]["min_kn"],
            _durata_parole(num["minuti"], num["limite"]),
-           righe_motori))
+           righe_motori, cassetto))
+
+
+SEGNO_PAROLE = {"+": "\u25b2", "-": "\u25bc", "": "\u00b7"}
+
+
+def perche_html(spot_name, data, giorno):
+    """Il cassetto "Perche'?" di un riquadro, o niente se non c'e' nulla da dire.
+
+    Le frasi le scrive perche.ragioni, che legge le stesse feature con cui la
+    previsione e' stata fatta. Qui si impagina e non si interpreta: un giudizio
+    scritto in pagina sarebbe una seconda opinione su numeri che ne hanno gia'
+    una.
+    """
+    if not spot_name or not data:
+        return ""
+    try:
+        simili = perche.giornate_simili(spot_name, giorno, data.get("lead"))
+    except Exception:                                  # noqa: BLE001
+        simili = None
+    voci = perche.ragioni(spot_name, data, simili)
+    if not voci:
+        return ""
+    righe = "".join('<li class="pq-%s"><span>%s</span>%s</li>'
+                    % ("su" if s == "+" else "giu" if s == "-" else "pari",
+                       SEGNO_PAROLE[s], E(t))
+                    for s, t in voci)
+    return ('<details class="perche"><summary>Perch\u00e9?</summary>'
+            '<ul class="pq">%s</ul></details>' % righe)
 
 
 def riquadri(place, profile, sessions, giorno=None, live=None, today=False):
@@ -966,9 +1009,10 @@ def motori_valori(place, sessions):
     pg, tg = float(feats["pgrad"]), float(feats.get("tgrad") or 0.0)
     # pgrad > 0: pressione piu' alta a nord, spinge verso sud lungo il lago,
     # favorisce il Peler; < 0 favorisce l'Ora (features._gradients).
-    verso = ("spinge il Pelèr" if pg > 0.3 else
-             "spinge l’Ora" if pg < -0.3 else "neutro")
-    return pg, tg, verso
+    # La frase del verso sta in perche.verso_pgrad: la stessa che compare fra
+    # le ragioni della giornata, e due copie direbbero prima o poi due cose
+    # diverse dello stesso numero.
+    return pg, tg, perche.verso_pgrad(pg)
 
 
 def anello_pct(pct, classe, size=76):
@@ -2171,11 +2215,67 @@ def page_home():
 # Diagnostica
 # --------------------------------------------------------------------------
 
+def pagella_panel():
+    """La pagella: quello che abbiamo pubblicato contro quello che e' successo.
+
+    Sta in cima alla diagnostica perche' e' l'unico numero di questa pagina che
+    guarda il prodotto DA FUORI. Tutto il resto misura i pezzi - un modello
+    contro i suoi fold, un parser contro un input - e i pezzi possono essere
+    tutti in ordine mentre la frase pubblicata dice una cosa sbagliata: e'
+    esattamente cosi' che una banda di incertezza costruita al rovescio e'
+    campata per mesi con 1.400 controlli verdi.
+    """
+    righe = pagella.confronto()
+    r = ['<div class="panel"><h2 class="display">La pagella</h2>'
+         '<p>Quello che questo sito ha <b>pubblicato</b>, confrontato con quello '
+         'che la centralina ha poi <b>misurato</b>: ultimi %d giorni, picco della '
+         'media oraria dentro la finestra del regime, dalla previsione più '
+         'recente di ogni giorno di emissione. Lo scarto è '
+         '<i>previsto meno osservato</i>: positivo vuol dire che abbiamo '
+         'promesso più vento di quanto ne sia arrivato.</p>' % pagella.GIORNI]
+    if not righe:
+        r.append('<p class="snote">Non ci sono ancora giornate confrontabili: '
+                 'le curve pubblicate si archiviano dal 19/09/2026, e una '
+                 'giornata entra qui solo quando è finita.</p></div>')
+        return "".join(r)
+    leads = sorted({l for x in righe for l in x["per_scadenza"]})[:5]
+    r.append("<table><tr><th>Spot</th><th class='num'>Giornate</th>"
+             "<th class='num'>Scarto medio</th><th class='num'>Scarto tipico</th>"
+             "<th class='num'>Ora del picco</th>"
+             + "".join("<th class='num'>D+%d</th>" % l for l in leads) + "</tr>")
+    for x in righe:
+        spot = config.SPOTS[x["spot"]]
+        if x["n"] < pagella.MIN_GIORNATE:
+            r.append("<tr><td>%s</td><td class='num'>%d</td>"
+                     "<td colspan='%d'>%s</td></tr>"
+                     % (E(spot["label"]), x["n"], 3 + len(leads),
+                        E(pagella.in_parole(x))))
+            continue
+        classe = "good" if abs(x["scarto_medio"]) < 1.0 else "bad"
+        celle = []
+        for l in leads:
+            q = x["per_scadenza"].get(l)
+            celle.append("<td class='num'>%s</td>"
+                         % (("%+.1f" % q["scarto_medio"]) if q else "—"))
+        r.append("<tr><td>%s</td><td class='num'>%d</td>"
+                 "<td class='num %s'>%+.1f kn</td><td class='num'>%.1f kn</td>"
+                 "<td class='num'>%+.0f min</td>%s</tr>"
+                 % (E(spot["label"]), x["n"], classe, x["scarto_medio"],
+                    x["scarto_assoluto"], x["scarto_ore"] * 60.0, "".join(celle)))
+    r.append("</table>")
+    for x in righe:
+        r.append("<p class='snote'><b>%s</b>: %s</p>"
+                 % (E(config.SPOTS[x["spot"]]["label"]), E(pagella.in_parole(x))))
+    r.append("</div>")
+    return "".join(r)
+
+
 def page_diagnostics():
     def fmt(v, d=2):
         return ("%.*f" % (d, v)) if isinstance(v, (int, float)) else "—"
 
-    r = ['<div class="panel"><h2 class="display">Quanto sbaglia</h2>'
+    r = [pagella_panel(),
+         '<div class="panel"><h2 class="display">Quanto sbaglia</h2>'
          '<p>Tutti i numeri sono misurati su giorni che il modello non aveva mai visto. '
          'Le metriche calcolate sugli stessi dati usati per imparare sarebbero una '
          'promessa che il modello non può mantenere.</p>'

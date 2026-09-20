@@ -36,19 +36,16 @@ def prior_weights():
 
 
 def observed_daily_peaks(spot_name):
-    """Picco della media oraria nella finestra, per giorno locale."""
-    spot = config.SPOTS[spot_name]
-    h0, h1 = spot["window"]
-    need = max(3, int(config.MIN_WINDOW_COVERAGE * (h1 - h0 + 1)))
-    by_day = {}
-    for row in store.obs_hours(spot["station"]):
-        dt = parse_dt_any(row["hour"])
-        if dt is None or row["wind_mean"] is None:
-            continue
-        if not (h0 <= local_hour(dt) <= h1):
-            continue
-        by_day.setdefault(local_day(dt), []).append(row["wind_mean"])
-    return {d: max(v) for d, v in by_day.items() if len(v) >= need}
+    """Picco della media oraria nella finestra, per giorno locale.
+
+    La riduzione vive in pagella.osservato_giornaliero: e' la stessa che usa la
+    pagella per confrontare quello che abbiamo pubblicato con quello che e'
+    successo, e due riduzioni diverse dello stesso osservato farebbero litigare
+    i due numeri senza che nessuno capisca perche'.
+    """
+    from . import pagella
+    return {g: picco for g, (picco, _ora) in
+            pagella.osservato_giornaliero(spot_name).items()}
 
 
 def _forecast_daily_peaks(rows, spot_name):
