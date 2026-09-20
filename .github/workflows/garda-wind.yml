@@ -97,15 +97,22 @@ jobs:
       - name: Metti al sicuro le serie irripetibili
         continue-on-error: true
         run: |
+          # Il biglietto va nella cartella dei dati (quella che finisce in
+          # cache), e lo scrive SOLO chi e' arrivato in fondo: e' l'unica cosa
+          # che distingue "non e' riuscito una volta" da "non riesce da
+          # giugno", ed e' il controllo 3 della salute a leggerlo. Anche
+          # "niente da archiviare" e' un successo: vuol dire che quello che
+          # c'era e' gia' nel repository.
+          marca() { mkdir -p dati; date -u +%Y-%m-%dT%H:%M:%SZ > dati/archivio-spinto.txt; }
           if [ -z "$(git status --porcelain storico)" ]; then
-            echo "niente di nuovo da archiviare"; exit 0
+            echo "niente di nuovo da archiviare"; marca; exit 0
           fi
           git config user.name  "garda-wind (archivio)"
           git config user.email "noreply@anthropic.com"
           git add storico
           git commit -m "Archivio: le serie che non si riscaricano, $(date -u +%Y-%m-%d)"
           for i in 1 2 3; do
-            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            git pull --rebase --autostash origin main && git push origin HEAD:main && marca && exit 0
             echo "tentativo $i non riuscito, riprovo"; sleep 5
           done
           echo "non sono riuscito a spingere l'archivio: resta in cache, riprovo al prossimo giro"

@@ -327,11 +327,16 @@ def main(argv=None):
         # mai le proprie. Le piu' recenti restavano nella sola cache di
         # Actions - cioe' esattamente nel posto da cui questo archivio serve a
         # metterle al sicuro.
+        # PRIMA di esportare: e' l'unico momento in cui sul disco c'e' quello
+        # che git ha davvero. Un attimo dopo, esporta() riscrive quei file dal
+        # database e la loro data diventa "adesso" qualunque cosa sia successo
+        # al push - cioe' il controllo sull'archivio direbbe sempre di si'.
+        from . import salute as S
+        _curva_di_git = S.ultima_curva_nei_file()
         for path, n, nuove in archivio.esporta():
             if nuove:
                 print("  archivio %s: %d righe (+%d)" % (path, n, nuove), flush=True)
-        from . import salute as S
-        for riga in S.righe_da_stampare(S.stato()):
+        for riga in S.righe_da_stampare(S.stato(ultima_curva=_curva_di_git)):
             print(riga, flush=True)
         if engine.STATE["errors"]:
             print("Errori durante il ciclo:", flush=True)

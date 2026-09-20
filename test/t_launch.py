@@ -134,9 +134,10 @@ ok(any("ore" in r for r in _S.righe_da_stampare(_st)),
 # ogni settimana per niente si impara a ignorarlo.
 _src = open(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..",
                           "gardawind", "salute.py"), encoding="utf-8").read()
-ok(_src.count("motivi.append(") == 4,
-   "quattro soli motivi di allarme (previsione assente, previsione vecchia, "
-   "prodotto vuoto, archivio fermo): %d" % _src.count("motivi.append("))
+ok(_src.count("motivi.append(") == 6,
+   "sei soli motivi di allarme (previsione assente, previsione vecchia, "
+   "prodotto vuoto, una localita' senza previsione, archivio non spinto, "
+   "centraline mute): %d" % _src.count("motivi.append("))
 ok('dettagli["n_errori"]' in _src and "motivi.append" not in
    _src.split('dettagli["errori"]')[1],
    "gli errori delle singole fonti si contano e si stampano, e NON fanno "
@@ -154,5 +155,83 @@ ok("!cancelled()" in _wf,
 ok("github.run_attempt" in _wf,
    "la chiave della cache porta anche il tentativo: una ri-esecuzione riuscita "
    "puo' salvare il proprio lavoro")
+
+# ---- i tre controlli guardavano tutti dalla stessa parte --------------------
+# Riletti a freddo il 20/09/2026, prima di due mesi in cui nessuno li leggera'.
+# Ognuno dei tre aveva un modo di dire di si' senza aver guardato.
+
+# 1. "La previsione e' fresca" leggeva un'ora che veniva scritta SEMPRE, anche
+#    quando nessuna delle quaranta richieste era arrivata a destinazione.
+_eng_src = open(_os.path.join(RES, "gardawind", "engine.py"), encoding="utf-8").read()
+_pezzo = _eng_src.split("def update_forecasts")[1].split("def update_context")[0]
+ok("if okc:" in _pezzo and _pezzo.index("if okc:")
+   < _pezzo.index('meta_set("last_forecast_run"'),
+   "l'ora dell'ultima previsione si scrive solo se qualcosa e' arrivato "
+   "davvero: era l'occhio del controllo, e guardava il proprio orologio")
+
+# Non basta leggerlo nel testo: si prova. Con tutte le fonti che rifiutano,
+# l'ora dell'ultima previsione NON deve muoversi.
+from gardawind import store as _store, engine as _engine  # noqa: E402
+from gardawind.sources import openmeteo as _om  # noqa: E402
+from gardawind.sources.http import FetchError as _FE  # noqa: E402
+_os.environ["GARDAWIND_HOME"] = "/tmp/gwsalute"
+shutil.rmtree("/tmp/gwsalute", ignore_errors=True)
+_store._CONN = None if hasattr(_store, "_CONN") else None
+_store.init()
+_store.meta_set("last_forecast_run", "2026-09-01T00:00:00Z")
+_vera_fetch = _om.fetch_forecast
+_om.fetch_forecast = lambda *a, **k: (_ for _ in ()).throw(_FE("giu'"))
+try:
+    _okc = _engine.update_forecasts()
+finally:
+    _om.fetch_forecast = _vera_fetch
+ok(_okc == 0 and _store.meta_get("last_forecast_run") == "2026-09-01T00:00:00Z",
+   "provato: con tutte le fonti giu' l'ora resta quella dell'ultimo run vero "
+   "(%s)" % _store.meta_get("last_forecast_run"))
+
+from gardawind import salute as _S2  # noqa: E402
+_st2 = _S2.stato()
+ok(any("previsione" in m and "ore" in m for m in _st2["motivi"]),
+   "e allora la salute lo dice: previsione vecchia invece di verde")
+
+# 2. "Il prodotto esiste" passava con un solo spot su sette.
+_st3 = _S2.stato(prodotto={config.SPOT_ORDER[0]: [{"day": "x"}]})
+ok(any("non hanno previsione" in m for m in _st3["motivi"])
+   and config.SPOT_ORDER[-1] in " ".join(_st3["motivi"]),
+   "sei localita' su sette senza previsione fanno diventare rosso il pallino, "
+   "e il motivo dice quali")
+
+# 3. "L'archivio cresce" leggeva dei file che il giro stesso aveva appena
+#    riscritto: dentro il flusso non poteva dire di no. Adesso c'e' il
+#    biglietto lasciato da chi ha spinto davvero.
+_marca = _S2.marca_push_riuscito()
+ok(_os.path.exists(_marca), "il biglietto del push riuscito si scrive dove sta "
+                            "il database, non nel repository")
+_st4 = _S2.stato()
+ok(_st4["dettagli"]["archivio_misura"] == "push riuscito"
+   and not any("archivio" in m for m in _st4["motivi"]),
+   "appena spinto, l'archivio non e' un motivo di allarme")
+open(_marca, "w", encoding="utf-8").write("2026-08-20T00:00:00Z\n")
+_st5 = _S2.stato()
+ok(any("archivio non arriva nel repository" in m for m in _st5["motivi"]),
+   "fermo da un mese, invece, il pallino diventa rosso - ed e' anche il "
+   "motivo per cui GitHub spegnerebbe i cron dopo 60 giorni")
+ok("archivio-spinto.txt" in _wf
+   and _wf.split("git push origin HEAD:main")[1].split("\n")[0].count("marca"),
+   "e nel flusso il biglietto lo scrive SOLO chi e' arrivato in fondo al push")
+
+# 4. Il controllo che mancava: nessuno dei tre guardava le MISURE, cioe' il
+#    metro contro cui tutto il resto si corregge.
+_vere_stats = _store.obs_stats
+_store.obs_stats = lambda st: {"hour_to": "2026-08-01T10:00:00Z", "hours": 10,
+                               "hour_from": "2026-01-01T00:00:00Z", "days": 1,
+                               "day_from": None, "day_to": None, "samples": 0}
+try:
+    _st6 = _S2.stato()
+finally:
+    _store.obs_stats = _vere_stats
+ok(any("centraline non dicono niente" in m for m in _st6["motivi"]),
+   "una centralina ferma da settimane accende il pallino: la previsione "
+   "continuerebbe a uscire, ma non impariamo piu' niente")
 
 print("controlli sull'avvio e sulla salute: finiti")

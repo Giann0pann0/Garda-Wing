@@ -192,9 +192,33 @@ header.hero .wrap{position:relative}
 
 /* ---------------- i due riquadri, identici ---------------- */
 .rqgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch}
-.rq{background:var(--vetro);border:1px solid var(--line);border-radius:var(--raggio);
+/* Il voto colora la scheda, non solo la pillola.
+   Detto il 20/09/2026, guardando la pagina finita: "molto bella ma un po'
+   monotona, i riquadri saltano poco all'occhio". Era vero, e la ragione era
+   che ogni pannello della pagina aveva la stessa superficie, lo stesso bordo
+   e lo stesso peso: tutto ugualmente importante vuol dire niente importante.
+   Il colore c'era gia' - la classe q-* sta sulla scheda e mette il voto in
+   `color` - e non veniva usato per nulla oltre a una pillola da dodici pixel.
+   Qui si usa: un filo di colore sul bordo sinistro e un velo dello stesso
+   colore nell'angolo. Niente colori nuovi, niente numeri piu' grandi; la
+   struttura dei due riquadri resta identica, che e' una regola di prodotto. */
+.rq{background:var(--card);border:1px solid var(--line);border-radius:var(--raggio);
   padding:14px 16px 14px;box-shadow:var(--shadow);display:flex;flex-direction:column;
-  backdrop-filter:blur(10px)}
+  position:relative;overflow:hidden;isolation:isolate}
+.rq::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:currentColor;opacity:.85;z-index:-1}
+.rq::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(120% 80% at 0 0,currentColor,transparent 62%);
+  opacity:.07}
+/* E la sessione migliore sta un gradino avanti: superficie piu' chiara, un
+   anello del suo colore, un alone. La riga del "meglio" qui sotto dice a
+   parole la stessa cosa, e la dice leggendo la stessa classifica: se un
+   giorno le due non fossero d'accordo sarebbe un difetto, non una sfumatura. */
+.rq.vince{background:var(--card-2);border-color:transparent;
+  box-shadow:0 0 0 1px currentColor inset,0 14px 34px -22px currentColor,
+  var(--shadow)}
+.rq.vince::after{opacity:.12}
+.rq.rq-off{color:var(--ink-3)}
 .rq-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .rq-t{font-size:22px;font-weight:800;letter-spacing:.02em;color:var(--ink)}
 .rq-t span{color:var(--ink-2);font-weight:500;font-size:16px;letter-spacing:0}
@@ -220,9 +244,14 @@ header.hero .wrap{position:relative}
 .rq.rq-off .rq-v{display:block;color:var(--ink-3);font-size:22px;margin-top:8px}
 
 /* ---------------- la riga del meglio ---------------- */
-.meglio{margin:14px 0 0;padding:12px 16px;display:flex;align-items:center;gap:12px;
-  font-size:16px;color:var(--ink);line-height:1.4;border-radius:14px;
-  border:1px solid currentColor;background:var(--vetro)}
+/* Una riga, non un riquadro. Aveva il bordo intero nel colore del voto, e da
+   quando la scheda migliore si accende erano due cose che gridavano la stessa
+   cosa una sopra l'altra: il riquadro dice QUALE, questa riga dice PERCHE' e
+   da che ora. Resta il filo di colore a sinistra, che la lega al riquadro
+   acceso senza rifarne il verso. */
+.meglio{margin:12px 0 0;padding:10px 14px;display:flex;align-items:center;gap:12px;
+  font-size:16px;color:var(--ink);line-height:1.4;border-radius:0 12px 12px 0;
+  border:0;border-left:3px solid currentColor;background:var(--vetro)}
 .meglio .ic{width:26px;height:26px;flex:none}
 .meglio .ic svg{width:100%;height:100%;display:block}
 .meglio .tx{flex:1;color:var(--ink)}
@@ -329,9 +358,17 @@ footer a{color:var(--ink-2)}
 
 @media (max-width:700px){
   .wrap{padding-left:12px;padding-right:12px}
-  header.hero{padding-bottom:18px}
+  /* Sul telefono la testa si prendeva 360 px dei primi 844: nome, cielo e
+     riga dell'adesso stavano sopra, e il verdetto - la ragione per cui si
+     apre questa pagina - cominciava a 658, cioe' sotto il bordo dello
+     schermo. Si vedeva la pagina bella e non si vedeva la risposta. Il cielo
+     resta, piu' basso: 212 px bastano a farlo vedere e spostano i due
+     riquadri di un centinaio di pixel piu' su, dentro la prima schermata. */
+  header.hero{padding-bottom:16px;min-height:212px}
+  header.hero.foto{min-height:236px}
+  header.hero>.wrap{min-height:176px}
   .luoghi a{padding:7px 13px;font-size:14px}
-  .titolo{font-size:42px;margin-top:18px}
+  .titolo{font-size:38px;margin-top:14px}
   .tag{font-size:15px}
   .nowstrip{grid-template-columns:repeat(3,1fr)}
   .nowobs{grid-template-columns:repeat(3,1fr);grid-column:1/-1}
@@ -880,8 +917,15 @@ def sessione_numeri(name, profile, giorno, live=None, today=False):
 
 
 def card_regime(place, regime, label, quando, profile, sessions,
-                giorno=None, live=None, today=False):
-    """Un riquadro. I due regimi ne hanno uno identico, per costruzione."""
+                giorno=None, live=None, today=False, vince=False):
+    """Un riquadro. I due regimi ne hanno uno identico, per costruzione.
+
+    `vince` non cambia NIENTE di quello che c'e' dentro - stessa struttura,
+    stessi caratteri, stessa larghezza, ed e' una regola di prodotto che i
+    controlli difendono. Cambia solo la superficie: la scheda della sessione
+    migliore sta un gradino piu' avanti, le altre un gradino indietro. Chi
+    guarda la pagina da lontano deve vedere QUALE delle due, prima di leggere.
+    """
     name = place_spots(place).get(regime)
     data = sessions.get(name) if name else None
     num = sessione_numeri(name, profile, giorno, live, today) if name else None
@@ -909,7 +953,7 @@ def card_regime(place, regime, label, quando, profile, sessions,
             'a sud: %s">%s<dt>ΔP nord – sud</dt><dd>%+.1f hPa</dd></div>'
             % (icona("termo"), tg, E(verso), icona("pressione"), pg))
     return (
-        '<div class="rq q-%s">'
+        '<div class="rq q-%s%s">'
         '<div class="rq-h"><div class="rq-t">%s <span>· %s</span></div>'
         '<span class="pill q-%s">%s</span></div>'
         # Il voto resta anche come testo semplice, nascosto: e' quello che le
@@ -922,7 +966,8 @@ def card_regime(place, regime, label, quando, profile, sessions,
         '<div>%s<dt>Finestra</dt><dd>%s – %s</dd></div>'
         '<div>%s<dt>Sopra %.0f kn</dt><dd>%s</dd></div>'
         '%s</dl></div></div>%s</div>'
-        % (classe, E(label.upper()), E(quando), classe, E(parola), E(parola),
+        % (classe, " vince" if vince else "",
+           E(label.upper()), E(quando), classe, E(parola), E(parola),
            anello_pct(pct, classe),
            num["kn"], num["raffica"],
            icona("finestra"), hhmm(num["inizio"]), hhmm(num["fine"]),
@@ -959,21 +1004,15 @@ def perche_html(spot_name, data, giorno):
             '<ul class="pq">%s</ul></details>' % righe)
 
 
-def riquadri(place, profile, sessions, giorno=None, live=None, today=False):
-    """I due riquadri, nella stessa griglia e della stessa larghezza."""
-    cards = [card_regime(place, key, lab, quando, profile, sessions,
-                         giorno, live, today)
-             for key, lab, quando in META_REGIME]
-    return '<div class="rqgrid">%s</div>' % "".join(cards)
+def classifica_regimi(place, profile, sessions, giorno=None, live=None,
+                      today=False):
+    """Le sessioni del giorno ordinate per voto, la migliore per prima.
 
-
-def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
-    """Quando la giornata e' migliore: una riga, e solo se c'e' una differenza.
-
-    Confronta le due sessioni sul VOTO, non su un punteggio continuo: il voto
-    e' quello che la pagina mostra, e una riga che dicesse "meglio il
-    pomeriggio" accanto a due riquadri che dicono la stessa parola sarebbe una
-    contraddizione a dieci centimetri di distanza.
+    Sta qui, in un posto solo, perche' due cose diverse hanno bisogno della
+    stessa risposta: la riga del "meglio", che la scrive a parole, e la
+    scheda che si accende, che la mostra. Calcolarla due volte vorrebbe dire
+    poterle far dire due cose diverse a dieci centimetri di distanza - ed e'
+    il tipo di contraddizione che questo progetto considera un difetto.
     """
     ordine = {p: i for i, p in enumerate(giudizio.VOTI)}
     voti = []
@@ -986,10 +1025,47 @@ def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
             continue
         parola, classe = giudizio.voto(num["kn"], num["minuti"], num["spot"])
         if parola:
-            voti.append((ordine[parola], parola, classe, lab, quando, num))
+            voti.append((ordine[parola], parola, classe, lab, quando, num, key))
+    voti.sort(reverse=True)
+    return voti
+
+
+def regime_che_vince(place, profile, sessions, giorno=None, live=None,
+                     today=False):
+    """Quale regime si accende, o None.
+
+    None in due casi, e sono gli stessi in cui la riga del "meglio" non dice
+    "meglio": quando i due voti pari (non c'e' un meglio) e quando il migliore
+    e' il voto piu' basso (non si accende il meno peggio di niente).
+    """
+    voti = classifica_regimi(place, profile, sessions, giorno, live, today)
+    if not voti or voti[0][0] == 0:
+        return None
+    if len(voti) > 1 and voti[1][0] == voti[0][0]:
+        return None
+    return voti[0][6]
+
+
+def riquadri(place, profile, sessions, giorno=None, live=None, today=False):
+    """I due riquadri, nella stessa griglia e della stessa larghezza."""
+    vincitore = regime_che_vince(place, profile, sessions, giorno, live, today)
+    cards = [card_regime(place, key, lab, quando, profile, sessions,
+                         giorno, live, today, vince=(key == vincitore))
+             for key, lab, quando in META_REGIME]
+    return '<div class="rqgrid">%s</div>' % "".join(cards)
+
+
+def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
+    """Quando la giornata e' migliore: una riga, e solo se c'e' una differenza.
+
+    Confronta le due sessioni sul VOTO, non su un punteggio continuo: il voto
+    e' quello che la pagina mostra, e una riga che dicesse "meglio il
+    pomeriggio" accanto a due riquadri che dicono la stessa parola sarebbe una
+    contraddizione a dieci centimetri di distanza.
+    """
+    voti = classifica_regimi(place, profile, sessions, giorno, live, today)
     if not voti:
         return ""
-    voti.sort(reverse=True)
     top = voti[0]
     if top[0] == 0:                  # il voto piu' basso di giudizio.VOTI
         return ('<p class="meglio no">%s<span class="tx">Niente da fare: '
@@ -999,7 +1075,7 @@ def riga_meglio(place, profile, sessions, giorno=None, live=None, today=False):
         return ('<p class="meglio q-%s">%s<span class="tx">Mattina e pomeriggio '
                 'si equivalgono: <b>%s</b> in entrambe.</span></p>'
                 % (top[2], icona("sole"), E(top[1])))
-    _o, parola, classe, lab, quando, num = top
+    _o, parola, classe, lab, quando, num, _key = top
     return ('<p class="meglio q-%s">%s<span class="tx">Meglio <b>%s</b>: '
             '%s %s, dalle <b>%s</b>.</span></p>'
             % (classe, icona("sole"), E(quando), E(lab), E(parola),

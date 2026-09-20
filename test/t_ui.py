@@ -611,4 +611,85 @@ ok('<div class="cella compass">' in H and "white-space:nowrap" in
    web.CSS.split(".cella .v{")[1][:140],
    "e resta attaccata la regola generale: '14 kn' non si spezza")
 
+# ---- la scheda che vince: il colore che c'era gia' e non si usava ----------
+# "Molto bella ma un po' monotona, i riquadri saltano poco all'occhio" - Gian,
+# 20/09/2026. La classe del voto sta sulla scheda da sempre e serviva solo a
+# una pillola da dodici pixel; adesso colora il bordo e l'angolo, e la sessione
+# migliore sta un gradino avanti. Quello che NON deve cambiare e' la struttura:
+# stessi campi, stessa larghezza, stessi caratteri nei due riquadri.
+import re as _re
+_sezione = H.split('<div class="rqgrid">')[1].split('</div></div><p class="meglio')[0] \
+    if '<p class="meglio' in H else H.split('<div class="rqgrid">')[1]
+ok(H.count('class="rq q-') == H.count('class="rq q-'),
+   "le schede portano la classe del voto (e' da li' che viene il colore)")
+_per_giorno = _re.findall(r'<div class="rqgrid">(.*?)<p class="meglio', H, _re.S)
+ok(_per_giorno and all(pezzo.count(" vince\"") <= 1 for pezzo in _per_giorno),
+   "in ogni giornata si accende al massimo una scheda (%s)"
+   % [pezzo.count(" vince\"") for pezzo in _per_giorno][:5])
+
+# E si accende SEMPRE quella che la riga del meglio nomina: e' la stessa
+# classifica, letta una volta sola. Se un giorno dicessero due cose diverse
+# sarebbe una contraddizione a dieci centimetri di distanza.
+_sess = dict(GIORNI[0]["sessions"])
+_prof0 = GIORNI[0]["places"]["Torbole"]["profile"]
+_rq = web.riquadri("Torbole", _prof0, _sess, OGGI, None, True)
+_mg = web.riga_meglio("Torbole", _prof0, _sess, OGGI, None, True)
+_vincente = web.regime_che_vince("Torbole", _prof0, _sess, OGGI, None, True)
+# La scheda accesa e' proprio quella del regime nominato dalla riga: si cerca
+# il pezzo di HTML che porta la classe e si guarda che nome c'e' scritto.
+_accesa = _rq.split(" vince\"")[1][:300] if " vince\"" in _rq else ""
+ok(_vincente == "ORA" and "Meglio <b>pomeriggio</b>" in _mg
+   and "ORA" in _accesa and "PEL" not in _accesa,
+   "la scheda accesa e la riga del meglio dicono lo stesso regime (%s)"
+   % _vincente)
+
+
+def _profilo_piatto(kn):
+    """Una giornata senza forma: lo stesso vento da mattina a sera.
+
+    Serve perche' il voto NON viene dal numero della sessione, viene dalla
+    curva: e' la curva che dice quanti nodi e per quanto tempo.
+    """
+    return [{"hour": h, "key": OGGI + "T%02d:00:00Z" % h,
+             "wind": kn, "gust": kn * 1.4, "lo": kn - 1, "hi": kn + 1,
+             "dir": 200 if h >= 11 else 20, "t2m": 24.0, "cloud": 20.0,
+             "precip": 0.0}
+            for h in range(4, 21)]
+
+
+# Due voti pari (stessa curva tutto il giorno): nessuna si accende, e la riga
+# non dice "meglio" ma "si equivalgono".
+_pi = _profilo_piatto(18.0)
+ok(web.regime_che_vince("Torbole", _pi, _sess, OGGI, None, True) is None
+   and "si equivalgono" in web.riga_meglio("Torbole", _pi, _sess, OGGI,
+                                           None, True),
+   "con due voti pari non si accende niente, e la riga lo dice a parole")
+ok(web.riquadri("Torbole", _pi, _sess, OGGI, None, True).count(" vince\"") == 0,
+   "e infatti nessuna delle due schede si accende")
+
+# Giornata da niente: non si accende il meno peggio.
+_nulla = _profilo_piatto(3.0)
+ok(web.regime_che_vince("Torbole", _nulla, _sess, OGGI, None, True) is None
+   and "Niente da fare" in web.riga_meglio("Torbole", _nulla, _sess, OGGI,
+                                           None, True),
+   "e in una giornata senza vento non si accende il meno peggio di niente")
+
+ok(".rq.vince{" in web.CSS and "currentColor" in
+   web.CSS.split(".rq.vince{")[1][:200],
+   "la scheda che vince si distingue col colore del suo voto, non con uno nuovo")
+ok(".rq::before{" in web.CSS and ".rq::after{" in web.CSS,
+   "il filo di colore sul bordo e il velo nell'angolo")
+_mgcss = web.CSS.split(".meglio{")[1][:320]
+ok("border:0" in _mgcss and "border-left:3px solid currentColor" in _mgcss,
+   "e la riga del meglio non e' piu' un riquadro col bordo intero: non deve "
+   "gridare la stessa cosa della scheda accesa")
+
+# La prima schermata del telefono: il verdetto deve starci. Misurato col
+# browser a 390x844 - la testa si prendeva 360 px dei primi 844 e i riquadri
+# cominciavano a 658, cioe' sotto il bordo.
+_mob = web.CSS.split("@media (max-width:700px){")[1]
+ok("min-height:212px" in _mob and "font-size:38px" in _mob,
+   "sul telefono la testa e il titolo sono piu' bassi: i riquadri salgono "
+   "dentro la prima schermata")
+
 print("%d controlli di pagina" % passati)

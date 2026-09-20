@@ -79,7 +79,15 @@ def update_forecasts():
                   "condizioni per gli analoghi non scaricate, la forma resta"
                   " quella liscia: %s" % str(e)[:120])
 
-    store.meta_set("last_forecast_run", run)
+    # SOLO se qualcosa e' davvero arrivato. Questa riga stava fuori da ogni
+    # condizione, e quindi diceva "l'ultima previsione e' di adesso" anche
+    # quando tutte e quaranta le richieste erano fallite: il controllo della
+    # salute leggeva un'ora fresca e restava verde mentre il sito si
+    # ricostruiva da dati vecchi. Era esattamente il guasto che quel controllo
+    # doveva scoprire, e lo aveva accecato chi l'ha scritto (io).
+    # Non scrivendo niente resta l'ora dell'ultimo run VERO, che e' la verita'.
+    if okc:
+        store.meta_set("last_forecast_run", run)
     store.prune_forecasts(keep_runs=3)
     return okc
 

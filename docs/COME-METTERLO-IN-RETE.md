@@ -112,19 +112,33 @@ riuscita a metà è restata verde: se Open-Meteo risponde 429 al primo passo, il
 sito viene ricostruito dal database vecchio e ci stampa sopra «previsione
 calcolata adesso».
 
-L'ultimo passo del giro lungo (`python3 -m gardawind --salute`) chiede tre cose,
-e fa diventare rosso il pallino solo per queste:
+L'ultimo passo del giro lungo (`python3 -m gardawind --salute`) chiede quattro
+cose, e fa diventare rosso il pallino solo per queste:
 
-1. la previsione più recente ha meno di 12 ore;
-2. almeno una località ha una previsione;
-3. l'archivio dentro il progetto è cresciuto negli ultimi 3 giorni (è così che
-   si scopre che il push dell'archivio fallisce **sempre** invece di una volta).
+1. la previsione più recente ha meno di 12 ore — e quell'ora si scrive **solo
+   se almeno un modello è davvero arrivato**: fino al 20/09 veniva scritta
+   comunque, quindi il controllo guardava il proprio orologio;
+2. **tutte** le località hanno una previsione, non almeno una: con «almeno
+   una», sei spot su sette vuoti passavano per buoni;
+3. l'archivio è **arrivato nel repository** negli ultimi 3 giorni. Non «i file
+   esistono»: il flusso lascia un biglietto (`dati/archivio-spinto.txt`) solo
+   quando il push va a buon fine, e si legge quello. Prima si guardava la data
+   dentro i file di `storico/emesse` — che però `--ci` riscrive da sé poco
+   prima, quindi erano sempre freschi e il controllo non poteva scattare mai.
+   Non è solo l'archivio: finché quel push non passa, il repository non ha
+   attività, e **dopo 60 giorni GitHub spegne i cron da solo**;
+4. le centraline parlano: nessuna ferma da più di 4 giorni. È il metro contro
+   cui tutto il resto si corregge, e senza questo controllo poteva fermarsi per
+   mesi con tutto il resto verde.
 
 Un errore su una singola fonte **non** fa diventare rosso niente: si conta e si
 stampa. Un allarme che suona ogni settimana per una ragione che non richiede di
 fare niente è un allarme che si impara a ignorare.
 
-Lo stesso comando si può lanciare sul Mac, e dice le stesse tre cose.
+Lo stesso comando si può lanciare sul Mac, e dice le stesse quattro cose.
+
+Se il progetto deve restare mesi senza che nessuno lo guardi, la lista di cosa
+può fermarsi e cosa controllare al ritorno sta in `docs/DUE-MESI-DA-SOLO.md`.
 
 ## Le cose che vanno sapute, e che non si vedono dal codice
 
