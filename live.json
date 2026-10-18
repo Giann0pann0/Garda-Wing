@@ -1,0 +1,57 @@
+{
+ "generato": "2026-10-18T00:26:49Z",
+ "versione": "3.7",
+ "luoghi": {
+  "Torbole": {
+   "station": "T0193",
+   "ts": "2026-10-18T00:20:00Z",
+   "wind": 4.2764579000000005,
+   "gust": 6.9978402,
+   "dir": 57.0,
+   "dir_prestito": null,
+   "gust_rec": 6.706263525,
+   "gust_rec_stato": "ok",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 10.0,
+   "cadenza_raffica_min": 10.0,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">4 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(57 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>ENE</b> <small>da nord-est</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">7 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">02:20</span></span></div>",
+   "stale_min": 45.0,
+   "curve": null
+  },
+  "Malcesine": {
+   "station": "malcesine_add",
+   "ts": "2026-10-18T00:20:00Z",
+   "wind": 5.64,
+   "gust": 8.7,
+   "dir": 0.0,
+   "dir_prestito": null,
+   "gust_rec": null,
+   "gust_rec_stato": "cadenza troppo rada per la finestra di 30 min",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 27.5,
+   "cadenza_raffica_min": null,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">6 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(0 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>N</b> <small>da nord</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">9 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">02:20</span></span></div>",
+   "stale_min": 82.5,
+   "curve": null
+  },
+  "Campione": {
+   "station": "campione",
+   "ts": "2026-10-18T00:26:00Z",
+   "wind": 7.335,
+   "gust": 11.9,
+   "dir": 331.0,
+   "dir_prestito": null,
+   "gust_rec": null,
+   "gust_rec_stato": "cadenza troppo rada per la finestra di 30 min",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 27.0,
+   "cadenza_raffica_min": null,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">7 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(331 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>NNO</b> <small>da nord-ovest</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">12 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">02:26</span></span></div>",
+   "stale_min": 81.0,
+   "curve": null
+  }
+ }
+}
