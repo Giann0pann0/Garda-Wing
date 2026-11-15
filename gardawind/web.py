@@ -1856,9 +1856,9 @@ def sources_panel():
         ("malcesine", "Fraglia Vela Malcesine, 65 m (direzione e raffica del giorno)",
          "MeteoProject", "https://stazioni.meteoproject.it/dati/malcesine/"),
         ("malcesine_add", "Malcesine, spiaggia (vento)", "Addicted Sports",
-         "https://it.addicted-sports.com/forecast/gardasee/malcesine/"),
+         "https://it.addicted-sports.com/vorhersage/gardasee/malcesine/"),
         ("campione", "Campione del Garda, Vela Club (vento)", "Addicted Sports",
-         "https://it.addicted-sports.com/forecast/gardasee/campione/"),
+         "https://it.addicted-sports.com/vorhersage/gardasee/campione/"),
     ]
     for station, nome, prov, url in stations:
         st = store.obs_stats(station)

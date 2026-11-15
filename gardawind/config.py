@@ -563,6 +563,27 @@ URL_ADDICTED_TORBOLE = "https://it.addicted-sports.com/forecast/gardasee/torbole
 # c'e' per tutti; una misura manca dove manca lo strumento.
 URL_ADDICTED_LIVE = "https://it.addicted-sports.com/forecast/gardasee/?json=cams"
 URL_ADDICTED_WEBCAM = "https://it.addicted-sports.com/webcam/gardasee/torbole/"
+
+# Dal 6/11/2026 il sito e' stato rifatto e i due indirizzi qui sopra non
+# rispondono piu' in JSON: "/forecast/..." rimanda a "/vorhersage/..." e
+# "?json=wind" / "?json=cams" restituiscono la pagina HTML. Nove giorni di
+# centraline mute a Campione e a Malcesine prima che qualcuno guardasse.
+#
+# Quello che il sito nuovo pubblica senza chiedere niente a nessuno:
+#
+#   MISURE     l'indirizzo che la mappa "Misure" della pagina del lago
+#              interroga da sola (lo dichiara in window.VHMAP.measured). Una
+#              richiesta, TUTTE le stazioni del lago, 24 ore locali del giorno
+#              chiesto: media, direzione, raffica. Accetta giorni passati.
+#              Valori INTERI in nodi (prima la serie oraria aveva i decimali).
+#   PAGINA     la pagina di previsione della stazione, con i numeri nel corpo
+#              (attributo data-kn, con i decimali): serve per archiviare la
+#              LORO previsione, che non viaggia piu' insieme alle misure.
+#
+# Il dato a dieci minuti (il vecchio "?json=cams") ora sta dietro la pagina
+# della webcam e chiede un gettone: non lo leggiamo. Si chiede a loro.
+URL_ADDICTED_MISURE = "https://it.addicted-sports.com/vorhersage/api/karte?ov=gardasee&d="
+URL_ADDICTED_PAGINA = "https://it.addicted-sports.com/vorhersage/gardasee/%s/"
 # Le inquadrature orarie archiviate: .../YYYY/MM/DD/HHMM_lm.jpg. Non misurano
 # il vento; provano che a quell'ora il sito stava registrando.
 URL_ADDICTED_WEBCAM_FRAMES = "https://it.addicted-sports.com/fileadmin/webcam/torbole/"

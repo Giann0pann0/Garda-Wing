@@ -336,12 +336,13 @@ def url_frame_webcam(ts_utc):
 # ==========================================================================
 
 def _registra(channel, url, corpo, struct, ok, n_rows=None, note=None,
-              fetched_at=None):
+              fetched_at=None, station=STATION, parser_version=None):
     fetched_at = fetched_at or iso_utc(utc_now())
+    parser_version = parser_version or PARSER_VERSION
     raw_id, cambiata = store.log_raw_fetch(
-        SOURCE, url, fetched_at, channel=channel, station=STATION, ok=ok,
+        SOURCE, url, fetched_at, channel=channel, station=station, ok=ok,
         body=corpo, sha256=impronta(corpo), struct_sha256=struct,
-        parser_version=PARSER_VERSION, n_rows=n_rows, note=note)
+        parser_version=parser_version, n_rows=n_rows, note=note)
     if cambiata:
         # Non e' un errore: e' un preavviso. Il parser oggi ha funzionato, ma
         # la pagina non e' piu' quella su cui e' stato scritto.
@@ -351,8 +352,8 @@ def _registra(channel, url, corpo, struct, ok, n_rows=None, note=None,
     return {"raw_id": raw_id, "struttura_cambiata": cambiata,
             "fetched_at": fetched_at, "url": url,
             "sha256": impronta(corpo), "struct_sha256": struct,
-            "parser_version": PARSER_VERSION, "channel": channel,
-            "station": STATION, "source": SOURCE,
+            "parser_version": parser_version, "channel": channel,
+            "station": station, "source": SOURCE,
             "bytes": len(corpo) if corpo is not None else None}
 
 
@@ -489,3 +490,235 @@ def raccogli(giorni=1, adesso=None, con_html=True):
         except FetchError as e:
             sommario["errori"].append("riquadro: %s" % str(e)[:160])
     return sommario
+
+
+# ==========================================================================
+# Il sito nuovo (dal 6/11/2026): misure orarie e previsione, due indirizzi
+# ==========================================================================
+#
+# Il canale json qui sopra (fetch_hourly, "?json=wind") non risponde piu': il
+# sito e' stato rifatto e quell'indirizzo restituisce una pagina. Resta nel
+# file perche' i controlli lo tengono fermo e perche' gli archivi gia'
+# scaricati hanno quella forma; in esercizio si leggono i due canali sotto.
+# Vedi config.URL_ADDICTED_MISURE per che cosa sono e che cosa NON sono.
+
+PARSER_VERSION_MISURE = "addicted-misure/1"
+PARSER_VERSION_PAGINA = "addicted-pagina/1"
+
+_RE_GIORNO = re.compile(r'id="vh-d(\d+)"')
+_RE_H2 = re.compile(r"<h2[^>]*>([^<]*)</h2>", re.I)
+_RE_ORA_RIGA = re.compile(r'class="vh-row-h"[^>]*>\s*<b[^>]*>\s*(\d{1,2})\b', re.I)
+_RE_KN_MEDIA = re.compile(r'class="vh-gb-mv"[^>]*>\s*<span[^>]*\bdata-kn="([0-9.]+)"', re.I)
+
+
+def slug_da_url(url):
+    """"/vorhersage/gardasee/campione/rueckblick/?d=..." -> "campione".
+
+    Lo slug lo dice il sito, come faceva il campo "fc" del canale vivo: una
+    tabella scritta a mano qui (la chiave della stazione e' "p454") si
+    romperebbe in silenzio al primo rinominare.
+    """
+    if not url or not isinstance(url, str):
+        return None
+    pezzi = [p for p in url.split("?")[0].split("/") if p]
+    if "rueckblick" in pezzi:
+        i = pezzi.index("rueckblick")
+        return pezzi[i - 1] if i > 0 else None
+    return pezzi[-1] if pezzi else None
+
+
+def parse_misure(dati, giorno):
+    """Le misure orarie di un giorno locale -> {slug: [(ts_utc, vento, raffica, None)]}.
+
+    Per stazione "h" e' [medie, direzioni, raffiche], ventiquattro caselle:
+    l'indice E' l'ora locale (verificato sulla loro pagina "retrospettiva",
+    che scrive gli stessi numeri sotto le etichette 00..23).
+
+    Le caselle sono sempre 24, anche nei due giorni del cambio dell'ora: a
+    marzo le 02 sono vuote, a ottobre l'ora doppia e' una casella sola. Quindi
+    ogni casella si converte da sola, e si tiene solo se torna indietro sulla
+    stessa ora - cosi' le 02 che a marzo non esistono non finiscono sopra le 03.
+
+    La DIREZIONE non entra, come prima. Qui e' pubblicata fra le misure, ma lo
+    zero vuol dire sia "nord" sia "non ho la banderuola" (Malcesine Nord e'
+    tutta zeri) e non c'e' modo di distinguerli da questa risposta.
+    """
+    if not isinstance(dati, dict):
+        raise FetchError("risposta delle misure senza oggetto")
+    stazioni = dati.get("stations")
+    if not isinstance(stazioni, list) or not stazioni:
+        raise FetchError("risposta delle misure senza stazioni")
+    if dati.get("date") and dati.get("date") != giorno:
+        raise FetchError("chiesto il %s, risposto il %s" % (giorno, dati.get("date")))
+    try:
+        base = _dt.datetime.strptime(giorno, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise FetchError("giorno non valido: %r" % (giorno,))
+    out = {}
+    for st in stazioni:
+        if not isinstance(st, dict):
+            continue
+        slug = slug_da_url(st.get("url"))
+        h = st.get("h")
+        if not slug or not isinstance(h, list) or len(h) < 3:
+            continue
+        medie, raffiche = h[0], h[2]
+        if not isinstance(medie, list) or not isinstance(raffiche, list) \
+                or len(medie) != 24 or len(raffiche) != 24:
+            raise FetchError("misure di %s: attese 24 ore, trovate %s e %s"
+                             % (slug, _lung(medie), _lung(raffiche)))
+        righe = []
+        for ora in range(24):
+            w = num(medie[ora])
+            if w is None or not (0.0 <= w <= MAX_WIND_KN):
+                continue                  # ora futura, o non misurata
+            t = local_naive_to_utc(base + _dt.timedelta(hours=ora))
+            if t is None or to_local(t).hour != ora:
+                continue                  # un'ora che quel giorno non esiste
+            g = num(raffiche[ora])
+            if g is not None and not (0.0 <= g <= MAX_GUST_KN):
+                g = None
+            righe.append((iso_utc(t), w, g, None))
+        out[slug] = sorted(righe)
+    if not out:
+        raise FetchError("risposta delle misure senza nessuna stazione leggibile")
+    return out
+
+
+def _lung(x):
+    return len(x) if isinstance(x, list) else type(x).__name__
+
+
+def _forma_misure(dati):
+    """L'impronta della struttura: le chiavi in cima e quelle di una stazione."""
+    if not isinstance(dati, dict):
+        return None
+    st = dati.get("stations")
+    prima = st[0] if isinstance(st, list) and st and isinstance(st[0], dict) else {}
+    return impronta("%s|%s" % (",".join(sorted(dati)), ",".join(sorted(prima))))
+
+
+def fetch_misure(giorno=None, adesso=None):
+    """Le misure orarie di TUTTE le stazioni del lago, un giorno. ({slug: righe}, meta).
+
+    Una richiesta sola, qualunque sia il numero delle stazioni che ci servono.
+    L'ultima ora di oggi e' quella in corso: e' provvisoria, e la lettura dopo
+    la sostituisce (la chiave e' stazione+istante+fonte).
+    """
+    adesso = adesso or utc_now()
+    giorno = giorno or to_local(adesso).strftime("%Y-%m-%d")
+    url = config.URL_ADDICTED_MISURE + giorno
+    corpo = fetch_text(url, timeout=45)
+    try:
+        dati = _json.loads(corpo)
+    except ValueError as e:
+        _registra("misure", url, corpo, None, False, station=None,
+                  parser_version=PARSER_VERSION_MISURE,
+                  note="json illeggibile: %s" % e)
+        raise FetchError("risposta non JSON da %s: %s" % (url, str(e)[:120]))
+    struct = _forma_misure(dati)
+    try:
+        per_slug = parse_misure(dati, giorno)
+    except FetchError as e:
+        _registra("misure", url, corpo, struct, False, station=None,
+                  parser_version=PARSER_VERSION_MISURE, note=str(e)[:200])
+        raise
+    meta = _registra("misure", url, corpo, struct, True, station=None,
+                     parser_version=PARSER_VERSION_MISURE,
+                     n_rows=sum(len(r) for r in per_slug.values()))
+    meta.update({"giorno": giorno, "stazioni": sorted(per_slug),
+                 "direzione_misurata": False, "decimali": False})
+    return per_slug, meta
+
+
+def parse_pagina_previsione(html, adesso=None):
+    """La LORO previsione oraria dalla pagina della stazione -> [(ts, vento, None, None)].
+
+    La pagina ha sette sezioni, id "vh-d0" (oggi) ... "vh-d6", e dentro ognuna
+    una riga per ora con la media in data-kn - con i decimali, a differenza
+    del testo che si vede. La banda "lo/hi" che il vecchio canale pubblicava
+    non c'e' piu': restano None, e non si riempiono con la raffica, che e'
+    un'altra grandezza.
+
+    Due cautele, tutte e due contro lo stesso errore - archiviare una
+    previsione sotto il giorno sbagliato:
+
+      la data non si legge dal titolo ("domenica 15 nov": un mese abbreviato e
+      localizzato), si calcola da oggi piu' il numero della sezione. Ma il
+      NUMERO del giorno nel titolo deve tornare: se la pagina arriva da una
+      cache attraverso la mezzanotte non torna, e quella sezione si salta;
+
+      dentro la sezione le ore si cercano solo dopo "vh-rows". Prima c'e' una
+      tabella con gli stessi numeri e le stesse classi, e leggerle tutte e due
+      vorrebbe dire ogni ora due volte.
+    """
+    if not html or 'id="vh-d0"' not in html:
+        raise FetchError("pagina di previsione senza le giornate (cercavo vh-d0)")
+    oggi = to_local(adesso or utc_now()).replace(tzinfo=None)
+    oggi = _dt.datetime(oggi.year, oggi.month, oggi.day)
+    segni = list(_RE_GIORNO.finditer(html))
+    naives, valori = [], []
+    for k, m in enumerate(segni):
+        fine = segni[k + 1].start() if k + 1 < len(segni) else len(html)
+        sezione = html[m.start():fine]
+        giorno = oggi + _dt.timedelta(days=int(m.group(1)))
+        titolo = _RE_H2.search(sezione)
+        numeri = re.findall(r"\d+", titolo.group(1)) if titolo else []
+        if str(giorno.day) not in [n.lstrip("0") or "0" for n in numeri]:
+            continue
+        _prima, sep, righe = sezione.partition('class="vh-rows"')
+        if not sep:
+            continue
+        ore = list(_RE_ORA_RIGA.finditer(righe))
+        for j, mo in enumerate(ore):
+            pezzo = righe[mo.end():(ore[j + 1].start() if j + 1 < len(ore)
+                                    else len(righe))]
+            mv = _RE_KN_MEDIA.search(pezzo)
+            w = num(mv.group(1)) if mv else None
+            ora = int(mo.group(1))
+            if w is None or not (0.0 <= w <= MAX_WIND_KN) or ora > 23:
+                continue
+            naives.append(giorno + _dt.timedelta(hours=ora))
+            valori.append(w)
+    if not naives:
+        raise FetchError("pagina di previsione senza nessuna ora leggibile "
+                         "(%d giornate trovate)" % len(segni))
+    out = [(iso_utc(t), w, None, None)
+           for t, w in zip(serie_locale_to_utc(naives), valori) if t is not None]
+    out.sort()
+    return out
+
+
+def fetch_previsione(slug=None, adesso=None):
+    """La previsione che Addicted pubblica per una stazione. (righe, meta)."""
+    slug = slug or "torbole"
+    url = config.URL_ADDICTED_PAGINA % slug
+    corpo = fetch_text(url, timeout=45)
+    struct, pezzo = _forma_pagina(corpo)
+    try:
+        righe = parse_pagina_previsione(corpo, adesso=adesso)
+    except FetchError as e:
+        _registra("pagina", url, pezzo, struct, False, station=slug,
+                  parser_version=PARSER_VERSION_PAGINA, note=str(e)[:200])
+        raise
+    meta = _registra("pagina", url, pezzo, struct, True, station=slug,
+                     parser_version=PARSER_VERSION_PAGINA, n_rows=len(righe))
+    return righe, meta
+
+
+def _forma_pagina(corpo):
+    """(impronta della struttura, pezzo da conservare) della pagina di previsione.
+
+    La pagina pesa mezzo megabyte e cambia a ogni lettura, larghezze delle
+    barre comprese: l'impronta si prende sui soli NOMI dei tag della prima
+    riga oraria, dall'etichetta dell'ora fino alla fine dei due valori del
+    vento. E' il pezzo che il parser legge, ed e' quello che si conserva.
+    """
+    if not corpo:
+        return None, corpo
+    i = corpo.find('class="vh-row-h"')
+    if i < 0:
+        return None, corpo[:20000]
+    j = corpo.find('class="vh-row-x"', i)
+    riga = corpo[i:j if j > i else i + 1500]
+    return impronta(" ".join(re.findall(r"<(/?[a-zA-Z0-9]+)", riga))), corpo[i:i + 8000]

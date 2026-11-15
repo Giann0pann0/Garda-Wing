@@ -162,52 +162,22 @@ try:
 except FetchError:
     ok(True, "un corpo non-JSON ferma la lettura")
 
-# ---- 8. dentro il ciclo: campioni, e solo campioni -------------------------
+# ---- 8. dentro il ciclo -----------------------------------------------------
+# Dal 6/11/2026 il sito rifatto non pubblica piu' questo canale: il motore
+# legge la serie oraria delle misure (vedi t_addicted_nuovo.py), e questo
+# lettore resta per gli archivi gia' scritti con la fonte "addicted-live".
+# Il controllo che conta qui: il giro veloce NON chiama piu' l'indirizzo morto,
+# perche' una richiesta ogni dieci minuti a una pagina che risponde HTML e' un
+# avviso nel registro ogni dieci minuti.
+chiamate[:] = []
 AL.fetch_text = finto(CORPO)
+from gardawind.sources import addicted as _A
+_A.fetch_text = lambda url, **k: (_ for _ in ()).throw(FetchError("rete finta"))
 righe = engine.leggi_addicted_vivo()
-ok(len(righe) == 2,
-   "le due centraline Addicted della pagina vengono salvate (%s)" % righe)
-camp = list(store.connect().execute(
-    "SELECT station, ts, wind_kn, gust_kn, dir_deg, source FROM obs_sample "
-    "ORDER BY station"))
-ok([r[0] for r in camp] == ["campione", "malcesine_add"],
-   "con il nome delle NOSTRE stazioni, non con quello della webcam: %s"
-   % [r[0] for r in camp])
-ok(all(r[5] == "addicted-live" for r in camp),
-   "e con la loro fonte dichiarata, distinta dalla serie oraria")
-ok(all(r[4] is not None for r in camp),
-   "la direzione misurata entra nei campioni")
-ok(not list(store.connect().execute("SELECT 1 FROM obs_hour")),
-   "obs_hour NON viene toccata: il bersaglio del modello non cambia "
-   "definizione a meta' storia")
-ok(not list(store.connect().execute(
-    "SELECT 1 FROM obs_sample WHERE station='torbole_addicted'")),
-   "e Torbole Addicted non entra: la sua pagina mostra Meteotrentino")
-
-# Due giri nello stesso minuto: una riga, non due.
-engine.leggi_addicted_vivo()
-n = list(store.connect().execute("SELECT COUNT(*) FROM obs_sample"))[0][0]
-ok(n == 2, "due letture dello stesso istante restano due righe in tutto (%d)" % n)
-
-# La scala: il vento torna sulla scala Meteotrentino in lettura, la raffica no.
-lette = {r["ts"]: r for r in store.samples_since("campione", "2026-01-01T00:00:00Z")}
-r = list(lette.values())[0]
-ok(r["wind_kn"] > 9.3 and abs(r["gust_kn"] - 17.3) < 0.01,
-   "letto, il medio e' sulla scala di Torbole (%.1f da 9,3) e la raffica resta "
-   "quella dello strumento (%.1f)" % (r["wind_kn"], r["gust_kn"]))
-
-# ---- 9. quello che il sito dichiara guasto non si scrive come nuovo --------
-FERMA = CORPO.replace('"fc":"/forecast/gardasee/campione/"',
-                      '"fc":"/forecast/gardasee/campione/","stale":true')
-AL.fetch_text = finto(FERMA)
-letture2, _m = AL.fetch()
-ok(letture2["campione"]["stale"] is True,
-   "lo stale del sito arriva fino a noi")
-store.connect().execute("DELETE FROM obs_sample")
-store.connect().commit()
-righe2 = engine.leggi_addicted_vivo()
-ok(all("campione" not in r for r in righe2),
-   "e una centralina che il sito dichiara ferma non viene salvata (%s)" % righe2)
+ok(righe == [] and not chiamate,
+   "il giro veloce non interroga piu' il canale a dieci minuti (%s)" % chiamate)
+ok(not list(store.connect().execute("SELECT 1 FROM obs_sample")),
+   "e senza misure non scrive niente")
 
 # ---- 10. la curva: con questo canale diventa disegnabile -------------------
 # E' il difetto che Gian ha visto: dieci minuti fanno una curva, un'ora no.

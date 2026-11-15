@@ -8,8 +8,7 @@ import time
 
 from . import (aggregate, analogs, config, confidence as CONF, features as F,
                giudizio, model as M, store, validate as V, verify)
-from .sources import (addicted, addicted_live, malcesine, meteotrentino,
-                      openmeteo)
+from .sources import addicted, malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
 from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
                    local_minute_of_day, mean, median, parse_dt_any, pstdev,
@@ -190,82 +189,117 @@ def update_stations():
         _note("warn", "intraday/Malcesine",
               "%s: %s" % (type(e).__name__, str(e)[:140]))
 
-    # Le centraline Addicted (Campione): serie ORARIA, oggi e ieri. Oggi
-    # perche' e' il dato vivo, ieri perche' l'ultima ora di ieri era
-    # provvisoria quando l'abbiamo letta.
-    for stazione, slug in stazioni_addicted():
+    # Le centraline Addicted (Campione, Malcesine spiaggia): serie ORARIA.
+    # Dal 6/11/2026 arriva dal canale delle misure del sito nuovo: una
+    # richiesta per giorno, tutte le stazioni insieme (vedi config).
+    done += leggi_ore_addicted()
+
+    # La LORO previsione non viaggia piu' nella stessa risposta delle misure:
+    # sta nella pagina della stazione. Una richiesta a stazione, piu' Torbole
+    # - dove la centralina della pagina e' Meteotrentino ma il confronto conta
+    # di piu', perche' li' abbiamo il modello migliore. Archiviarla e' l'unica
+    # strada per un confronto che regga: loro ripubblicano i giorni passati
+    # senza dire a che scadenza li avevano previsti.
+    for stazione, slug in stazioni_addicted() + [("torbole_addicted", "torbole")]:
         try:
-            n = 0
-            for giorno in (day_shift(local_day(utc_now()), -1),
-                           local_day(utc_now())):
-                righe, meta = addicted.fetch_hourly(giorno=giorno, slug=slug)
-                n += salva_ore_addicted(stazione, righe)
-                # La LORO previsione viaggia nella stessa risposta, e finora
-                # la buttavamo. Archiviarla non costa una richiesta in piu' ed
-                # e' l'unica strada per un confronto che regga: loro
-                # ripubblicano i giorni passati senza dire a che scadenza li
-                # avevano previsti, e quel dubbio non si recupera dopo.
-                store.save_fc_altrui(addicted.SOURCE, stazione,
-                                     meta.get("previsione_loro") or [])
-            done.append("%s %d ore" % (stazione, n))
-        except Exception as e:                    # noqa: BLE001
-            # Non solo FetchError: queste pagine cambiano senza avvisare, e
-            # un parser che inciampa su una stazione non deve portarsi dietro
-            # le altre - ne' impedire che live.json venga scritto. Il guasto
-            # finisce nel registro, la giornata continua.
-            _note("error", "centralina/%s" % stazione,
+            righe, _meta = addicted.fetch_previsione(slug)
+            n = store.save_fc_altrui(addicted.SOURCE, stazione, righe)
+            if n:
+                done.append("previsione Addicted %s: %d ore" % (slug, n))
+        except Exception as e:                            # noqa: BLE001
+            # Non solo FetchError: queste pagine cambiano senza avvisare, e un
+            # parser che inciampa non deve portarsi dietro il resto del giro.
+            _note("warn", "previsione-altrui/%s" % slug,
                   "%s: %s" % (type(e).__name__, str(e)[:140]))
-
-    # A Torbole la centralina della pagina e' Meteotrentino, quindi il ciclo
-    # qui sopra non passa dalla pagina Addicted di Torbole - ed e' proprio
-    # quella su cui il confronto conta di piu', perche' li' abbiamo il modello
-    # migliore. Una richiesta al giro, solo per archiviare la loro previsione.
-    try:
-        _righe, meta = addicted.fetch_hourly(slug="torbole")
-        n = store.save_fc_altrui(addicted.SOURCE, "torbole_addicted",
-                                 meta.get("previsione_loro") or [])
-        if n:
-            done.append("previsione Addicted a Torbole: %d ore" % n)
-    except Exception as e:                                # noqa: BLE001
-        _note("warn", "previsione-altrui/torbole",
-              "%s: %s" % (type(e).__name__, str(e)[:140]))
-
-    # E il canale VIVO, una richiesta per tutte le centraline Addicted. E'
-    # quello che rende la curva del misurato di Campione e Malcesine fitta
-    # come quella di Torbole: la serie oraria qui sopra da' un punto all'ora,
-    # questo ne da' uno ogni giro del processo veloce.
-    done += leggi_addicted_vivo()
     return done
 
 
-def leggi_addicted_vivo():
-    """Il canale vivo di Addicted -> obs_sample, per le stazioni della pagina.
+# Quanti giorni indietro si torna a riempire, al massimo, dopo un'interruzione.
+# Il canale delle misure accetta giorni passati, e ogni giorno e' UNA richiesta
+# per tutte le stazioni: due settimane sono quattordici richieste, una volta.
+GIORNI_RECUPERO_ADDICTED = 14
 
-    Scrive SOLO campioni. obs_hour resta della serie oraria: quella e' la
-    grandezza su cui i modelli sono addestrati, e cambiarne la provenienza a
-    meta' storia vorrebbe dire un bersaglio che cambia definizione nel tempo.
+
+def giorni_da_leggere_addicted(adesso=None):
+    """I giorni locali da chiedere: sempre ieri e oggi, e di piu' se c'e' un buco.
+
+    Ieri perche' l'ultima ora di ieri era provvisoria quando l'abbiamo letta.
+    Di piu' quando l'ultima ora in archivio e' piu' vecchia di ieri: e' quello
+    che e' successo dal 6 al 15 novembre 2026, sito rifatto e nove giorni di
+    centraline mute. Senza questo, riparato il lettore, quei giorni sarebbero
+    rimasti un buco per sempre.
+    """
+    oggi = local_day(adesso or utc_now())
+    limite = day_shift(oggi, -GIORNI_RECUPERO_ADDICTED)
+    # Conta la stazione piu' FRESCA, non la piu' vecchia: se una centralina
+    # sola si rompe davvero, non si richiedono due settimane a ogni giro per
+    # mesi. Il buco che si recupera e' quello del canale, comune a tutte.
+    ultimo = limite
+    for stazione, _slug in stazioni_addicted():
+        ore = store._obs_hours_grezze(stazione, start_hour=store.chiave_ora(
+            limite + "T00:00:00Z"))
+        if ore:
+            ultimo = max(ultimo, local_day(parse_dt_any(ore[-1]["hour"])))
+    primo = min(day_shift(oggi, -1), ultimo)
+    giorni, g = [], primo
+    while g <= oggi:
+        giorni.append(g)
+        g = day_shift(g, 1)
+    return giorni
+
+
+def leggi_ore_addicted(adesso=None):
+    """Il canale delle misure -> obs_hour (e un campione per ora), per le
+    stazioni della pagina. Un giorno che non si legge non ferma gli altri."""
+    done, contate = [], {}
+    for giorno in giorni_da_leggere_addicted(adesso):
+        try:
+            per_slug, _meta = addicted.fetch_misure(giorno, adesso=adesso)
+        except Exception as e:                            # noqa: BLE001
+            _note("error", "centralina/addicted-misure",
+                  "%s %s: %s" % (giorno, type(e).__name__, str(e)[:120]))
+            continue
+        for stazione, slug in stazioni_addicted():
+            n = salva_ore_addicted(stazione, per_slug.get(slug) or [])
+            contate[stazione] = contate.get(stazione, 0) + n
+    for stazione, slug in stazioni_addicted():
+        if contate.get(stazione):
+            done.append("%s %d ore" % (stazione, contate[stazione]))
+        elif stazione in contate:
+            # La risposta e' arrivata ma quella stazione non c'era, o era
+            # vuota: va detto, perche' e' cosi' che una centralina muta
+            # comincia a essere muta.
+            _note("warn", "centralina/%s" % stazione,
+                  "nessuna ora misurata nella risposta di Addicted (slug %s)" % slug)
+    return done
+
+
+def leggi_addicted_vivo(adesso=None):
+    """Le ore misurate di OGGI -> obs_sample, per l'"adesso" della pagina.
+
+    Fino al 6/11/2026 qui si leggeva il canale a dieci minuti (addicted_live):
+    il sito rifatto non lo pubblica piu' senza un gettone, e resta la serie
+    oraria. Una richiesta per tutte le stazioni, come prima; un punto all'ora
+    invece di uno ogni dieci minuti, e la pagina lo dice con l'eta' del dato.
+
+    Scrive SOLO campioni, con la fonte della serie oraria ("addicted-json"):
+    sono medie di un'ora e non devono sembrare letture da dieci minuti.
+    obs_hour resta al giro lungo.
     """
     done = []
     try:
-        letture, _meta = addicted_live.fetch()
+        per_slug, _meta = addicted.fetch_misure(adesso=adesso)
     except Exception as e:                            # noqa: BLE001
         _note("warn", "centralina/addicted-vivo",
               "%s: %s" % (type(e).__name__, str(e)[:140]))
         return done
     for stazione, slug in stazioni_addicted():
-        r = letture.get(slug)
-        if not r or r["wind"] is None:
+        righe = per_slug.get(slug) or []
+        if not righe:
             continue
-        if r["stale"] or (r["eta_min"] or 0) > addicted_live.ETA_MAX_MIN:
-            # Il sito stesso dichiara quando una centralina non sta misurando:
-            # si crede a lui invece di scrivere una riga vecchia come nuova.
-            continue
-        n = store.save_samples(stazione, [(r["ts"], r["wind"], r["gust"], r["dir"])],
-                               addicted_live.SOURCE)
-        if n:
-            done.append("%s vivo: %.1f kn (media %g', %s campioni)"
-                        % (stazione, r["wind"], r["finestra_min"] or 0,
-                           r["n_campioni"]))
+        store.save_samples(stazione, righe, "addicted-json")
+        ts, w, _g, _d = righe[-1]
+        done.append("%s ultima ora %s: %.0f kn" % (stazione, ts[11:16], w))
     return done
 
 
