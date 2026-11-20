@@ -10,7 +10,8 @@ from . import (aggregate, analogs, config, confidence as CONF, features as F,
                giudizio, model as M, store, validate as V, verify)
 from .sources import addicted, malcesine, meteotrentino, openmeteo
 from .sources.http import FetchError
-from .util import (angle_diff, clamp, day_shift, iso_utc, local_day, local_hour,
+from .util import (angle_diff, clamp, day_of_year, day_shift, iso_utc, local_day,
+                   local_hour,
                    local_minute_of_day, mean, median, parse_dt_any, pstdev,
                    recurrent_gust, sampling_cadence, serie_disegnabile,
                    utc_now,
@@ -1177,6 +1178,87 @@ def climatologia_osservata(spot_name):
     }
 
 
+def clima_del_giorno(spot_name, day):
+    """Che cosa fa di solito questo regime IN QUESTA STAGIONE, dalle osservazioni.
+
+    Ritorna {"se_entra", "se_non_entra", "frequenza", "n", "stagione"} oppure
+    None se non c'e' abbastanza storia. Le giornate sono quelle entro
+    config.FINESTRA_STAGIONE_GG giorni dalla stessa data, di tutti gli anni:
+
+      se_entra      mediana del picco nei giorni in cui il regime e' entrato
+      se_non_entra  mediana del picco nei giorni in cui NON e' entrato
+      frequenza     quante volte entra, da 0 a 1
+
+    "stagione" e' False quando le giornate vicine non bastano e i numeri sono
+    quelli di tutto l'anno: chi li usa puo' dirlo.
+
+    Perche' esiste. L'Ora di Torbole entra l'83% dei giorni a luglio e l'8% a
+    novembre; il Peler ha 11,5 nodi di mediana a maggio e 15,2 a dicembre.
+    Una climatologia sola per tutto l'anno queste due cose non le sa.
+    """
+    t = _targets(spot_name)
+    if len(t) < CLIM_MIN_GIORNATE:
+        return None
+    try:
+        centro = day_of_year(day)
+    except (TypeError, ValueError):
+        return None
+
+    def vicino(g):
+        d = abs(day_of_year(g) - centro)
+        return min(d, 365 - d) <= config.FINESTRA_STAGIONE_GG
+
+    def riduci(giorni):
+        dentro = [v[0] for g, v in giorni if v[1] and v[0] is not None]
+        fuori = [v[0] for g, v in giorni if not v[1] and v[0] is not None]
+        return dentro, fuori
+
+    tutte = [(g, v) for g, v in t.items() if g < day]
+    if len(tutte) < CLIM_MIN_GIORNATE:
+        tutte = list(t.items())
+    dentro_a, fuori_a = riduci(tutte)
+    dentro_s, fuori_s = riduci([(g, v) for g, v in tutte if vicino(g)])
+    minimo = config.MIN_GIORNI_STAGIONE
+    stagione = len(dentro_s) + len(fuori_s) >= 2 * minimo
+    dentro = dentro_s if stagione and len(dentro_s) >= minimo else dentro_a
+    fuori = fuori_s if stagione and len(fuori_s) >= minimo else fuori_a
+    n_s = len(dentro_s) + len(fuori_s)
+    return {
+        "se_entra": median(dentro) if len(dentro) >= 5 else None,
+        "se_non_entra": median(fuori) if len(fuori) >= 5 else None,
+        "frequenza": (len(dentro_s) / float(n_s) if stagione
+                      else len(dentro_a) / float(max(1, len(dentro_a) + len(fuori_a)))),
+        "n": n_s if stagione else len(tutte),
+        "stagione": bool(stagione),
+    }
+
+
+def vento_atteso(prob, se_entra, se_non_entra):
+    """Il livello che ci si aspetta DAVVERO: fra "entra" e "non entra", pesato.
+
+    Il modello risponde a due domande - "entra?" e "se entra, quanto?" - e la
+    curva della pagina disegnava solo la seconda, qualunque fosse la risposta
+    alla prima. Con l'Ora al 10% la curva mostrava comunque i 13 nodi di
+    un'Ora entrata. D'estate non si vede, perche' il regime entra quasi sempre;
+    d'inverno e' quasi tutto lo scarto della pagella.
+
+    Misurato fuori campione su tutte le giornate (20/11/2026), insieme al
+    tetto a 6: Torbole Peler errore da 3,85 a 2,94 kn, Torbole Ora da 4,20 a
+    3,48 (scarto fra novembre e febbraio da +3,5 a +0,4), Malcesine Peler da
+    3,63 a 2,63.
+
+    Il prezzo, da sapere: nei giorni in cui il regime ENTRA contro pronostico
+    la curva sta sotto. E' quello che deve fare una media. Il "se entra" resta
+    scritto nella scheda, accanto alla probabilita'.
+    """
+    if se_entra is None:
+        return None
+    if prob is None or se_non_entra is None:
+        return se_entra
+    p = clamp(prob, 0.0, 1.0)
+    return p * se_entra + (1.0 - p) * min(se_non_entra, se_entra)
+
+
 def _salva_climatologia(spot_name, motivo):
     """Dove non c'e' un modello, la climatologia misurata e' la previsione.
 
@@ -1490,7 +1572,12 @@ def forecast_days(spot_name, horizon=None):
         # generale, che pero' esce marcato come non validato a questa scadenza.
         band = config.band_for_lead(lead)
         use = by_band.get(band) or learned
-        pred = M.predict(spot_name, feats, use, lead, sp, direction=dir_pred)
+        # La stagione, dalle osservazioni: serve due volte. Come mediana di
+        # ripiego quando il modello dell'intensita' non ha passato la porta, e
+        # come livello dei giorni in cui il regime non entra (vento_atteso).
+        clima = clima_del_giorno(spot_name, day) if spot["target"] == "hourly" else None
+        pred = M.predict(spot_name, feats, use, lead, sp, direction=dir_pred,
+                         clim_stagione=(clima or {}).get("se_entra"))
 
         peak_hour, peak_hour_src = M.predict_timing(
             feats, timing, day, fallback=feats.get("raw_peak_hour"), lead=lead)
@@ -1552,6 +1639,11 @@ def forecast_days(spot_name, horizon=None):
             "lead": lead,
             "prob": pred["prob"],
             "speed": pred["speed"],
+            # Il livello della CURVA: vedi vento_atteso. "speed" resta il "se
+            # entra", che e' quello che la scheda scrive accanto alla
+            # probabilita'.
+            "speed_atteso": vento_atteso(pred["prob"], pred["speed"],
+                                         (clima or {}).get("se_non_entra")),
             "lo": pred["lo"],
             "hi": pred["hi"],
             "source": pred["source"],
@@ -2105,8 +2197,12 @@ def day_profile(place, day, sessions):
         shift = 0.0
         if data.get("peak_hour") is not None:
             shift = clamp(data["peak_hour"] - raw_hour, -4.0, 4.0)
+        livello = data.get("speed_atteso")
+        if livello is None:
+            livello = data["speed"]
         anchors.append(((h0 + h1) / 2.0,
-                        clamp(data["speed"] / raw_peak, 0.35, 3.0), shift))
+                        clamp(livello / raw_peak, 0.35, config.TETTO_FATTORE_CURVA),
+                        shift))
     if not anchors:
         anchors = [(12.0, 1.0, 0.0)]
 

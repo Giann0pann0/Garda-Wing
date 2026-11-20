@@ -749,3 +749,35 @@ TIER_THRESHOLDS = {
 PROMOTION_MARGIN = 0.03
 
 RUNTIME_PORT = 8781
+
+
+# --------------------------------------------------------------------------
+# La stagione (20/11/2026)
+# --------------------------------------------------------------------------
+# Due numeri che fino a qui erano calcolati su tutto l'anno - la mediana del
+# picco nei giorni di regime, e quanto tira nei giorni in cui il regime NON
+# entra - si calcolano sulle giornate vicine nel calendario: quelle entro
+# FINESTRA_STAGIONE_GG giorni dalla stessa data, di tutti gli anni. Sotto
+# MIN_GIORNI_STAGIONE giornate si torna a tutto l'anno: una mediana su dieci
+# giornate non e' una stagione.
+#
+# I 45 giorni sono stati DICHIARATI prima di guardare i numeri. Provate anche
+# 20, 30, 60 e 90: fra 20 e 60 non cambia niente che si distingua dal rumore,
+# e non si e' scelto il migliore a posteriori.
+FINESTRA_STAGIONE_GG = 45
+MIN_GIORNI_STAGIONE = 20
+
+# Di quante volte la curva pubblicata puo' alzare il vento grezzo dei modelli.
+#
+# Era 3, ed era il difetto piu' grosso della pagina senza che nessuno lo
+# vedesse. I modelli sul Peler leggono 3-4 nodi dove ne arrivano 13: per
+# mostrare il livello che il NOSTRO modello prevede la curva deve salire di
+# 3,6 volte in mediana a Torbole, e a 3 si fermava l'82% delle giornate di
+# Peler (il 93% a novembre). Il modello diceva 14, la curva ne disegnava 10.
+# Verificato sulle curve davvero pubblicate (storico/emesse): a novembre 2026
+# il picco del Peler di Torbole in pagina era 8,0 nodi di media e 10,0 al
+# novantesimo percentile - sotto la soglia stessa del regime.
+#
+# A 6 ci arriva il 4% delle giornate a Torbole e il 2% a Malcesine. Un tetto
+# resta: quando il grezzo e' quasi zero un rapporto enorme e' rumore.
+TETTO_FATTORE_CURVA = 6.0

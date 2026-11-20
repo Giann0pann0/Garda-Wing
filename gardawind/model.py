@@ -800,7 +800,8 @@ def direction_penalty(direction, axis, sector):
     return clamp(math.exp(-((excess / 35.0) ** 2)), 0.03, 1.0)
 
 
-def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None):
+def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None,
+            clim_stagione=None):
     """Ritorna probabilita', intensita' e banda, dichiarando sempre la fonte.
 
     `learned` deve essere il modello DELLA FASCIA a cui appartiene `lead_days`
@@ -847,6 +848,8 @@ def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None
       1. modello dello stadio B promosso a questa fascia ..... "appreso"
       2. mediana climatologica dei giorni di regime, quando il
          modello c'e' ma non ha passato la porta ............. "climatologia"
+         (quella della STAGIONE se il chiamante la passa in
+         `clim_stagione`, altrimenti quella di tutto l'anno)
       3. niente ............................................. "prior" (fisico)
 
       BANDA
@@ -921,8 +924,16 @@ def predict(spot_name, feats, learned, lead_days, spread_kn=None, direction=None
     # "dire sempre 14 kn" sbaglia di 1,40 kn e il modello di 1,36-1,41: il
     # cancello lo ferma, giustamente, e prima al suo posto entrava il prior
     # fisico, che non e' calibrato e sbaglia di piu' di entrambi.
+    #
+    # La mediana e' quella della STAGIONE quando chi chiama la conosce
+    # (engine.clima_del_giorno): quella di tutto l'anno a novembre promette
+    # un'Ora di mezza stagione. Misurato fuori campione il 20/11/2026: a
+    # Campione l'errore scende da 2,21 a 2,10 kn e lo scarto di novembre da
+    # +2,5 a +1,1; a Malcesine da 1,43 a 1,35. Poco, ma l'intervallo non
+    # attraversa lo zero in nessuno dei due.
     if metrics.get("clim_median") is not None and not metrics.get("usable"):
-        speed = max(float(metrics["clim_median"]), config.SPOTS[spot_name]["min_kn"])
+        mediana = clim_stagione if clim_stagione is not None else metrics["clim_median"]
+        speed = max(float(mediana), config.SPOTS[spot_name]["min_kn"])
         src_int = "climatologia"
 
     if tier and usa and payload.get("intensity") and metrics.get("usable"):
