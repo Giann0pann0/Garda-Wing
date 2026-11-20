@@ -134,7 +134,16 @@ r4 = next(x for x in pagella.confronto(giorni=60, adesso=local_naive_to_utc(
     dt.datetime.fromisoformat(OGGI + "T09:00:00"))) if x["spot"] == SPOT)
 ok(r4["n"] == 3 and "mancano 7" in pagella.in_parole(r4),
    "con tre giornate non si pubblica una media: \"%s\"" % pagella.in_parole(r4))
+# Il pannello chiede l'ora al sistema, e i sessanta giorni si contano da li'.
+# Finche' "oggi" era quello vero, questo controllo valeva solo entro sessanta
+# giorni da OGGI: il 19/11/2026 e' scaduto da solo, e da quel giorno il
+# cancello dei controlli avrebbe fermato QUALUNQUE pubblicazione di codice.
+# Un controllo non deve dipendere dal giorno in cui lo si lancia.
+from gardawind import util as _util
+_orologio_vero = _util.utc_now
+_util.utc_now = lambda: local_naive_to_utc(dt.datetime.fromisoformat(OGGI + "T09:00:00"))
 pannello = web.pagella_panel()
+_util.utc_now = _orologio_vero
 ok("mancano 7" in pannello and "+9" not in pannello,
    "e in pagina non compare nessun numero grande e falso")
 
