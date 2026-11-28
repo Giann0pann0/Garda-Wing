@@ -1,0 +1,99 @@
+{
+ "generato": "2026-11-28T09:18:43Z",
+ "versione": "3.7",
+ "luoghi": {
+  "Torbole": {
+   "station": "T0193",
+   "ts": "2026-11-28T09:10:00Z",
+   "wind": 10.1079914,
+   "gust": 19.049676100000003,
+   "dir": 42.0,
+   "dir_prestito": null,
+   "gust_rec": 18.85529165,
+   "gust_rec_stato": "ok",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 10.0,
+   "cadenza_raffica_min": 10.0,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">10 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(42 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>NE</b> <small>da nord-est</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">19 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">10:10</span></span></div>",
+   "stale_min": 45.0,
+   "curve": {
+    "ora_da": 4.0,
+    "ora_a": 21.0,
+    "ymax": 60.0,
+    "media": "M0.0000,0.2106 C0.0033,0.2149 0.0065,0.2235 0.0098,0.2235 C0.0131,0.2235 0.0163,0.2009 0.0196,0.2009 C0.0229,0.2009 0.0261,0.2041 0.0294,0.2041 C0.0327,0.2041 0.0359,0.1976 0.0392,0.1976 C0.0425,0.1976 0.0458,0.1976 0.0490,0.1976 C0.0523,0.1976 0.0556,0.1944 0.0588,0.1944 C0.0621,0.1944 0.0654,0.2365 0.0686,0.2365 C0.0719,0.2365 0.0752,0.1944 0.0784,0.1944 C0.0817,0.1944 0.0850,0.2462 0.0882,0.2462 C0.0915,0.2462 0.0948,0.1879 0.0980,0.1879 C0.1013,0.1879 0.1046,0.2365 0.1078,0.2365 C0.1111,0.2365 0.1144,0.2319 0.1176,0.2268 C0.1209,0.2217 0.1242,0.1948 0.1275,0.1911 C0.1307,0.1875 0.1340,0.1882 0.1373,0.1847 C0.1405,0.1811 0.1438,0.1555 0.1471,0.1555 C0.1503,0.1555 0.1536,0.1798 0.1569,0.1911 C0.1601,0.2025 0.1634,0.2235 0.1667,0.2235 C0.1699,0.2235 0.1732,0.1620 0.1765,0.1620 C0.1797,0.1620 0.1830,0.1814 0.1863,0.1944 C0.1895,0.2073 0.1928,0.2430 0.1961,0.2430 C0.1993,0.2430 0.2026,0.2376 0.2059,0.2333 C0.2092,0.2289 0.2124,0.2219 0.2157,0.2138 C0.2190,0.2057 0.2222,0.1864 0.2255,0.1814 C0.2288,0.1764 0.2320,0.1743 0.2353,0.1717 C0.2386,0.1691 0.2418,0.1652 0.2451,0.1652 C0.2484,0.1652 0.2516,0.2073 0.2549,0.2073 C0.2582,0.2073 0.2614,0.1620 0.2647,0.1620 C0.2680,0.1620 0.2712,0.1814 0.2745,0.1814 C0.2778,0.1814 0.2810,0.1523 0.2843,0.1523 C0.2876,0.1523 0.2908,0.1717 0.2941,0.1717 C0.2974,0.1717 0.3007,0.1717 0.3039,0.1717 C0.3072,0.1717 0.3105,0.1760 0.3137,0.1782 C0.3170,0.1803 0.3203,0.1818 0.3235,0.1847 C0.3268,0.1875 0.3301,0.1976 0.3333,0.1976 C0.3366,0.1976 0.3399,0.1963 0.3431,0.1944 C0.3464,0.1925 0.3497,0.1685 0.3529,0.1685 C0.3562,0.1685 0.3595,0.1685 0.3627,0.1685",
+    "raffica": "M0.0000,0.3305 C0.0033,0.3240 0.0065,0.3110 0.0098,0.3110 C0.0131,0.3110 0.0163,0.3110 0.0196,0.3110 C0.0229,0.3110 0.0261,0.2948 0.0294,0.2916 C0.0327,0.2883 0.0359,0.2851 0.0392,0.2851 C0.0425,0.2851 0.0458,0.2851 0.0490,0.2851 C0.0523,0.2851 0.0556,0.2864 0.0588,0.2883 C0.0621,0.2902 0.0654,0.3091 0.0686,0.3110 C0.0719,0.3129 0.0752,0.3143 0.0784,0.3143 C0.0817,0.3143 0.0850,0.3143 0.0882,0.3143 C0.0915,0.3143 0.0948,0.3402 0.0980,0.3402 C0.1013,0.3402 0.1046,0.3402 0.1078,0.3402 C0.1111,0.3402 0.1144,0.3334 0.1176,0.3272 C0.1209,0.3210 0.1242,0.3066 0.1275,0.2948 C0.1307,0.2830 0.1340,0.2559 0.1373,0.2559 C0.1405,0.2559 0.1438,0.2559 0.1471,0.2559 C0.1503,0.2559 0.1536,0.3207 0.1569,0.3207 C0.1601,0.3207 0.1634,0.3207 0.1667,0.3207 C0.1699,0.3207 0.1732,0.2981 0.1765,0.2981 C0.1797,0.2981 0.1830,0.2981 0.1863,0.2981 C0.1895,0.2981 0.1928,0.3045 0.1961,0.3045 C0.1993,0.3045 0.2026,0.3045 0.2059,0.3045 C0.2092,0.3045 0.2124,0.2933 0.2157,0.2916 C0.2190,0.2898 0.2222,0.2883 0.2255,0.2883 C0.2288,0.2883 0.2320,0.2883 0.2353,0.2883 C0.2386,0.2883 0.2418,0.2981 0.2451,0.2981 C0.2484,0.2981 0.2516,0.2981 0.2549,0.2981 C0.2582,0.2981 0.2614,0.2981 0.2647,0.2981 C0.2680,0.2981 0.2712,0.2708 0.2745,0.2689 C0.2778,0.2670 0.2810,0.2667 0.2843,0.2657 C0.2876,0.2646 0.2908,0.2624 0.2941,0.2624 C0.2974,0.2624 0.3007,0.2638 0.3039,0.2657 C0.3072,0.2675 0.3105,0.2808 0.3137,0.2883 C0.3170,0.2959 0.3203,0.3110 0.3235,0.3110 C0.3268,0.3110 0.3301,0.3110 0.3333,0.3110 C0.3366,0.3110 0.3399,0.3110 0.3431,0.3110 C0.3464,0.3110 0.3497,0.3110 0.3529,0.3110",
+    "max_kn": 20.4,
+    "ultimo": {
+     "x": 0.3627,
+     "y": 0.1685,
+     "ora": 10.167,
+     "kn": 10.1
+    },
+    "n": 38
+   }
+  },
+  "Malcesine": {
+   "station": "malcesine_add",
+   "ts": "2026-11-28T09:00:00Z",
+   "wind": 14.3,
+   "gust": 17.0,
+   "dir": 90.0,
+   "dir_prestito": "malcesine",
+   "gust_rec": null,
+   "gust_rec_stato": "cadenza troppo rada per la finestra di 30 min",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 60.0,
+   "cadenza_raffica_min": 60.0,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">14 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(90 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>E</b> <small>da est (Fraglia Vela)</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">17 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">10:00</span></span></div>",
+   "stale_min": 180.0,
+   "curve": {
+    "ora_da": 4.0,
+    "ora_a": 21.0,
+    "ymax": 60.0,
+    "media": "M0.0000,0.2383 C0.0196,0.2256 0.0392,0.2000 0.0588,0.2000 C0.0784,0.2000 0.0980,0.2128 0.1176,0.2192 C0.1373,0.2256 0.1569,0.2322 0.1765,0.2383 C0.1961,0.2444 0.2157,0.2558 0.2353,0.2558 C0.2549,0.2558 0.2745,0.2383 0.2941,0.2383 C0.3137,0.2383 0.3333,0.2383 0.3529,0.2383",
+    "raffica": "M0.0000,0.3667 C0.0196,0.3389 0.0392,0.2833 0.0588,0.2833 C0.0784,0.2833 0.0980,0.2833 0.1176,0.2833 C0.1373,0.2833 0.1569,0.3056 0.1765,0.3167 C0.1961,0.3278 0.2157,0.3500 0.2353,0.3500 C0.2549,0.3500 0.2745,0.3417 0.2941,0.3333 C0.3137,0.3250 0.3333,0.3000 0.3529,0.2833",
+    "max_kn": 22.0,
+    "ultimo": {
+     "x": 0.3529,
+     "y": 0.2383,
+     "ora": 10.0,
+     "kn": 14.3
+    },
+    "n": 7
+   }
+  },
+  "Campione": {
+   "station": "campione",
+   "ts": "2026-11-28T09:00:00Z",
+   "wind": 14.3,
+   "gust": 20.0,
+   "dir": 90.0,
+   "dir_prestito": "malcesine",
+   "gust_rec": null,
+   "gust_rec_stato": "cadenza troppo rada per la finestra di 30 min",
+   "gust_rec_finestra_min": 30.0,
+   "cadenza_min": 60.0,
+   "cadenza_raffica_min": 60.0,
+   "n_campioni": 40,
+   "html": "<div class=\"cella nowbig\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 3v18\"/><path d=\"M4 5h13l3 3-3 3H4\"/><path d=\"M9 5v6M13 5v6\"/></svg></span><span><span class=\"k\">Vento ora</span><span class=\"v\">14 <small>kn</small></span></span></div><div class=\"cella compass\"><span class=\"ic\"><svg width=\"30\" height=\"30\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"flex:none\"><g transform=\"rotate(90 12 12)\"><path d=\"M12 3 L12 21 M12 21 L7.6 15.6 M12 21 L16.4 15.6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g></svg></span><span><span class=\"k\">Direzione</span><span class=\"v\"><b>E</b> <small>da est (Fraglia Vela)</small></span></span></div><div class=\"cella nowgust\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8h10a2.5 2.5 0 1 0-2.5-2.5\"/><path d=\"M3 12h14a3 3 0 1 1-3 3\"/><path d=\"M3 16h7\"/></svg></span><span><span class=\"k\">Raffica</span><span class=\"v\">20 <small>kn</small></span></span></div><div class=\"cella nowmeta\"><span class=\"ic\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"8.5\"/><path d=\"M12 7.5V12l3 2\"/></svg></span><span><span class=\"k nowage\">orario sconosciuto</span><span class=\"v\">10:00</span></span></div>",
+   "stale_min": 180.0,
+   "curve": {
+    "ora_da": 4.0,
+    "ora_a": 21.0,
+    "ymax": 60.0,
+    "media": "M0.0000,0.1425 C0.0196,0.1500 0.0392,0.1584 0.0588,0.1650 C0.0784,0.1716 0.0980,0.1825 0.1176,0.1825 C0.1373,0.1825 0.1569,0.1716 0.1765,0.1650 C0.1961,0.1584 0.2157,0.1425 0.2353,0.1425 C0.2549,0.1425 0.2745,0.1847 0.2941,0.2000 C0.3137,0.2153 0.3333,0.2256 0.3529,0.2383",
+    "raffica": "M0.0000,0.3333 C0.0196,0.3056 0.0392,0.2500 0.0588,0.2500 C0.0784,0.2500 0.0980,0.2667 0.1176,0.2667 C0.1373,0.2667 0.1569,0.2667 0.1765,0.2667 C0.1961,0.2667 0.2157,0.2841 0.2353,0.3000 C0.2549,0.3159 0.2745,0.3833 0.2941,0.3833 C0.3137,0.3833 0.3333,0.3500 0.3529,0.3333",
+    "max_kn": 23.0,
+    "ultimo": {
+     "x": 0.3529,
+     "y": 0.2383,
+     "ora": 10.0,
+     "kn": 14.3
+    },
+    "n": 7
+   }
+  }
+ }
+}
